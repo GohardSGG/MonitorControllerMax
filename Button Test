@@ -1,0 +1,134 @@
+desc:7.1.4.4 Custom Monitor Control with LR Mute Button
+//tags: mixer gain, button
+//author: Custom Design
+
+// 原有的滑块定义
+slider1:0<0,100,1>L / R (%)
+slider2:0<0,100,1>C (%)
+slider3:0<0,100,1>LFE (%)
+slider4:0<0,100,1>LSS / RSS (%)
+slider5:0<0,100,1>LRS / RRS (%)
+slider6:0<0,100,1>LTF / RTF (%)
+slider7:0<0,100,1>LTB / RTB (%)
+slider8:0<0,100,1>LBF / RBF (%)
+slider9:0<0,100,1>LBB / RBB (%)
+slider10:0<0,100,1>SUB GROUP (%)
+slider99:100<0,100,1>Master Volume (%)
+
+// 注意：原本JSFX中一般不会再用 slider 来做按钮，这里我们直接用 gfx 绘图和鼠标检测来实现按钮
+// 如果您希望按钮独立于滑块，则不需要额外的 slider 控件；我们用一个全局变量 LR_Mute 来存储状态
+
+in_pin:Input L
+in_pin:Input R
+in_pin:Input C
+in_pin:Input LFE
+in_pin:Input LSS
+in_pin:Input RSS
+in_pin:Input LRS
+in_pin:Input RRS
+in_pin:Input LTF
+in_pin:Input RTF
+in_pin:Input LTB
+in_pin:Input RTB
+in_pin:Input LBF
+in_pin:Input RBF
+in_pin:Input LBB
+in_pin:Input RBB
+in_pin:Input SUB F
+in_pin:Input SUB B
+in_pin:Input SUB L
+in_pin:Input SUB R
+
+out_pin:Output L
+out_pin:Output R
+out_pin:Output C
+out_pin:Output LFE
+out_pin:Output LSS
+out_pin:Output RSS
+out_pin:Output LRS
+out_pin:Output RRS
+out_pin:Output LRS
+out_pin:Output RRS
+out_pin:Output LTF
+out_pin:Output RTF
+out_pin:Output LBF
+out_pin:Output RBF
+out_pin:Output LBB
+out_pin:Output RBB
+out_pin:Output SUB F
+out_pin:Output SUB B
+out_pin:Output SUB L
+out_pin:Output SUB R
+
+///////////////////////////////////////////////////////////////////////////////
+// @init 部分：初始化变量
+@init
+maxGain = 0; // 0 dB，表示没有增益
+scale = 0.01; // 线性缩放因子
+
+// 计算各通道音量
+Level_LR = slider1 * scale;
+Level_C = slider2 * scale;
+Level_LFE = slider3 * scale;
+Level_Side = slider4 * scale;
+Level_Rear = slider5 * scale;
+Level_Top_Front = slider6 * scale;
+Level_Top_Back = slider7 * scale;
+Level_Buttom_Front = slider8 * scale;
+Level_Buttom_Back = slider9 * scale;
+Level_SUB_Group = slider10 * scale;
+masterLevel = slider99 * scale;
+
+// 初始化 LR 静音状态（全局变量，不再通过 slider 控件控制）
+LR_Mute = 0; // 0：未静音，1：静音
+
+// 按钮位置和尺寸（可根据需要调整）：
+btnX = 10;   // 按钮左上角 X 坐标
+btnY = 10;   // 按钮左上角 Y 坐标
+btnW = 30;   // 按钮宽度
+btnH = 20;   // 按钮高度
+
+lastMouseDown = 0; // 用于检测新点击
+
+///////////////////////////////////////////////////////////////////////////////
+// @gfx 部分：绘制按钮和其他图形界面
+@gfx
+gfx_clear = 1;
+
+// 绘制静音按钮：根据 LR_Mute 状态设置颜色
+// 状态为 1（静音）时显示绿色，否则显示灰色
+gfx_r = LR_Mute ? 0 : 0.7;
+gfx_g = LR_Mute ? 1 : 0.7;
+gfx_b = LR_Mute ? 0.3 : 0.7;
+gfx_rect(btnX, btnY, btnW, btnH);
+
+// 绘制按钮标签
+gfx_r = 0; gfx_g = 0; gfx_b = 0;
+gfx_drawstr("LR Mute", btnX+2, btnY+btnH/2-4);
+
+ui_start();
+
+///////////////////////////////////////////////////////////////////////////////
+// @sample 部分：处理音频信号
+@sample
+
+// 其他通道保持原有处理逻辑
+spl(2) = (spl(2) * Level_C) * masterLevel;
+spl(3) = (spl(3) * Level_LFE) * masterLevel;
+spl(4) = (spl(4) * Level_Side) * masterLevel;
+spl(5) = (spl(5) * Level_Side) * masterLevel;
+spl(6) = (spl(6) * Level_Rear) * masterLevel;
+spl(7) = (spl(7) * Level_Rear) * masterLevel;
+spl(8) = (spl(8) * Level_Top_Front) * masterLevel;
+spl(9) = (spl(9) * Level_Top_Front) * masterLevel;
+spl(10) = (spl(10) * Level_Top_Back) * masterLevel;
+spl(11) = (spl(11) * Level_Top_Back) * masterLevel;
+spl(12) = (spl(12) * Level_Buttom_Front) * masterLevel;
+spl(13) = (spl(13) * Level_Buttom_Front) * masterLevel;
+spl(14) = (spl(14) * Level_Buttom_Back) * masterLevel;
+spl(15) = (spl(15) * Level_Buttom_Back) * masterLevel;
+spl(16) = (spl(16) * Level_SUB_Group) * masterLevel;
+spl(17) = (spl(17) * Level_SUB_Group) * masterLevel;
+spl(18) = (spl(18) * Level_SUB_Group) * masterLevel;
+spl(19) = (spl(19) * Level_SUB_Group) * masterLevel;
+

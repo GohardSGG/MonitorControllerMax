@@ -1,0 +1,36 @@
+# JUCE
+#
+# Projucer
+*.jucer
+Builds/
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+x64/
+Debug/
+Release/
+*.sdf
+*.suo
+# Mac
+*.xcodeproj
+xcuserdata/
+
+# C++
+*.o
+*.obj
+*.lib
+*.dll
+*.exe
+*.ilk
+*.pdb
+
+# Other
+.DS_Store
+*.stackdump
+*.lock
+!/JuceLibraryCode/JuceHeader.h
+JuceLibraryCode 

@@ -1,0 +1,196 @@
+Memory/Slider/FFT/MDCT Functions
+
+
+JSFX Programming Reference - Memory/Slider/FFT/MDCT Functions
+Memory/FFT/MDCT Functions
+Host Interaction Functions
+
+
+top  Memory/FFT/MDCT Functions
+
+FFT/MDCT/Convolution
+
+    mdct(start_index, size), imdct(start_index, size)
+    Example:
+
+     
+         mdct(0, 512);
+
+    Performs a modified DCT (or inverse in the case of imdct()) on the data in the local memory buffer at the offset specified by the first parameter. The second parameter controls the size of the MDCT, and it MUST be one of the following: 64, 128, 256, 512, 1024, 2048, or 4096. The MDCT takes the number of inputs provided, and replaces the first half of them with the results. The IMDCT takes size/2 inputs, and gives size results.
+
+    Note that the MDCT must NOT cross a 65,536 item boundary, so be sure to specify the offset accordingly.
+
+    The MDCT/IMDCT provided also provide windowing, so your code is not required to window the overlapped results, but simply add them. See the example effects for more information.
+
+    fft(start_index, size), ifft(start_index, size)
+    fft_real(start_index, size), ifft_real(start_index, size)
+    fft_permute(index,size), fft_ipermute(index,size)
+    Example:
+
+      
+          buffer=0;
+          fft(buffer, 512);
+          fft_permute(buffer, 512);
+          buffer[32]=0;
+          fft_ipermute(buffer, 512);
+          ifft(buffer, 512);
+          // need to scale output by 1/512.0, too.
+        
+
+    Performs a FFT (or inverse in the case of ifft()) on the data in the local memory buffer at the offset specified by the first parameter. The size of the FFT is specified by the second parameter, which must be 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, or 32768. The outputs are permuted, so if you plan to use them in-order, call fft_permute(buffer, size) before and fft_ipermute(buffer,size) after your in-order use. Your inputs or outputs will need to be scaled down by 1/size, if used.
+
+    Note that the FFT/IFFT require real/imaginary input pairs (so a 256 point FFT actually works with 512 items).
+
+    Note that the FFT/IFFT must NOT cross a 65,536 item boundary, so be sure to specify the offset accordingly.
+
+    The fft_real()/ifft_real() variants operate on a set of size real inputs, and produce size/2 complex outputs. The first output pair is DC,nyquist. Normally this is used with fft_permute(buffer,size/2).
+
+    convolve_c(dest,src,size)
+    Used to convolve two buffers, typically after FFTing them. convolve_c works with complex numbers. The sizes specify number of items (the number of complex number pairs).
+
+    Note that the convolution must NOT cross a 65,536 item boundary, so be sure to specify the offset accordingly. 
+
+Memory Utility
+
+    freembuf(top)
+    The freembuf() function provides a facility for you to notify the memory manager that you are no longer using a portion of the local memory buffer.
+
+    For example, if the user changed a parameter on your effect halving your memory requirements, you should use the lowest indices possible, and call this function with the highest index you are using plus 1, i.e. if you are using 128,000 items, you should call freembuf(128001); If you are no longer using any memory, you should call freembuf(0);
+
+    Note that calling this does not guarantee that the memory is freed or cleared, it just provides a hint that it is OK to free it.
+
+    memcpy(dest,source,length)
+    The memcpy() function provides the ability to quickly copy regions of the local memory buffer. If the buffers overlap and either buffer crosses a 65,536 item boundary, the results may be undefined.
+
+    memset(dest,value,length)
+    The memset() function provides the ability to quickly set a region of the local memory buffer to a particular value.
+
+    mem_set_values(buf, ...) -- REAPER 5.28+
+    Writes values to memory starting at buf from variables specified. Slower than regular memory writes for less than a few variables, faster for more than a few. Undefined behavior if used with more than 32767 variables.
+
+    mem_get_values(buf, ...) -- REAPER 5.28+
+    Reads values from memory starting at buf into variables specified. Slower than regular memory reads for less than a few variables, faster for more than a few. Undefined behavior if used with more than 32767 variables.
+
+    mem_multiply_sum(buf1,buf2,length) -- REAPER 6.74+
+    Sums the products of length items of buf1 and buf2. If buf1 is exactly -1, then sums the squares of items in buf2. If buf1 is exactly -2 then sums the absolute values of buf2. If buf1 is exactly -3 then sums the values of buf2. If buf1 is another negative value, the result is undefined.
+
+    mem_insert_shuffle(buf,len,value) -- REAPER 6.74+
+    Shuffles buf to the right by one element, inserting value as buf[0], and returning the previous buf[len-1].
+
+    __memtop()
+    Returns the total number of memory slots available to the plug-in.
+
+Stack
+A small (approximately 4096 item) user stack is available for use in code (REAPER 4.25+):
+
+    stack_push(value)
+    Pushes value onto the user stack, returns a reference to the value.
+
+    stack_pop(value)
+    Pops a value from the user stack into value, or into a temporary buffer if value is not specified, and returns a reference to where the stack was popped. Note that no checking is done to determine if the stack is empty, and as such stack_pop() will never fail.
+
+    stack_peek(index)
+    Returns a reference to the item on the top of the stack (if index is 0), or to the Nth item on the stack if index is greater than 0.
+
+    stack_exch(value)
+    Exchanges a value with the top of the stack, and returns a reference to the parameter (with the new value).
+
+Atomic Variable Access
+Guaranteed-atomic updates/accesses of values across contexts (specifically @gfx and other contexts). Normally these are unnecessary, but they are provided for the discriminating JSFX user -- REAPER 4.5+:
+
+    atomic_setifequal(dest,value,newvalue)
+    Sets dest to newvalue if dest equals value. Returns the old value of dest. On Windows this is known as InterlockedCompareExchange().
+    atomic_exch(val1,val2)
+    Exchanges val1 and val2, returns the new value of val1.
+    atomic_add(dest_val1,val2)
+    Adds val2 to dest_val1, returns the value of dest_val1.
+    atomic_set(dest_val1,val2)
+    Sets dest_val1 to val2, returns the value of dest_val1.
+    atomic_get(val)
+    Returns the value of val. 
+
+
+
+top  Host Interaction Functions
+
+Slider Functions
+For these functions, the parameter can be the variables slider1-sliderN, in which case that slider is refreshed. Otherwise, it can be a bitmask of which sliders have changed, where 1 would be the first slider, 2 would be the second, 4 would be the third, 32768 being the 16th slider, and so on.
+
+    sliderchange(mask or sliderX)
+    Example:
+
+     
+           sliderchange(slider4);
+
+    or
+
+     
+           sliderchange(2 ^ sliderindex);
+         
+
+    The sliderchange() function provides a facility for you to notify REAPER/JS that you have changed a sliderX variable from code so that it can update any embedded displays.
+
+    This function does not send automation notifications to the host -- use slider_automate() if that is desired.
+
+    If sliderchange() is called from @gfx with -1.0 as a parameter, REAPER will add a new undo point. This is useful if internal state changes due to user interaction in @gfx.
+
+    slider_automate(mask or sliderX[, end_touch]) -- end_touch requires REAPER 6.74+
+    Example:
+
+     
+           slider_automate(slider4);
+
+    or
+
+     
+           slider_automate(2 ^ sliderindex);
+         
+
+    The slider_automate() function provides a facility for you to notify REAPER/JS that you have changed a sliderX variable so that it can update the display, and record the move as automation. This function is not necessary to call from the @slider code section, it is provided so that other code sections can write programmatic automation messages.
+
+    In REAPER 6.74+, you can call slider_automate(mask, 1) in order to end a touch automation recording session.
+
+    slider_show(mask or sliderX[, value]) -- REAPER 6.30+
+    Queries (if value is omitted) or sets the visibility of one or more sliders. If value is -1, toggles visibility, value of 0 hides, 1 shows. Returns the mask of requested visible sliders. 
+
+Media Export
+
+    export_buffer_to_project(buffer,length_samples,nch,srate,track_index[,flags,tempo,planar_pitch]) -- REAPER 6.05+
+    Writes the audio contents of buffer(s) to an audio file and inserts into project. This may only be called from the @gfx section, it should not be called from any other context.
+        buffer: a pointer to the first sample of the first channel of audio data
+        length_samples: number of samples (or sample-pairs etc) of audio data to write
+        nch: number of channels to write
+        srate: samplerate to write
+        track_index: track index to insert media
+        (optional) flags: bitmask:
+            4: stretch/loop item to fit time selection
+            8: tempo match to project 1x
+            16: tempo match to project 0.5x
+            32: tempo match to project 2x
+            64: do not preserve pitch when matching tempo
+            256: force loop of item regardless of preference of default item looping
+            0x10000: move edit cursor to end of project
+            0x20000: set tempo from tempo parameter 
+        (optional) tempo: ignored if flags does not have 0x20000 set, otherwise sets the project tempo to this value at the insertion point
+        (optional) planar_pitch: if 0 or not specified, then multichannel exports are interleaved samples. If nonzero, then each channel is a separate buffer, and buffer[] is the first channel, (buffer+planar_pitch)[] is the second channel, (buffer+planar_pitch*2)[] is the third channel, etc. -- REAPER 6.30+ 
+
+Pin Mapper Functions
+REAPER 6.27+ - these functions allow interacting with REAPER's pin mapper in advanced ways:
+
+    get_host_numchan()
+    Get the number of track or media item take channels
+    set_host_numchan(numchan)
+    Set the number of track or media item take channels. only valid in @gfx section
+    get_pin_mapping(inout,pin,startchan,chanmask)
+    Get a bitfield (maximum 32 bits) representing the channel mappings for this pin
+    set_pin_mapping(inout,pin,startchan,chanmask,mapping)
+    Set the channel mappings for this pin/startchan/chanmask. only valid in @gfx section
+    get_pinmapper_flags(no parameters)
+    Get the pinmapper flags for this fx. !&1=pass through unmapped output channels, &1=zero out unmapped output channels
+    set_pinmapper_flags(flags)
+    Set the pinmapper flags for this fx. see get_pinmapper_flags. only valid in @gfx section 
+
+Host Placement Functions
+
+    get_host_placement([chain_pos, flags]) -- REAPER 6.74+
+    Returns track index, or -1 for master track, or -2 for hardware output FX. chain_pos will be position in chain. flags will have 1 set if takeFX, 2 set if record input, 4 set if in inactive project. 

@@ -1,0 +1,1 @@
+Verify Error src:309ec54c21387b0088d7f98b41049195 dst:59ac967901ccdbb53e5148c93e9fac6b  : A:\Instrument\Drum\GetGood Drums - Modern and Massive GGD 现代冲击鼓\Samples\GGDModernMassive_0.nkx
