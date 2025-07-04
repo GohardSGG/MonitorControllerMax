@@ -51,6 +51,7 @@ private:
 
     std::array<std::unique_ptr<juce::TextButton>, MonitorControllerMaxAudioProcessor::numManagedChannels> channelButtons;
     std::array<std::unique_ptr<juce::Slider>, MonitorControllerMaxAudioProcessor::numManagedChannels> gainSliders;
+    std::array<juce::FlexBox, MonitorControllerMaxAudioProcessor::numManagedChannels> channelStripFlexBoxes;
     
     std::array<std::unique_ptr<ButtonAttachment>, MonitorControllerMaxAudioProcessor::numManagedChannels> channelButtonAttachments;
     std::array<std::unique_ptr<SliderAttachment>, MonitorControllerMaxAudioProcessor::numManagedChannels> gainSliderAttachments;

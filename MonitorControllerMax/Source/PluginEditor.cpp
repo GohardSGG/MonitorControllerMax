@@ -59,6 +59,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
 
 MonitorControllerMaxAudioProcessorEditor::~MonitorControllerMaxAudioProcessorEditor()
 {
+    stopTimer();
 }
 
 //==============================================================================
@@ -89,7 +90,9 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
 
     for (int i = 0; i < MonitorControllerMaxAudioProcessor::numManagedChannels; ++i)
     {
-        juce::FlexBox strip;
+        auto& strip = channelStripFlexBoxes[i];
+        strip.items.clear(); // Clear previous items before re-populating
+
         strip.flexDirection = juce::FlexBox::Direction::column;
         strip.alignItems = juce::FlexBox::AlignItems::center;
         
