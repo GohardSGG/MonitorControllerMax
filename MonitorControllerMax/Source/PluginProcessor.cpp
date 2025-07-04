@@ -16,9 +16,9 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
      : AudioProcessor (BusesProperties()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::create7point1(), true)
+                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                       #endif
-                       .withOutput ("Output", juce::AudioChannelSet::create7point1(), true)
+                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
                        ),
       apvts (*this, nullptr, "Parameters", createParameterLayout())
@@ -27,7 +27,8 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     currentRole = standalone;
     communicator = std::make_unique<InterPluginCommunicator>(*this);
 
-    for (int i = 0; i < numManagedChannels; ++i)
+    const int maxChannels = configManager.getMaxChannelIndex();
+    for (int i = 0; i < maxChannels; ++i)
     {
         auto muteId = "MUTE_" + juce::String(i + 1);
         auto soloId = "SOLO_" + juce::String(i + 1);
@@ -48,7 +49,8 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
-    for (int i = 0; i < numManagedChannels; ++i)
+    const int maxChannels = configManager.getMaxChannelIndex();
+    for (int i = 0; i < maxChannels; ++i)
     {
         auto muteId = "MUTE_" + juce::String(i + 1);
         auto soloId = "SOLO_" + juce::String(i + 1);
@@ -141,8 +143,16 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
     juce::ignoreUnused (layouts);
     return true;
   #else
-    // For this validation program, we'll accept any bus layout.
-    return true;
+    // We support any number of input channels and output channels
+    // as long as they are the same and within our configured max.
+    if (layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet()
+        && !layouts.getMainInputChannelSet().isDisabled()
+        && layouts.getMainOutputChannelSet().size() <= configManager.getMaxChannelIndex())
+    {
+        return true;
+    }
+
+    return false;
   #endif
 }
 #endif
@@ -164,7 +174,8 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     const auto role = getRole();
 
     // First, determine if any solo button is currently active.
-    for (int i = 0; i < numManagedChannels; ++i)
+    const int maxChannels = configManager.getMaxChannelIndex();
+    for (int i = 0; i < maxChannels; ++i)
     {
         bool isSoloed = (role == Role::slave) ? remoteSolos[i].load()
                                               : soloParams[i]->load() > 0.5f;
@@ -176,10 +187,10 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     }
 
     // This array will hold the final decision on whether a channel should be silent.
-    std::array<bool, numManagedChannels> channelShouldBeSilent{};
+    std::array<bool, 26> channelShouldBeSilent{};
 
     // Based on the solo state, determine the final mute status for each channel.
-    for (int i = 0; i < numManagedChannels; ++i)
+    for (int i = 0; i < maxChannels; ++i)
     {
         const bool isMuted = (role == Role::slave) ? remoteMutes[i].load()
                                                    : muteParams[i]->load() > 0.5f;
@@ -196,7 +207,7 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     // =================================================================================
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
-        if (channel >= numManagedChannels)
+        if (channel >= maxChannels)
             continue; // Don't process channels that we are not managing.
 
         if (channelShouldBeSilent[channel])
@@ -244,8 +255,12 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+    
+    // Create a temporary ConfigManager instance just for this static context.
+    ConfigManager tempConfigManager;
+    const int maxChannels = tempConfigManager.getMaxChannelIndex();
 
-    for (int i = 0; i < numManagedChannels; ++i)
+    for (int i = 0; i < maxChannels; ++i)
     {
         juce::String chanNumStr = juce::String(i + 1);
 
@@ -277,7 +292,8 @@ MonitorControllerMaxAudioProcessor::Role MonitorControllerMaxAudioProcessor::get
 
 void MonitorControllerMaxAudioProcessor::setRemoteMuteSoloState(const MuteSoloState& state)
 {
-    for (int i = 0; i < numManagedChannels; ++i)
+    const int maxChannels = configManager.getMaxChannelIndex();
+    for (int i = 0; i < maxChannels; ++i)
     {
         remoteMutes[i] = state.mutes[i];
         remoteSolos[i] = state.solos[i];
@@ -286,14 +302,14 @@ void MonitorControllerMaxAudioProcessor::setRemoteMuteSoloState(const MuteSoloSt
 
 bool MonitorControllerMaxAudioProcessor::getRemoteMuteState(int channel) const
 {
-    if (juce::isPositiveAndBelow(channel, numManagedChannels))
+    if (juce::isPositiveAndBelow(channel, configManager.getMaxChannelIndex()))
         return remoteMutes[channel].load();
     return false;
 }
 
 bool MonitorControllerMaxAudioProcessor::getRemoteSoloState(int channel) const
 {
-    if (juce::isPositiveAndBelow(channel, numManagedChannels))
+    if (juce::isPositiveAndBelow(channel, configManager.getMaxChannelIndex()))
         return remoteSolos[channel].load();
     return false;
 }
@@ -305,7 +321,8 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
         if (parameterID.startsWith("MUTE_") || parameterID.startsWith("SOLO_"))
         {
             MuteSoloState currentState;
-            for (int i = 0; i < numManagedChannels; ++i)
+            const int maxChannels = configManager.getMaxChannelIndex();
+            for (int i = 0; i < maxChannels; ++i)
             {
                 currentState.mutes[i] = muteParams[i]->load() > 0.5f;
                 currentState.solos[i] = soloParams[i]->load() > 0.5f;

@@ -11,6 +11,7 @@
 #include <JuceHeader.h>
 #include <atomic>
 #include <array>
+#include "ConfigManager.h"
 
 class InterPluginCommunicator;
 
@@ -28,8 +29,8 @@ public:
     // This struct will be used for state synchronization between instances.
     struct MuteSoloState
     {
-        std::array<bool, numManagedChannels> mutes;
-        std::array<bool, numManagedChannels> solos;
+        std::array<bool, 26> mutes;
+        std::array<bool, 26> solos;
     };
 
     //==============================================================================
@@ -94,14 +95,16 @@ private:
     std::atomic<Role> currentRole;
     std::unique_ptr<InterPluginCommunicator> communicator;
 
+    ConfigManager configManager;
+
     // Atomics to hold the state received from a master instance when in slave mode.
-    std::array<std::atomic<bool>, numManagedChannels> remoteMutes;
-    std::array<std::atomic<bool>, numManagedChannels> remoteSolos;
+    std::array<std::atomic<bool>, 26> remoteMutes;
+    std::array<std::atomic<bool>, 26> remoteSolos;
 
     // We'll need atomic pointers to our parameters for thread-safe access in the audio callback.
-    std::array<std::atomic<float>*, numManagedChannels> muteParams;
-    std::array<std::atomic<float>*, numManagedChannels> soloParams;
-    std::array<std::atomic<float>*, numManagedChannels> gainParams;
+    std::array<std::atomic<float>*, 26> muteParams;
+    std::array<std::atomic<float>*, 26> soloParams;
+    std::array<std::atomic<float>*, 26> gainParams;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };
