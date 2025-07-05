@@ -23,7 +23,7 @@ public:
         // 设置一个深色主题
         setColour(juce::ResizableWindow::backgroundColourId, juce::Colour(0xff323e44));
         setColour(juce::TextButton::buttonColourId, juce::Colour(0xff4a5860));
-        setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffe04040)); // 用于激活状态的红色
+        setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd13a3a)); // 用于Mute激活状态的红色
         setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
         setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff4a5860));
@@ -31,6 +31,9 @@ public:
         setColour(juce::ComboBox::arrowColourId, juce::Colours::lightgrey);
         setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff4a5860));
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xfff07800)); // 用于高亮的橙色
+
+        // 为Solo状态定义一个独特的颜色
+        soloColour = juce::Colour(0xff2a8c4a);
     }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
@@ -39,11 +42,10 @@ public:
         auto cornerSize = 6.0f;
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f, 0.5f);
 
-        auto baseColour = backgroundColour.withMultipliedSaturation(button.hasKeyboardFocus(true) ? 1.3f : 0.9f)
-                                          .withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
+        auto baseColour = backgroundColour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
 
         if (shouldDrawButtonAsDown || shouldDrawButtonAsHighlighted)
-            baseColour = baseColour.contrasting(shouldDrawButtonAsDown ? 0.2f : 0.05f);
+            baseColour = baseColour.contrasting(shouldDrawButtonAsDown ? 0.2f : 0.1f);
 
         g.setColour(baseColour);
         g.fillRoundedRectangle(bounds, cornerSize);
@@ -51,6 +53,11 @@ public:
         g.setColour(button.findColour(juce::ComboBox::outlineColourId));
         g.drawRoundedRectangle(bounds, cornerSize, 1.0f);
     }
+
+    juce::Colour getSoloColour() const { return soloColour; }
+
+private:
+    juce::Colour soloColour;
 };
 
 //==============================================================================
