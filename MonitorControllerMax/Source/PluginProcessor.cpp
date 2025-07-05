@@ -309,6 +309,11 @@ const Layout& MonitorControllerMaxAudioProcessor::getCurrentLayout() const
     return currentLayout;
 }
 
+int MonitorControllerMaxAudioProcessor::getAvailableChannels() const
+{
+    return getTotalNumInputChannels();
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;

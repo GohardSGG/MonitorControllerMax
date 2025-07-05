@@ -35,14 +35,15 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     
     addAndMakeVisible(channelGridContainer);
 
-    juce::MessageManager::callAsync([this] { resized(); });
-
+    // Make sure the look and feel is applied to all children
+    setLookAndFeel(&customLookAndFeel);
     setSize (800, 600);
-    startTimerHz(10);
+    startTimerHz(30);
 }
 
 MonitorControllerMaxAudioProcessorEditor::~MonitorControllerMaxAudioProcessorEditor()
 {
+    setLookAndFeel(nullptr);
     stopTimer();
 }
 
@@ -54,36 +55,88 @@ void MonitorControllerMaxAudioProcessorEditor::paint (juce::Graphics& g)
 
 void MonitorControllerMaxAudioProcessorEditor::resized()
 {
-    auto bounds = getLocalBounds();
+    // 恢复到正确的、基于区域划分的布局逻辑
+    juce::Rectangle<int> bounds = getLocalBounds().reduced(10);
 
-    sidebar.flexDirection = juce::FlexBox::Direction::column;
-    sidebar.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-    sidebar.alignItems = juce::FlexBox::AlignItems::center;
-    sidebar.items.clear();
-    sidebar.items.add(juce::FlexItem(globalSoloButton).withWidth(100).withHeight(40).withMargin(10));
-    sidebar.items.add(juce::FlexItem(dimButton).withWidth(100).withHeight(40).withMargin(10));
-    sidebar.items.add(juce::FlexItem(globalMuteButton).withWidth(100).withHeight(40).withMargin(10));
-
+    // 1. 将界面明确划分为左侧的侧边栏和右侧的主区域
     auto sidebarBounds = bounds.removeFromLeft(120);
-    sidebar.performLayout(sidebarBounds.reduced(5));
+    bounds.removeFromLeft(10); // 侧边栏和主区域之间的间隙
+    auto mainAreaBounds = bounds;
 
-    auto contentBounds = bounds;
-
-    selectorBox.justifyContent = juce::FlexBox::JustifyContent::flexEnd;
-    selectorBox.alignItems = juce::FlexBox::AlignItems::center;
-    selectorBox.items.clear();
-    selectorBox.items.add(juce::FlexItem(speakerLayoutSelector).withWidth(150).withHeight(24));
-    selectorBox.items.add(juce::FlexItem(subLayoutSelector).withWidth(150).withHeight(24).withMargin({0, 0, 0, 10}));
+    // 2. 在侧边栏区域内使用FlexBox进行布局
+    juce::FlexBox sidebarFlex;
+    sidebarFlex.flexDirection = juce::FlexBox::Direction::column;
+    sidebarFlex.justifyContent = juce::FlexBox::JustifyContent::flexStart;
     
-    auto selectorBounds = contentBounds.removeFromTop(40);
-    selectorBox.performLayout(selectorBounds.reduced(5));
+    sidebarFlex.items.add(juce::FlexItem(globalSoloButton).withHeight(50).withMargin(5));
+    sidebarFlex.items.add(juce::FlexItem(dimButton).withHeight(50).withMargin(5));
+    sidebarFlex.items.add(juce::FlexItem(globalMuteButton).withHeight(50).withMargin(5));
+    
+    sidebarFlex.performLayout(sidebarBounds);
 
-    channelGridContainer.setBounds(contentBounds);
+    // 3. 在主区域内进一步划分布局
+    auto selectorBounds = mainAreaBounds.removeFromTop(40);
+    auto gridContainerBounds = mainAreaBounds; // 剩下的就是网格容器的区域
+
+    // 3a. 布局顶部的下拉选择器
+    juce::FlexBox selectorFlex;
+    selectorFlex.flexDirection = juce::FlexBox::Direction::row;
+    selectorFlex.justifyContent = juce::FlexBox::JustifyContent::flexEnd; // 靠右对齐
+    selectorFlex.items.add(juce::FlexItem(speakerLayoutSelector).withWidth(150).withHeight(30).withMargin(5));
+    selectorFlex.items.add(juce::FlexItem(subLayoutSelector).withWidth(100).withHeight(30).withMargin(5));
+    selectorFlex.performLayout(selectorBounds);
+    
+    // 3b. 为网格容器设置正确的边界
+    channelGridContainer.setBounds(gridContainerBounds);
+
+    // 4. 在所有容器的边界都确定后，再调用updateLayout来填充网格内容
     updateLayout();
 }
 
 void MonitorControllerMaxAudioProcessorEditor::updateLayout()
 {
+    const int availableChannels = audioProcessor.getAvailableChannels();
+    auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
+    auto subLayoutNames = configManager.getSubLayoutNames();
+
+    // 1. 根据可用通道数，动态启用/禁用下拉菜单项
+    int firstValidSpeakerId = 0;
+    for (int i = 0; i < speakerLayoutNames.size(); ++i)
+    {
+        const auto& name = speakerLayoutNames[i];
+        const int requiredChannels = configManager.getChannelCountForLayout("Speaker", name);
+        bool isEnabled = (requiredChannels <= availableChannels);
+        speakerLayoutSelector.setItemEnabled(i + 1, isEnabled);
+        if (isEnabled && firstValidSpeakerId == 0)
+        {
+            firstValidSpeakerId = i + 1;
+        }
+    }
+
+    // 2. 确保当前选择的 Speaker 布局是有效的
+    if (!speakerLayoutSelector.isItemEnabled(speakerLayoutSelector.getSelectedId()))
+    {
+        speakerLayoutSelector.setSelectedId(firstValidSpeakerId, juce::dontSendNotification);
+    }
+    
+    auto selectedSpeakerName = speakerLayoutSelector.getText();
+    const int speakerChannelsUsed = configManager.getChannelCountForLayout("Speaker", selectedSpeakerName);
+    
+    int firstValidSubId = 1; // "None" is always valid
+    for (int i = 1; i < subLayoutNames.size(); ++i) // Start from 1 to skip "None"
+    {
+        const auto& name = subLayoutNames[i];
+        const int requiredChannels = configManager.getChannelCountForLayout("SUB", name);
+        bool isEnabled = (speakerChannelsUsed + requiredChannels <= availableChannels);
+        subLayoutSelector.setItemEnabled(i + 1, isEnabled);
+    }
+
+    if (!subLayoutSelector.isItemEnabled(subLayoutSelector.getSelectedId()))
+    {
+        subLayoutSelector.setSelectedId(firstValidSubId, juce::dontSendNotification);
+    }
+    
+    // 3. 获取最终有效的布局名称并更新处理器
     auto speakerLayoutName = speakerLayoutSelector.getText();
     auto subLayoutName = subLayoutSelector.getText();
 
@@ -92,6 +145,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
     audioProcessor.setCurrentLayout(speakerLayoutName, subLayoutName);
     const auto& layout = audioProcessor.getCurrentLayout();
     
+    // 4. 根据新布局重绘UI网格
     for(auto& pair : channelButtons)
         pair.second->setVisible(false);
 
@@ -106,6 +160,10 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
         channelGrid.templateColumns.add(juce::Grid::TrackInfo(juce::Grid::Fr(1)));
     }
     
+    // 创建一个包含25个空GridItem的向量，代表5x5网格
+    std::vector<juce::GridItem> gridItems(25);
+
+    // 将实际的按钮放置到网格的正确位置
     for (const auto& chanInfo : layout.channels)
     {
         if (channelButtons.find(chanInfo.channelIndex) == channelButtons.end())
@@ -134,12 +192,14 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
         button->setButtonText(chanInfo.name);
         button->setVisible(true);
 
-        int gridPos = chanInfo.gridPosition;
-        int row = (gridPos - 1) / 5;
-        int col = (gridPos - 1) % 5;
-        channelGrid.items.add(juce::GridItem(*button).withArea(row + 1, col + 1));
+        int gridPosIndex = chanInfo.gridPosition - 1; // 转换为0-based索引
+        if (gridPosIndex >= 0 && gridPosIndex < 25)
+        {
+            gridItems[gridPosIndex] = juce::GridItem(*button);
+        }
     }
 
+    // 处理特殊的SUB按钮
     if (subLayoutName != "None")
     {
         const int subChannelIndex = -1; 
@@ -150,12 +210,19 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
         }
         auto* button = channelButtons[subChannelIndex].get();
         button->setVisible(true);
-        int row = (23 - 1) / 5;
-        int col = (23 - 1) % 5;
-        channelGrid.items.add(juce::GridItem(*button).withArea(row + 1, col + 1));
+        int gridPosIndex = 23 - 1; // 23号位置，0-based索引为22
+        if (gridPosIndex >= 0 && gridPosIndex < 25)
+        {
+            gridItems[gridPosIndex] = juce::GridItem(*button);
+        }
     }
     
+    // 将包含按钮和占位符的完整项列表赋给Grid
+    for (const auto& item : gridItems)
+        channelGrid.items.add(item);
+
     channelGrid.performLayout(channelGridContainer.getLocalBounds());
+    updateChannelButtonStates(); // Ensure button states are updated immediately
 }
 
 void MonitorControllerMaxAudioProcessorEditor::timerCallback()

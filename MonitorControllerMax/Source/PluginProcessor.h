@@ -54,6 +54,7 @@ public:
 
     void setCurrentLayout(const juce::String& speaker, const juce::String& sub);
     const Layout& getCurrentLayout() const;
+    int getAvailableChannels() const;
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;

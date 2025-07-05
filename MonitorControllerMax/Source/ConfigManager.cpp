@@ -50,22 +50,25 @@ void ConfigManager::loadConfig()
 juce::StringArray ConfigManager::getSpeakerLayoutNames() const
 {
     juce::StringArray names;
-    if (auto* speakerObj = configData["Speaker"].getDynamicObject())
+    if (auto* speakerConfig = configData.getProperty("Speaker", {}).getDynamicObject())
     {
-        for (auto& prop : speakerObj->getProperties())
+        for (const auto& prop : speakerConfig->getProperties())
+        {
             names.add(prop.name.toString());
+        }
     }
     return names;
 }
 
 juce::StringArray ConfigManager::getSubLayoutNames() const
 {
-    juce::StringArray names;
-    names.add("None"); // Always have a "None" option
-    if (auto* subObj = configData["SUB"].getDynamicObject())
+    juce::StringArray names { "None" };
+    if (auto* subConfig = configData.getProperty("SUB", {}).getDynamicObject())
     {
-        for (auto& prop : subObj->getProperties())
+        for (const auto& prop : subConfig->getProperties())
+        {
             names.add(prop.name.toString());
+        }
     }
     return names;
 }
@@ -73,41 +76,43 @@ juce::StringArray ConfigManager::getSubLayoutNames() const
 Layout ConfigManager::getLayoutFor(const juce::String& speakerLayoutName, const juce::String& subLayoutName) const
 {
     Layout layout;
-    layout.totalChannelCount = 0;
     int currentChannelIndex = 0;
 
-    auto speakerConfig = configData.getProperty("Speaker", juce::var());
-    auto speakerLayout = speakerConfig.getProperty(speakerLayoutName, juce::var());
-    if (speakerLayout.isObject())
+    // Helper lambda to process a layout section (Speaker or SUB)
+    auto processSection = [&](const juce::var& sectionConfig, const juce::String& layoutName)
     {
-        if (auto* dynObj = speakerLayout.getDynamicObject())
-        {
-            for (const auto& prop : dynObj->getProperties())
-            {
-                layout.channels.push_back({ prop.name.toString(), (int)prop.value, currentChannelIndex });
-                currentChannelIndex++;
-            }
-        }
-    }
+        if (layoutName.isEmpty() || layoutName == "None")
+            return;
 
-    if (subLayoutName != "None")
-    {
-        auto subConfig = configData.getProperty("SUB", juce::var());
-        auto subLayout = subConfig.getProperty(subLayoutName, juce::var());
-        if (subLayout.isObject())
+        auto layoutJson = sectionConfig.getProperty(layoutName, juce::var());
+
+        if (layoutJson.isObject())
         {
-            if (auto* dynObj = subLayout.getDynamicObject())
+            if (auto* layoutObj = layoutJson.getDynamicObject())
             {
-                for (const auto& prop : dynObj->getProperties())
+                for (const auto& prop : layoutObj->getProperties())
                 {
-                    layout.channels.push_back({ prop.name.toString(), (int)prop.value, currentChannelIndex });
+                    // 修复：直接将JSON中的整数值解析为网格位置
+                    int gridPosition = (int)prop.value;
+                    
+                    // 恢复之前的逻辑：按顺序递增分配通道索引。
+                    // 注意：这个逻辑依赖于JSON中属性的顺序，可能不稳定。
+                    layout.channels.push_back({ prop.name.toString(), gridPosition, currentChannelIndex });
                     currentChannelIndex++;
                 }
             }
         }
-    }
+    };
 
+    auto speakerConfig = configData.getProperty("Speaker", juce::var());
+    processSection(speakerConfig, speakerLayoutName);
+
+    auto subConfig = configData.getProperty("SUB", juce::var());
+    processSection(subConfig, subLayoutName);
+
+    // 总通道数就是我们添加的通道总数
     layout.totalChannelCount = currentChannelIndex;
+    
     return layout;
 }
 
@@ -147,4 +152,25 @@ int ConfigManager::getMaxChannelIndex() const
         }
     }
     return maxGridPos;
+}
+
+int ConfigManager::getChannelCountForLayout(const juce::String& layoutType, const juce::String& layoutName) const
+{
+    if (layoutName.isEmpty() || layoutName == "None")
+        return 0;
+
+    auto configSection = configData.getProperty(layoutType, juce::var());
+    if (configSection.isObject())
+    {
+        auto layout = configSection.getProperty(layoutName, juce::var());
+        if (layout.isObject())
+        {
+            if (auto* dynObj = layout.getDynamicObject())
+            {
+                return dynObj->getProperties().size();
+            }
+        }
+    }
+
+    return 0;
 } 

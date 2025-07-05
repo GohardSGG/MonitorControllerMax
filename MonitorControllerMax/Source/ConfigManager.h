@@ -21,6 +21,7 @@ public:
     juce::StringArray getSubLayoutNames() const;
     Layout getLayoutFor(const juce::String& speakerLayoutName, const juce::String& subLayoutName) const;
     int getMaxChannelIndex() const;
+    int getChannelCountForLayout(const juce::String& layoutType, const juce::String& layoutName) const;
 
 private:
     void loadConfig();
