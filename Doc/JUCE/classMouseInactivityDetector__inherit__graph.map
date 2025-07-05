@@ -1,0 +1,7 @@
+<map id="MouseInactivityDetector" name="MouseInactivityDetector">
+<area shape="rect" id="Node000001" title="This object watches for mouse&#45;events happening within a component, and if the mouse remains still for..." alt="" coords="5,80,169,107"/>
+<area shape="rect" id="Node000002" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="8,5,62,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="55,43,80,78,76,81,51,46"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="86,5,192,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="123,46,98,81,94,78,119,43"/>
+</map>

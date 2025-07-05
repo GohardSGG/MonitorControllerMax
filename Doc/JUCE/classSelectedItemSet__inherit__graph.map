@@ -1,0 +1,5 @@
+<map id="SelectedItemSet&lt; SelectableItemType &gt;" name="SelectedItemSet&lt; SelectableItemType &gt;">
+<area shape="rect" id="Node000001" title="Manages a list of selectable items." alt="" coords="5,80,197,123"/>
+<area shape="rect" id="Node000002" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="33,5,169,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="104,48,104,80,98,80,98,48"/>
+</map>

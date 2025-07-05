@@ -1,0 +1,5 @@
+<map id="NativeImageType" name="NativeImageType">
+<area shape="rect" id="Node000001" title="An image storage type which holds the pixels using whatever is the default storage format on the curr..." alt="" coords="5,80,129,107"/>
+<area shape="rect" id="Node000002" href="$classImageType.html" title="This base class is for handlers that control a type of image manipulation format, e...." alt="" coords="24,5,110,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="70,48,70,80,64,80,64,48"/>
+</map>

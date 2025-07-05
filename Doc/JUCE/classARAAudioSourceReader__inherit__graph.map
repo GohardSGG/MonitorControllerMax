@@ -1,0 +1,7 @@
+<map id="ARAAudioSourceReader" name="ARAAudioSourceReader">
+<area shape="rect" id="Node000001" title="Subclass of AudioFormatReader that reads samples from a single ARA audio source." alt="" coords="82,80,247,107"/>
+<area shape="rect" id="Node000002" href="$classAudioFormatReader.html" title="Reads samples from an audio file stream." alt="" coords="5,5,143,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="103,40,151,78,147,82,100,44"/>
+<area shape="rect" id="Node000003" href="$classARAAudioSourceListener.html" title="A base class for listeners that want to know about changes to an ARAAudioSource object." alt="" coords="167,5,344,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="230,44,182,82,179,78,226,40"/>
+</map>

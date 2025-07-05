@@ -1,0 +1,11 @@
+<map id="Button::Listener" name="Button::Listener">
+<area shape="rect" id="Node000001" title="Used to receive callbacks when a button is clicked." alt="" coords="280,5,394,32"/>
+<area shape="rect" id="Node000002" href="$classButtonParameterAttachment.html" title="An object of this class maintains a connection between a Button and a plug&#45;in parameter." alt="" coords="5,80,192,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="282,39,141,82,140,77,280,34"/>
+<area shape="rect" id="Node000003" href="$classButtonTracker.html" title="A class that automatically sends analytics events to the Analytics singleton when a button is clicked..." alt="" coords="216,80,320,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="317,45,282,81,278,78,313,41"/>
+<area shape="rect" id="Node000004" href="$classOnlineUnlockForm.html" title="Acts as a GUI which asks the user for their details, and calls the appropriate methods on your Online..." alt="" coords="343,80,472,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="362,41,398,78,394,81,358,45"/>
+<area shape="rect" id="Node000005" href="$classStandaloneFilterWindow.html" title="A class that can be used to run a simple standalone application containing your filter." alt="" coords="496,80,658,107"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="394,34,536,77,534,82,393,39"/>
+</map>

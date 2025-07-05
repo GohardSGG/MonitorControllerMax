@@ -1,0 +1,5 @@
+<map id="TextEditor::Listener" name="TextEditor::Listener">
+<area shape="rect" id="Node000001" title="Receives callbacks from a TextEditor component when it changes." alt="" coords="5,5,140,32"/>
+<area shape="rect" id="Node000002" href="$classLabel.html" title="A component that displays a text string, and can optionally become a text editor when clicked." alt="" coords="46,80,99,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="75,48,75,80,70,80,70,48"/>
+</map>

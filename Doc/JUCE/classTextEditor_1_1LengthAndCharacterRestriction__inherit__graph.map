@@ -1,0 +1,5 @@
+<map id="TextEditor::LengthAndCharacterRestriction" name="TextEditor::LengthAndCharacterRestriction">
+<area shape="rect" id="Node000001" title="An input filter for a TextEditor that limits the length of text and/or the characters that it may con..." alt="" coords="5,80,213,123"/>
+<area shape="rect" id="Node000002" href="$classTextEditor_1_1InputFilter.html" title="Base class for input filters that can be applied to a TextEditor to restrict the text that can be ent..." alt="" coords="36,5,182,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,48,112,80,106,80,106,48"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="MemoryAudioSource" name="MemoryAudioSource">
+<area shape="rect" id="Node000001" title="An AudioSource which takes some float audio data as an input." alt="" coords="17,155,160,181"/>
+<area shape="rect" id="Node000002" href="$classPositionableAudioSource.html" title="A type of AudioSource which can be repositioned." alt="" coords="5,80,172,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="91,122,91,154,86,154,86,122"/>
+<area shape="rect" id="Node000003" href="$classAudioSource.html" title="Base class for objects that can produce a continuous stream of audio." alt="" coords="41,5,136,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="91,48,91,80,86,80,86,48"/>
+</map>

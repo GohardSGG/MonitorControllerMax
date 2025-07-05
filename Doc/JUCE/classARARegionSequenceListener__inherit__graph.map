@@ -1,0 +1,5 @@
+<map id="ARARegionSequenceListener" name="ARARegionSequenceListener">
+<area shape="rect" id="Node000001" title="A base class for listeners that want to know about changes to an ARARegionSequence object." alt="" coords="31,5,226,32"/>
+<area shape="rect" id="Node000002" href="$classARADocumentControllerSpecialisation.html" title="This class contains the customisation points for the JUCE provided ARA document controller implementa..." alt="" coords="5,80,252,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="131,48,131,80,126,80,126,48"/>
+</map>

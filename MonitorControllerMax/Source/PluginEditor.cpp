@@ -21,19 +21,21 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalSoloButton.setClickingTogglesState(true);
     globalSoloButton.onClick = [this] { setUIMode(globalSoloButton.getToggleState() ? UIMode::AssignSolo : UIMode::Normal); };
     
-    addAndMakeVisible(dimButton); // Dim button logic to be added later
+    addAndMakeVisible(dimButton);
 
     addAndMakeVisible(speakerLayoutSelector);
     speakerLayoutSelector.addItemList(configManager.getSpeakerLayoutNames(), 1);
-    speakerLayoutSelector.setSelectedId(1); // Default to first layout
-    speakerLayoutSelector.onChange = [this] { updateLayout(); };
+    speakerLayoutSelector.setSelectedId(1);
+    speakerLayoutSelector.onChange = [this] { resized(); };
 
     addAndMakeVisible(subLayoutSelector);
     subLayoutSelector.addItemList(configManager.getSubLayoutNames(), 1);
-    subLayoutSelector.setSelectedId(1); // Default to "None"
-    subLayoutSelector.onChange = [this] { updateLayout(); };
+    subLayoutSelector.setSelectedId(1);
+    subLayoutSelector.onChange = [this] { resized(); };
     
-    updateLayout(); // Initial layout draw
+    addAndMakeVisible(channelGridContainer);
+
+    juce::MessageManager::callAsync([this] { resized(); });
 
     setSize (800, 600);
     startTimerHz(10);
@@ -54,7 +56,6 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Sidebar
     sidebar.flexDirection = juce::FlexBox::Direction::column;
     sidebar.justifyContent = juce::FlexBox::JustifyContent::flexStart;
     sidebar.alignItems = juce::FlexBox::AlignItems::center;
@@ -64,13 +65,12 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     sidebar.items.add(juce::FlexItem(globalMuteButton).withWidth(100).withHeight(40).withMargin(10));
 
     auto sidebarBounds = bounds.removeFromLeft(120);
-    sidebar.performLayout(sidebarBounds);
+    sidebar.performLayout(sidebarBounds.reduced(5));
 
-    // Main Content Area
     auto contentBounds = bounds;
 
-    // Selector Box at the top-right
     selectorBox.justifyContent = juce::FlexBox::JustifyContent::flexEnd;
+    selectorBox.alignItems = juce::FlexBox::AlignItems::center;
     selectorBox.items.clear();
     selectorBox.items.add(juce::FlexItem(speakerLayoutSelector).withWidth(150).withHeight(24));
     selectorBox.items.add(juce::FlexItem(subLayoutSelector).withWidth(150).withHeight(24).withMargin({0, 0, 0, 10}));
@@ -78,8 +78,8 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     auto selectorBounds = contentBounds.removeFromTop(40);
     selectorBox.performLayout(selectorBounds.reduced(5));
 
-    // Channel Grid takes the rest of the space
-    channelGrid.performLayout(contentBounds);
+    channelGridContainer.setBounds(contentBounds);
+    updateLayout();
 }
 
 void MonitorControllerMaxAudioProcessorEditor::updateLayout()
@@ -89,13 +89,12 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
 
     if (speakerLayoutName.isEmpty()) return;
 
-    auto layout = configManager.getLayoutFor(speakerLayoutName, subLayoutName);
+    audioProcessor.setCurrentLayout(speakerLayoutName, subLayoutName);
+    const auto& layout = audioProcessor.getCurrentLayout();
     
-    // Hide all current buttons first
     for(auto& pair : channelButtons)
         pair.second->setVisible(false);
 
-    // Use the member 'channelGrid', don't create a temporary one.
     channelGrid.items.clear();
     channelGrid.setGap(juce::Grid::Px(5));
     channelGrid.templateRows.clear();
@@ -111,14 +110,23 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
     {
         if (channelButtons.find(chanInfo.channelIndex) == channelButtons.end())
         {
-            // Button doesn't exist, create it
             channelButtons[chanInfo.channelIndex] = std::make_unique<juce::TextButton>(chanInfo.name);
-            addAndMakeVisible(*channelButtons[chanInfo.channelIndex]);
-            channelButtons[chanInfo.channelIndex]->onClick = [this, index = chanInfo.channelIndex] {
+            channelGridContainer.addAndMakeVisible(*channelButtons[chanInfo.channelIndex]);
+            
+            auto* button = channelButtons[chanInfo.channelIndex].get();
+            button->setClickingTogglesState(true);
+            button->onClick = [this, index = chanInfo.channelIndex] 
+            {
                 if (currentUIMode == UIMode::AssignMute)
-                    audioProcessor.apvts.getParameter("MUTE_" + juce::String(index + 1))->setValueNotifyingHost(0.0f);
+                {
+                    if (auto* param = audioProcessor.apvts.getParameter("MUTE_" + juce::String(index + 1)))
+                        param->setValueNotifyingHost(param->getValue() < 0.5f ? 1.0f : 0.0f);
+                }
                 else if (currentUIMode == UIMode::AssignSolo)
-                     audioProcessor.apvts.getParameter("SOLO_" + juce::String(index + 1))->setValueNotifyingHost(0.0f);
+                {
+                    if (auto* param = audioProcessor.apvts.getParameter("SOLO_" + juce::String(index + 1)))
+                        param->setValueNotifyingHost(param->getValue() < 0.5f ? 1.0f : 0.0f);
+                }
             };
         }
         
@@ -134,12 +142,11 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
 
     if (subLayoutName != "None")
     {
-        const int subChannelIndex = -1; // Special index for the master SUB button
+        const int subChannelIndex = -1; 
         if (channelButtons.find(subChannelIndex) == channelButtons.end())
         {
              channelButtons[subChannelIndex] = std::make_unique<juce::TextButton>("SUB");
-             addAndMakeVisible(*channelButtons[subChannelIndex]);
-             // Add logic for this master sub button if needed
+             channelGridContainer.addAndMakeVisible(*channelButtons[subChannelIndex]);
         }
         auto* button = channelButtons[subChannelIndex].get();
         button->setVisible(true);
@@ -148,7 +155,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
         channelGrid.items.add(juce::GridItem(*button).withArea(row + 1, col + 1));
     }
     
-    // The grid will now be laid out correctly as part of resized()
+    channelGrid.performLayout(channelGridContainer.getLocalBounds());
 }
 
 void MonitorControllerMaxAudioProcessorEditor::timerCallback()
@@ -159,7 +166,6 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
 void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 {
     currentUIMode = newMode;
-    // When mode changes, we might want to update visuals immediately
     updateChannelButtonStates();
 }
 
@@ -168,7 +174,6 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     const auto role = audioProcessor.getRole();
     const bool isSlave = (role == MonitorControllerMaxAudioProcessor::Role::slave);
 
-    // Disable controls if we are a slave
     globalMuteButton.setEnabled(!isSlave);
     globalSoloButton.setEnabled(!isSlave);
     dimButton.setEnabled(!isSlave);
@@ -176,10 +181,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     subLayoutSelector.setEnabled(!isSlave);
 
     bool anySoloEngaged = false;
-    std::array<bool, 26> muteStates;
-    std::array<bool, 26> soloStates;
+    std::array<bool, 26> muteStates{};
+    std::array<bool, 26> soloStates{};
 
-    // Get current state from APVTS or remote state for slaves
     for (int i = 0; i < 26; ++i)
     {
         if (isSlave)
@@ -199,21 +203,34 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
             anySoloEngaged = true;
     }
 
-    // Determine visuals based on state
     for (auto const& [index, button] : channelButtons)
     {
-        if (index < 0) continue; // Skip master SUB button for now
+        if (!button->isVisible()) continue;
+        
+        if (index < 0) 
+        {
+            continue;
+        }
 
-        bool shouldBeSilent = muteStates[index] || (anySoloEngaged && !soloStates[index]);
+        bool isMuted = muteStates[index];
+        bool isSoloed = soloStates[index];
+        bool shouldBeSilent = isMuted || (anySoloEngaged && !isSoloed);
 
-        juce::Colour colour = juce::Colours::grey; // Default non-active colour
+        juce::Colour colour = juce::Colours::grey;
 
-        if (soloStates[index])
+        if (isSoloed)
             colour = juce::Colours::yellow;
         else if (shouldBeSilent)
             colour = juce::Colours::red;
         
         button->setColour(juce::TextButton::buttonColourId, colour);
+        if (currentUIMode == UIMode::AssignMute)
+            button->setToggleState(isMuted, juce::dontSendNotification);
+        else if (currentUIMode == UIMode::AssignSolo)
+            button->setToggleState(isSoloed, juce::dontSendNotification);
+        else
+            button->setToggleState(false, juce::dontSendNotification);
+
         button->setEnabled(!isSlave);
     }
 }

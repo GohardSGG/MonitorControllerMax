@@ -1,0 +1,31 @@
+<map id="Button" name="Button">
+<area shape="rect" id="Node000001" title="A base class for buttons." alt="" coords="349,208,408,235"/>
+<area shape="rect" id="Node000006" href="$classArrowButton.html" title="A button with an arrow in it." alt="" coords="488,5,581,32"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="382,192,391,158,405,118,426,77,455,42,470,31,486,24,489,29,472,36,458,46,430,80,410,120,396,160,387,194"/>
+<area shape="rect" id="Node000007" href="$classDrawableButton.html" title="A button that displays a Drawable." alt="" coords="477,56,592,83"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="388,192,413,142,432,115,455,93,476,80,478,85,458,97,436,119,418,145,392,195"/>
+<area shape="rect" id="Node000008" href="$classHyperlinkButton.html" title="A button showing an underlined weblink, that will launch the link when it&#39;s clicked." alt="" coords="477,107,592,133"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="398,194,423,168,455,143,479,131,481,136,458,148,427,172,402,198"/>
+<area shape="rect" id="Node000009" href="$classImageButton.html" title="As the title suggests, this is a button containing an image." alt="" coords="487,157,582,184"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="423,204,455,193,490,182,492,187,457,199,424,209"/>
+<area shape="rect" id="Node000010" href="$classShapeButton.html" title="A button that contains a filled shape." alt="" coords="486,208,583,235"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="424,219,486,219,486,224,424,224"/>
+<area shape="rect" id="Node000011" href="$classTabBarButton.html" title="In a TabbedButtonBar, this component is used for each of the buttons." alt="" coords="484,259,585,285"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="424,233,457,244,492,256,490,261,455,249,423,238"/>
+<area shape="rect" id="Node000012" href="$classTextButton.html" title="A button that uses the standard lozenge&#45;shaped background with a line of text on it." alt="" coords="492,309,577,336"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="402,245,427,271,458,295,493,310,491,315,455,300,423,275,398,248"/>
+<area shape="rect" id="Node000013" href="$classToggleButton.html" title="A button that can be toggled on/off." alt="" coords="486,360,583,387"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="392,248,418,298,436,324,458,346,487,361,484,366,455,350,432,327,413,301,388,250"/>
+<area shape="rect" id="Node000014" href="$classToolbarItemComponent.html" title="A component that can be used as one of the items in a Toolbar." alt="" coords="456,411,613,437"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="387,249,396,283,410,323,430,362,458,397,475,408,472,412,455,401,426,365,405,325,391,285,382,250"/>
+<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="186,183,274,209"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="290,204,349,214,348,219,290,209"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="5,183,112,209"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="127,193,186,193,186,199,127,199"/>
+<area shape="rect" id="Node000004" href="$classSettableTooltipClient.html" title="An implementation of TooltipClient that stores the tooltip string and a method for changing it." alt="" coords="160,233,301,260"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="316,229,348,224,349,229,317,235"/>
+<area shape="rect" id="Node000005" href="$classTooltipClient.html" title="Components that want to use pop&#45;up tooltips should implement this interface." alt="" coords="12,233,105,260"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="121,244,159,244,159,249,121,249"/>
+<area shape="rect" id="Node000015" href="$classToolbarButton.html" title="A type of button designed to go on a toolbar." alt="" coords="661,411,762,437"/>
+<area shape="poly" id="edge14_Node000014_Node000015" title=" " alt="" coords="628,421,660,421,660,427,628,427"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="StandalonePluginHolder" name="StandalonePluginHolder">
+<area shape="rect" id="Node000001" title="An object that creates and plays a standalone instance of an AudioProcessor." alt="" coords="137,80,298,107"/>
+<area shape="rect" id="Node000002" href="$classAudioIODeviceCallback.html" title="One of these is passed to an AudioIODevice object to stream the audio data in and out." alt="" coords="5,5,166,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="123,37,196,77,193,82,120,42"/>
+<area shape="rect" id="Node000003" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="190,5,245,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="220,48,220,80,215,80,215,48"/>
+<area shape="rect" id="Node000004" href="$classValue_1_1Listener.html" title="Receives callbacks when a Value object changes." alt="" coords="269,5,376,32"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="294,43,237,82,234,77,291,39"/>
+</map>

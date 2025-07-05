@@ -1,0 +1,9 @@
+<map id="NativeScaleFactorNotifier" name="NativeScaleFactorNotifier">
+<area shape="rect" id="Node000001" title="Calls a function every time the native scale factor of a component&#39;s peer changes." alt="" coords="128,171,299,197"/>
+<area shape="rect" id="Node000002" href="$classComponentMovementWatcher.html" title="An object that watches for any movement of a component or any of its parent components." alt="" coords="5,88,203,115"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="135,122,198,168,195,172,132,126"/>
+<area shape="rect" id="Node000003" href="$classComponentListener.html" title="Gets informed about changes to a component&#39;s hierarchy or position." alt="" coords="37,5,171,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="107,48,107,88,101,88,101,48"/>
+<area shape="rect" id="Node000004" href="$structComponentPeer_1_1ScaleFactorListener.html" title="Used to receive callbacks when the OS scale factor of this ComponentPeer changes." alt="" coords="227,80,421,123"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="285,134,232,172,229,168,282,130"/>
+</map>

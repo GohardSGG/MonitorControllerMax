@@ -1,0 +1,7 @@
+<map id="ARADocument" name="ARADocument">
+<area shape="rect" id="Node000001" title="Base class representing an ARA document." alt="" coords="118,96,228,123"/>
+<area shape="rect" id="Node000002" href="$classARAListenableModelClass.html" title=" " alt="" coords="5,5,184,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="127,57,163,94,159,97,123,61"/>
+<area shape="rect" id="Node000003" href="$classARAObject.html" title="Common base class for all JUCE ARA model objects to aid with the discovery and traversal of the entir..." alt="" coords="208,13,296,40"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="231,53,187,98,183,94,227,49"/>
+</map>

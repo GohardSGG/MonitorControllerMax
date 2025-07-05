@@ -1,0 +1,5 @@
+<map id="AudioCDReader" name="AudioCDReader">
+<area shape="rect" id="Node000001" title="A type of AudioFormatReader that reads from an audio CD." alt="" coords="16,80,132,107"/>
+<area shape="rect" id="Node000002" href="$classAudioFormatReader.html" title="Reads samples from an audio file stream." alt="" coords="5,5,143,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="77,48,77,80,71,80,71,48"/>
+</map>

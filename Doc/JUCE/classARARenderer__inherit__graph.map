@@ -1,0 +1,7 @@
+<map id="ARARenderer" name="ARARenderer">
+<area shape="rect" id="Node000001" title="Base class for a renderer fulfilling either the ARAPlaybackRenderer or the ARAEditorRenderer role." alt="" coords="108,5,210,32"/>
+<area shape="rect" id="Node000002" href="$classARAEditorRenderer.html" title="Base class for a renderer fulfilling the ARAEditorRenderer role as described in the ARA SDK." alt="" coords="5,80,142,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="134,44,90,82,86,78,131,40"/>
+<area shape="rect" id="Node000003" href="$classARAPlaybackRenderer.html" title="Base class for a renderer fulfilling the ARAPlaybackRenderer role as described in the ARA SDK." alt="" coords="166,80,322,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="187,40,231,78,228,82,183,44"/>
+</map>

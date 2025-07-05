@@ -1,0 +1,5 @@
+<map id="ComponentPeer" name="ComponentPeer">
+<area shape="rect" id="Node000001" title="The Component class uses a ComponentPeer internally to create and manage a real operating&#45;system wind..." alt="" coords="22,80,137,107"/>
+<area shape="rect" id="Node000002" href="$classFocusChangeListener.html" title="Classes can implement this interface and register themselves with the Desktop class to receive callba..." alt="" coords="5,5,154,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="82,48,82,80,77,80,77,48"/>
+</map>

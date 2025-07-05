@@ -1,0 +1,17 @@
+<map id="DocumentWindow" name="DocumentWindow">
+<area shape="rect" id="Node000001" title="A resizable window with a title bar and maximise, minimise and close buttons." alt="" coords="166,304,294,331"/>
+<area shape="rect" id="Node000006" href="$classDialogWindow.html" title="A dialog&#45;box style window." alt="" coords="5,379,111,405"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="187,339,89,380,87,376,185,335"/>
+<area shape="rect" id="Node000007" href="$classMultiDocumentPanelWindow.html" title="This is a derivative of DocumentWindow that is used inside a MultiDocumentPanel component." alt="" coords="135,379,325,405"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="233,346,233,378,227,378,227,346"/>
+<area shape="rect" id="Node000008" href="$classStandaloneFilterWindow.html" title="A class that can be used to run a simple standalone application containing your filter." alt="" coords="349,379,511,405"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="280,334,396,376,394,381,278,339"/>
+<area shape="rect" id="Node000002" href="$classResizableWindow.html" title="A base class for top&#45;level windows that can be dragged around and resized." alt="" coords="167,229,293,256"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="233,272,233,304,227,304,227,272"/>
+<area shape="rect" id="Node000003" href="$classTopLevelWindow.html" title="A base class for top&#45;level windows." alt="" coords="170,155,290,181"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="233,197,233,229,227,229,227,197"/>
+<area shape="rect" id="Node000004" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="186,80,274,107"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="233,122,233,154,227,154,227,122"/>
+<area shape="rect" id="Node000005" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="177,5,283,32"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="233,48,233,80,227,80,227,48"/>
+</map>

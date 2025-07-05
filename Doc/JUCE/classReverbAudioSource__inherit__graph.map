@@ -1,0 +1,5 @@
+<map id="ReverbAudioSource" name="ReverbAudioSource">
+<area shape="rect" id="Node000001" title="An AudioSource that uses the Reverb class to apply a reverb to another AudioSource." alt="" coords="5,80,143,107"/>
+<area shape="rect" id="Node000002" href="$classAudioSource.html" title="Base class for objects that can produce a continuous stream of audio." alt="" coords="26,5,122,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="77,48,77,80,71,80,71,48"/>
+</map>

@@ -1,0 +1,5 @@
+<map id="ARAOutputStream" name="ARAOutputStream">
+<area shape="rect" id="Node000001" title="Used to write persistent ARA archives &#45; see doStoreObjectsToStream() for details." alt="" coords="5,80,136,107"/>
+<area shape="rect" id="Node000002" href="$classOutputStream.html" title="The base class for streams that write data to some kind of destination." alt="" coords="19,5,122,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="73,48,73,80,68,80,68,48"/>
+</map>

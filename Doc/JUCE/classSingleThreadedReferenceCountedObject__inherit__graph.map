@@ -1,0 +1,7 @@
+<map id="SingleThreadedReferenceCountedObject" name="SingleThreadedReferenceCountedObject">
+<area shape="rect" id="Node000001" title="Adds reference&#45;counting to an object." alt="" coords="106,5,326,48"/>
+<area shape="rect" id="Node000002" href="$classPopupMenu_1_1CustomCallback.html" title="A user&#45;defined callback that can be used for specific items in a popup menu." alt="" coords="5,96,201,123"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="176,60,122,98,119,93,173,55"/>
+<area shape="rect" id="Node000003" href="$classPopupMenu_1_1CustomComponent.html" title="A user&#45;defined component that can be used as an item in a popup menu." alt="" coords="225,96,437,123"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="260,55,315,93,311,98,257,60"/>
+</map>

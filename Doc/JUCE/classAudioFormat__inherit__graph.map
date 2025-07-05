@@ -1,0 +1,19 @@
+<map id="AudioFormat" name="AudioFormat">
+<area shape="rect" id="Node000001" title="Subclasses of AudioFormat are used to read and write different audio file formats." alt="" coords="5,183,101,209"/>
+<area shape="rect" id="Node000002" href="$classAiffAudioFormat.html" title="Reads and Writes AIFF format audio files." alt="" coords="184,5,298,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="62,167,93,104,117,70,147,42,182,25,184,30,150,46,121,74,98,107,67,170"/>
+<area shape="rect" id="Node000003" href="$classCoreAudioFormat.html" title="OSX and iOS only &#45; This uses the AudioToolbox framework to read any audio format that the system has ..." alt="" coords="179,56,302,83"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="70,168,103,129,124,109,147,92,178,79,180,84,150,97,127,113,107,133,74,172"/>
+<area shape="rect" id="Node000004" href="$classFlacAudioFormat.html" title="Reads and writes the lossless&#45;compression FLAC audio format." alt="" coords="181,107,301,133"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="89,172,148,143,181,131,183,136,150,148,91,177"/>
+<area shape="rect" id="Node000005" href="$classLAMEEncoderAudioFormat.html" title="An AudioFormat class which can use an installed version of the LAME mp3 encoder to encode a file." alt="" coords="151,157,330,184"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="116,185,150,180,151,185,117,190"/>
+<area shape="rect" id="Node000006" href="$classMP3AudioFormat.html" title="Software&#45;based MP3 decoding format (doesn&#39;t currently provide an encoder)." alt="" coords="180,208,302,235"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="116,202,179,210,179,216,116,207"/>
+<area shape="rect" id="Node000007" href="$classOggVorbisAudioFormat.html" title="Reads and writes the Ogg&#45;Vorbis audio format." alt="" coords="163,259,318,285"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="91,215,150,244,183,256,181,261,148,249,89,220"/>
+<area shape="rect" id="Node000008" href="$classWavAudioFormat.html" title="Reads and Writes WAV format audio files." alt="" coords="180,309,302,336"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="74,220,107,259,127,279,150,295,181,309,179,314,147,300,124,283,103,263,70,224"/>
+<area shape="rect" id="Node000009" href="$classWindowsMediaAudioFormat.html" title="Audio format which uses the Windows Media codecs (Windows only)." alt="" coords="149,360,333,387"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="67,222,98,285,121,318,150,346,170,357,168,362,147,350,117,322,93,288,62,225"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="ARAAudioSource" name="ARAAudioSource">
+<area shape="rect" id="Node000001" title="Base class representing an ARA audio source." alt="" coords="121,96,244,123"/>
+<area shape="rect" id="Node000002" href="$classARAListenableModelClass.html" title=" " alt="" coords="5,5,198,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="135,57,172,94,168,97,131,61"/>
+<area shape="rect" id="Node000003" href="$classARAObject.html" title="Common base class for all JUCE ARA model objects to aid with the discovery and traversal of the entir..." alt="" coords="222,13,309,40"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="244,53,197,98,194,94,240,49"/>
+</map>

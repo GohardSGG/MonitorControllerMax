@@ -1,0 +1,21 @@
+<map id="TopLevelWindow" name="TopLevelWindow">
+<area shape="rect" id="Node000001" title="A base class for top&#45;level windows." alt="" coords="184,155,305,181"/>
+<area shape="rect" id="Node000004" href="$classAlertWindow.html" title="A window that displays a message and has buttons for the user to react to it." alt="" coords="130,229,226,256"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="225,195,191,231,188,227,221,191"/>
+<area shape="rect" id="Node000005" href="$classResizableWindow.html" title="A base class for top&#45;level windows that can be dragged around and resized." alt="" coords="250,229,376,256"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="269,191,303,227,299,231,265,195"/>
+<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="200,80,289,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="247,122,247,154,242,154,242,122"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="192,5,298,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="247,48,247,80,242,80,242,48"/>
+<area shape="rect" id="Node000006" href="$classDocumentWindow.html" title="A resizable window with a title bar and maximise, minimise and close buttons." alt="" coords="166,304,294,331"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="289,269,246,306,242,302,285,264"/>
+<area shape="rect" id="Node000010" href="$classFileChooserDialogBox.html" title="A file open/save dialog box." alt="" coords="318,304,470,331"/>
+<area shape="poly" id="edge9_Node000005_Node000010" title=" " alt="" coords="340,265,382,302,378,306,336,268"/>
+<area shape="rect" id="Node000007" href="$classDialogWindow.html" title="A dialog&#45;box style window." alt="" coords="5,379,111,405"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="187,339,89,380,87,376,185,335"/>
+<area shape="rect" id="Node000008" href="$classMultiDocumentPanelWindow.html" title="This is a derivative of DocumentWindow that is used inside a MultiDocumentPanel component." alt="" coords="135,379,325,405"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="233,346,233,378,227,378,227,346"/>
+<area shape="rect" id="Node000009" href="$classStandaloneFilterWindow.html" title="A class that can be used to run a simple standalone application containing your filter." alt="" coords="349,379,511,405"/>
+<area shape="poly" id="edge8_Node000006_Node000009" title=" " alt="" coords="280,334,396,376,394,381,278,339"/>
+</map>

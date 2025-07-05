@@ -1,0 +1,5 @@
+<map id="juce::midi_ci::ResponderOutput" name="juce::midi_ci::ResponderOutput">
+<area shape="rect" id="Node000001" title="A buffer output that additionally provides information about an incoming message, so that an appropri..." alt="" coords="10,80,176,123"/>
+<area shape="rect" id="Node000002" href="$classjuce_1_1midi__ci_1_1BufferOutput.html" title="Represents a destination into which MIDI&#45;CI messages can be written." alt="" coords="5,5,181,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="96,48,96,80,90,80,90,48"/>
+</map>

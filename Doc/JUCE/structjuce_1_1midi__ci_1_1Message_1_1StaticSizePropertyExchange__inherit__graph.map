@@ -1,0 +1,7 @@
+<map id="juce::midi_ci::Message::StaticSizePropertyExchange" name="juce::midi_ci::Message::StaticSizePropertyExchange">
+<area shape="rect" id="Node000001" title="A property&#45;exchange message that has no payload, and must therefore be contained in a single chunk." alt="" coords="5,39,202,81"/>
+<area shape="rect" id="Node000002" href="$structjuce_1_1midi__ci_1_1Message_1_1PropertyGetData.html" title="See the MIDI&#45;CI specification." alt="" coords="265,5,420,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="217,41,264,35,265,40,218,47"/>
+<area shape="rect" id="Node000003" href="$structjuce_1_1midi__ci_1_1Message_1_1PropertySetDataResponse.html" title="See the MIDI&#45;CI specification." alt="" coords="250,72,435,115"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="218,73,249,78,249,83,217,79"/>
+</map>

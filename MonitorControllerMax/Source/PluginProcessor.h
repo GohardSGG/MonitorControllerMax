@@ -52,6 +52,9 @@ public:
     bool getRemoteMuteState(int channel) const;
     bool getRemoteSoloState(int channel) const;
 
+    void setCurrentLayout(const juce::String& speaker, const juce::String& sub);
+    const Layout& getCurrentLayout() const;
+
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -70,6 +73,8 @@ public:
 
     //==============================================================================
     const juce::String getName() const override;
+    juce::String getParameterName(int parameterIndex, int maximumStringLength) override;
+    juce::String getParameterLabel(int parameterIndex) const override;
 
     bool acceptsMidi() const override;
     bool producesMidi() const override;
@@ -89,6 +94,7 @@ public:
     
     juce::AudioProcessorValueTreeState apvts;
     ConfigManager configManager;
+    Layout currentLayout;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -97,13 +103,13 @@ private:
     std::unique_ptr<InterPluginCommunicator> communicator;
 
     // Atomics to hold the state received from a master instance when in slave mode.
-    std::array<std::atomic<bool>, 26> remoteMutes;
-    std::array<std::atomic<bool>, 26> remoteSolos;
+    std::array<std::atomic<bool>, 26> remoteMutes{};
+    std::array<std::atomic<bool>, 26> remoteSolos{};
 
     // We'll need atomic pointers to our parameters for thread-safe access in the audio callback.
-    std::array<std::atomic<float>*, 26> muteParams;
-    std::array<std::atomic<float>*, 26> soloParams;
-    std::array<std::atomic<float>*, 26> gainParams;
+    std::array<std::atomic<float>*, 26> muteParams{};
+    std::array<std::atomic<float>*, 26> soloParams{};
+    std::array<std::atomic<float>*, 26> gainParams{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

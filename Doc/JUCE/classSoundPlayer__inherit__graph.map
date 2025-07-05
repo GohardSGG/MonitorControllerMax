@@ -1,0 +1,5 @@
+<map id="SoundPlayer" name="SoundPlayer">
+<area shape="rect" id="Node000001" title="A simple sound player that you can add to the AudioDeviceManager to play simple sounds." alt="" coords="38,80,133,107"/>
+<area shape="rect" id="Node000002" href="$classAudioIODeviceCallback.html" title="One of these is passed to an AudioIODevice object to stream the audio data in and out." alt="" coords="5,5,166,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="88,48,88,80,83,80,83,48"/>
+</map>

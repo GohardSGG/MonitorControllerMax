@@ -1,0 +1,13 @@
+<map id="MultiDocumentPanelWindow" name="MultiDocumentPanelWindow">
+<area shape="rect" id="Node000001" title="This is a derivative of DocumentWindow that is used inside a MultiDocumentPanel component." alt="" coords="5,379,195,405"/>
+<area shape="rect" id="Node000002" href="$classDocumentWindow.html" title="A resizable window with a title bar and maximise, minimise and close buttons." alt="" coords="36,304,164,331"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="103,346,103,378,97,378,97,346"/>
+<area shape="rect" id="Node000003" href="$classResizableWindow.html" title="A base class for top&#45;level windows that can be dragged around and resized." alt="" coords="37,229,163,256"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="103,272,103,304,97,304,97,272"/>
+<area shape="rect" id="Node000004" href="$classTopLevelWindow.html" title="A base class for top&#45;level windows." alt="" coords="40,155,160,181"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="103,197,103,229,97,229,97,197"/>
+<area shape="rect" id="Node000005" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="56,80,144,107"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="103,122,103,154,97,154,97,122"/>
+<area shape="rect" id="Node000006" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="47,5,153,32"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="103,48,103,80,97,80,97,48"/>
+</map>

@@ -1,0 +1,9 @@
+<map id="Desktop" name="Desktop">
+<area shape="rect" id="Node000001" title="Describes and controls aspects of the computer&#39;s desktop." alt="" coords="159,80,229,107"/>
+<area shape="rect" id="Node000002" href="$classDeletedAtShutdown.html" title="Classes derived from this will be automatically deleted when the application exits." alt="" coords="5,5,143,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="109,38,174,77,172,82,106,43"/>
+<area shape="rect" id="Node000003" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="167,5,221,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="197,48,197,80,191,80,191,48"/>
+<area shape="rect" id="Node000004" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="246,5,350,32"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="269,43,214,82,211,77,266,39"/>
+</map>

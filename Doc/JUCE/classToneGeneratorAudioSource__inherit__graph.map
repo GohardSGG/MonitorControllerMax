@@ -1,0 +1,5 @@
+<map id="ToneGeneratorAudioSource" name="ToneGeneratorAudioSource">
+<area shape="rect" id="Node000001" title="A simple AudioSource that generates a sine wave." alt="" coords="5,80,186,107"/>
+<area shape="rect" id="Node000002" href="$classAudioSource.html" title="Base class for objects that can produce a continuous stream of audio." alt="" coords="48,5,143,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="98,48,98,80,93,80,93,48"/>
+</map>

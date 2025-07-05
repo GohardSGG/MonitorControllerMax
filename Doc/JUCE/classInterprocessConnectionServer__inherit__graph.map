@@ -1,0 +1,5 @@
+<map id="InterprocessConnectionServer" name="InterprocessConnectionServer">
+<area shape="rect" id="Node000001" title="An object that waits for client sockets to connect to a port on this host, and creates InterprocessCo..." alt="" coords="5,80,203,107"/>
+<area shape="rect" id="Node000002" href="$classThread.html" title="Encapsulates a thread." alt="" coords="73,5,135,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,48,107,80,101,80,101,48"/>
+</map>

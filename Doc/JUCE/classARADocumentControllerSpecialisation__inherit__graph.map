@@ -1,0 +1,15 @@
+<map id="ARADocumentControllerSpecialisation" name="ARADocumentControllerSpecialisation">
+<area shape="rect" id="Node000001" title="This class contains the customisation points for the JUCE provided ARA document controller implementa..." alt="" coords="231,160,477,187"/>
+<area shape="rect" id="Node000002" href="$classARADocumentListener.html" title="A base class for listeners that want to know about changes to an ARADocument object." alt="" coords="12,5,176,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="169,35,184,42,232,70,276,102,340,158,337,162,272,106,229,74,181,46,167,40"/>
+<area shape="rect" id="Node000003" href="$classARAMusicalContextListener.html" title="A base class for listeners that want to know about changes to an ARAMusicalContext object." alt="" coords="20,56,168,99"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="168,102,316,157,314,162,167,107"/>
+<area shape="rect" id="Node000004" href="$classARARegionSequenceListener.html" title="A base class for listeners that want to know about changes to an ARARegionSequence object." alt="" coords="16,123,172,165"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="188,152,230,157,230,162,187,157"/>
+<area shape="rect" id="Node000005" href="$classARAAudioSourceListener.html" title="A base class for listeners that want to know about changes to an ARAAudioSource object." alt="" coords="5,189,183,216"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="198,188,230,185,230,190,199,194"/>
+<area shape="rect" id="Node000006" href="$classARAAudioModificationListener.html" title="A base class for listeners that want to know about changes to an ARAAudioModification object." alt="" coords="18,240,170,283"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="173,232,311,185,313,190,175,237"/>
+<area shape="rect" id="Node000007" href="$classARAPlaybackRegionListener.html" title="A base class for listeners that want to know about changes to an ARAPlaybackRegion object." alt="" coords="18,307,170,349"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="171,297,181,292,227,265,269,236,334,185,338,189,273,240,229,270,184,297,174,302"/>
+</map>

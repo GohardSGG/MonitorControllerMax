@@ -16,40 +16,21 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
      : AudioProcessor (BusesProperties()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                       .withInput  ("Input",  juce::AudioChannelSet::create7point1(), true)
                       #endif
-                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                       .withOutput ("Output", juce::AudioChannelSet::create7point1(), true)
                      #endif
                        ),
-      apvts (*this, nullptr, "Parameters", createParameterLayout())
+      apvts (*this, nullptr, "Parameters", createParameterLayout()),
+      currentRole(standalone)
 #endif
 {
-    currentRole = standalone;
-    communicator = std::make_unique<InterPluginCommunicator>(*this);
-
-    const int maxChannels = configManager.getMaxChannelIndex();
-    for (int i = 0; i < maxChannels; ++i)
-    {
-        auto muteId = "MUTE_" + juce::String(i + 1);
-        auto soloId = "SOLO_" + juce::String(i + 1);
-        auto gainId = "GAIN_" + juce::String(i + 1);
-
-        muteParams[i] = apvts.getRawParameterValue(muteId);
-        soloParams[i] = apvts.getRawParameterValue(soloId);
-        gainParams[i] = apvts.getRawParameterValue(gainId);
-
-        apvts.addParameterListener(muteId, this);
-        apvts.addParameterListener(soloId, this);
-        apvts.addParameterListener(gainId, this);
-
-        remoteMutes[i] = false;
-        remoteSolos[i] = false;
-    }
+    communicator.reset(new InterPluginCommunicator(*this));
 }
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
-    const int maxChannels = configManager.getMaxChannelIndex();
+    const int maxChannels = 26;
     for (int i = 0; i < maxChannels; ++i)
     {
         auto muteId = "MUTE_" + juce::String(i + 1);
@@ -126,8 +107,24 @@ void MonitorControllerMaxAudioProcessor::changeProgramName (int index, const juc
 //==============================================================================
 void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // Use this method as the place to do any pre-playback
-    // initialisation that you need..
+    const int maxChannels = 26;
+    for (int i = 0; i < maxChannels; ++i)
+    {
+        auto muteId = "MUTE_" + juce::String(i + 1);
+        auto soloId = "SOLO_" + juce::String(i + 1);
+        auto gainId = "GAIN_" + juce::String(i + 1);
+
+        muteParams[i] = apvts.getRawParameterValue(muteId);
+        soloParams[i] = apvts.getRawParameterValue(soloId);
+        gainParams[i] = apvts.getRawParameterValue(gainId);
+
+        // Simply add the listeners. JUCE is robust enough to handle this.
+        apvts.addParameterListener(muteId, this);
+        apvts.addParameterListener(soloId, this);
+        apvts.addParameterListener(gainId, this);
+    }
+    
+    setCurrentLayout("7.1.4", "None");
 }
 
 void MonitorControllerMaxAudioProcessor::releaseResources()
@@ -143,11 +140,10 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
     juce::ignoreUnused (layouts);
     return true;
   #else
-    // We support any number of input channels and output channels
-    // as long as they are the same and within our configured max.
+    // We now accept any layout where input and output busses match.
+    // The UI will be responsible for disabling layouts that are not supported by the current channel count.
     if (layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet()
-        && !layouts.getMainInputChannelSet().isDisabled()
-        && layouts.getMainOutputChannelSet().size() <= configManager.getMaxChannelIndex())
+        && !layouts.getMainInputChannelSet().isDisabled())
     {
         return true;
     }
@@ -163,22 +159,23 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
+    // 清除任何多余的输出通道，以防万一 (例如，从单声道到立体声)
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
     // =================================================================================
-    // 1. Determine the final mute/solo state for all managed channels
+    // 1. 确定所有 *在当前布局中激活的* 逻辑通道的最终 Mute/Solo 状态
     // =================================================================================
 
     bool anySoloEngaged = false;
     const auto role = getRole();
 
-    // First, determine if any solo button is currently active.
-    const int maxChannels = configManager.getMaxChannelIndex();
-    for (int i = 0; i < maxChannels; ++i)
+    // 检查是否有任何一个 *逻辑通道* 被 solo
+    for (const auto& chanInfo : currentLayout.channels)
     {
-        bool isSoloed = (role == Role::slave) ? remoteSolos[i].load()
-                                              : soloParams[i]->load() > 0.5f;
+        // 参数索引从1开始，所以是 channelIndex + 1
+        bool isSoloed = (role == Role::slave) ? remoteSolos[chanInfo.channelIndex].load()
+                                              : apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f;
         if (isSoloed)
         {
             anySoloEngaged = true;
@@ -186,42 +183,54 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
         }
     }
 
-    // This array will hold the final decision on whether a channel should be silent.
-    std::array<bool, 26> channelShouldBeSilent{};
-
-    // Based on the solo state, determine the final mute status for each channel.
-    for (int i = 0; i < maxChannels; ++i)
-    {
-        const bool isMuted = (role == Role::slave) ? remoteMutes[i].load()
-                                                   : muteParams[i]->load() > 0.5f;
-
-        const bool isSoloed = (role == Role::slave) ? remoteSolos[i].load()
-                                                    : soloParams[i]->load() > 0.5f;
-        
-        // A channel should be silent if it's muted, OR if any solo is engaged and this channel is NOT one of the soloed ones.
-        channelShouldBeSilent[i] = isMuted || (anySoloEngaged && !isSoloed);
-    }
-
     // =================================================================================
-    // 2. Apply gain and muting to the audio buffer
+    // 2. 将处理逻辑应用到物理音频缓冲区 (全新逻辑)
+    //    这个循环严格遍历宿主提供的物理通道
     // =================================================================================
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    
+    for (int physicalChannel = 0; physicalChannel < totalNumInputChannels; ++physicalChannel)
     {
-        if (channel >= maxChannels)
-            continue; // Don't process channels that we are not managing.
-
-        if (channelShouldBeSilent[channel])
+        // 尝试将当前物理通道映射到我们布局中的一个逻辑通道
+        const ChannelInfo* mappedChannelInfo = nullptr;
+        for (const auto& chanInfo : currentLayout.channels)
         {
-            buffer.clear(channel, 0, buffer.getNumSamples());
+            // 我们的 `channelIndex` 在 `ConfigManager` 中是基于0的，这正好可以和物理通道索引对应
+            if (chanInfo.channelIndex == physicalChannel)
+            {
+                mappedChannelInfo = &chanInfo;
+                break;
+            }
+        }
+
+        // 如果这个物理通道没有在当前布局中定义，我们就跳过它，实现音频直通
+        if (mappedChannelInfo == nullptr)
+        {
+            continue;
+        }
+
+        // --- 从这里开始，我们确认了 physicalChannel 对应一个有效的逻辑通道 ---
+
+        // 获取这个逻辑通道的 Mute 和 Solo 状态
+        const bool isMuted = (role == Role::slave) ? remoteMutes[mappedChannelInfo->channelIndex].load()
+                                                   : apvts.getRawParameterValue("MUTE_" + juce::String(mappedChannelInfo->channelIndex + 1))->load() > 0.5f;
+
+        const bool isSoloed = (role == Role::slave) ? remoteSolos[mappedChannelInfo->channelIndex].load()
+                                                    : apvts.getRawParameterValue("SOLO_" + juce::String(mappedChannelInfo->channelIndex + 1))->load() > 0.5f;
+        
+        // 计算最终是否应该静音
+        const bool shouldBeSilent = isMuted || (anySoloEngaged && !isSoloed);
+
+        if (shouldBeSilent)
+        {
+            buffer.clear(physicalChannel, 0, buffer.getNumSamples());
         }
         else
         {
-            // Gain is always sourced from the local APVTS. For slave instances,
-            // these values will be at their default (0 dB), so no gain is applied.
-            const float gainDb = gainParams[channel]->load();
-            if (std::abs(gainDb) > 0.01f) // Small optimization to avoid calculations for 0dB
+            // 应用增益
+            const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(mappedChannelInfo->channelIndex + 1))->load();
+            if (std::abs(gainDb) > 0.01f)
             {
-                buffer.applyGain(channel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
+                buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
             }
         }
     }
@@ -252,18 +261,65 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     // whose contents will have been created by the getStateInformation() call.
 }
 
+juce::String MonitorControllerMaxAudioProcessor::getParameterName(int parameterIndex, int maximumStringLength)
+{
+    const int numParamsPerChannel = 3;
+    const int channelIndex = parameterIndex / numParamsPerChannel;
+    const int paramType = parameterIndex % numParamsPerChannel;
+
+    for (const auto& chanInfo : currentLayout.channels)
+    {
+        if (chanInfo.channelIndex == channelIndex)
+        {
+            switch (paramType)
+            {
+                case 0: return "Mute " + chanInfo.name;
+                case 1: return "Solo " + chanInfo.name;
+                case 2: return "Gain " + chanInfo.name;
+            }
+        }
+    }
+    
+    juce::String genericName = "Mute " + juce::String(channelIndex + 1);
+    switch (paramType)
+    {
+        case 1: genericName = "Solo " + juce::String(channelIndex + 1); break;
+        case 2: genericName = "Gain " + juce::String(channelIndex + 1); break;
+    }
+    return genericName.substring(0, maximumStringLength);
+}
+
+juce::String MonitorControllerMaxAudioProcessor::getParameterLabel(int parameterIndex) const
+{
+     // For now, we don't need a special label.
+    return {};
+}
+
+void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)
+{
+    // 只更新内部状态，不再尝试改变总线布局
+    currentLayout = configManager.getLayoutFor(speaker, sub);
+
+    // 请求宿主更新参数名称等显示信息
+    updateHostDisplay();
+}
+
+const Layout& MonitorControllerMaxAudioProcessor::getCurrentLayout() const
+{
+    return currentLayout;
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
     
-    // Create a temporary ConfigManager instance just for this static context.
-    ConfigManager tempConfigManager;
-    const int maxChannels = tempConfigManager.getMaxChannelIndex();
+    const int maxParams = 26; 
 
-    for (int i = 0; i < maxChannels; ++i)
+    for (int i = 0; i < maxParams; ++i)
     {
         juce::String chanNumStr = juce::String(i + 1);
-
+        
+        // Create with generic names. They will be updated by getParameterName.
         params.push_back(std::make_unique<juce::AudioParameterBool>("MUTE_" + chanNumStr, "Mute " + chanNumStr, false));
         params.push_back(std::make_unique<juce::AudioParameterBool>("SOLO_" + chanNumStr, "Solo " + chanNumStr, false));
         params.push_back(std::make_unique<juce::AudioParameterFloat>("GAIN_" + chanNumStr, "Gain " + chanNumStr, 
@@ -292,8 +348,7 @@ MonitorControllerMaxAudioProcessor::Role MonitorControllerMaxAudioProcessor::get
 
 void MonitorControllerMaxAudioProcessor::setRemoteMuteSoloState(const MuteSoloState& state)
 {
-    const int maxChannels = configManager.getMaxChannelIndex();
-    for (int i = 0; i < maxChannels; ++i)
+    for (int i = 0; i < currentLayout.totalChannelCount; ++i)
     {
         remoteMutes[i] = state.mutes[i];
         remoteSolos[i] = state.solos[i];
@@ -321,11 +376,20 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
         if (parameterID.startsWith("MUTE_") || parameterID.startsWith("SOLO_"))
         {
             MuteSoloState currentState;
-            const int maxChannels = configManager.getMaxChannelIndex();
-            for (int i = 0; i < maxChannels; ++i)
+            // We must pack the state for ALL possible parameters, not just the active ones,
+            // to ensure slaves receive a complete and consistent state object.
+            for (int i = 0; i < 26; ++i)
             {
-                currentState.mutes[i] = muteParams[i]->load() > 0.5f;
-                currentState.solos[i] = soloParams[i]->load() > 0.5f;
+                // Note: The Parameter ID suffix is (physical channel index + 1)
+                if (auto* muteParam = apvts.getRawParameterValue("MUTE_" + juce::String(i + 1)))
+                    currentState.mutes[i] = muteParam->load() > 0.5f;
+                else
+                    currentState.mutes[i] = false;
+
+                if (auto* soloParam = apvts.getRawParameterValue("SOLO_" + juce::String(i + 1)))
+                    currentState.solos[i] = soloParam->load() > 0.5f;
+                else
+                    currentState.solos[i] = false;
             }
             communicator->sendMuteSoloState(currentState);
         }

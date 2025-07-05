@@ -1,0 +1,5 @@
+<map id="SynthesiserVoice" name="SynthesiserVoice">
+<area shape="rect" id="Node000001" title="Represents a voice that a Synthesiser can use to play a SynthesiserSound." alt="" coords="5,5,128,32"/>
+<area shape="rect" id="Node000002" href="$classSamplerVoice.html" title="A subclass of SynthesiserVoice that can play a SamplerSound." alt="" coords="16,80,117,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="69,48,69,80,64,80,64,48"/>
+</map>

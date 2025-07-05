@@ -1,0 +1,5 @@
+<map id="ComboBox::Listener" name="ComboBox::Listener">
+<area shape="rect" id="Node000001" title="A class for receiving events from a ComboBox." alt="" coords="42,5,182,32"/>
+<area shape="rect" id="Node000002" href="$classComboBoxParameterAttachment.html" title="An object of this class maintains a connection between a ComboBox and a plug&#45;in parameter." alt="" coords="5,80,219,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="115,48,115,80,109,80,109,48"/>
+</map>
