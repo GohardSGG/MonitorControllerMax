@@ -10,6 +10,8 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "ConfigManager.h"
+#include <map>
 
 //==============================================================================
 /**
@@ -28,8 +30,7 @@ public:
 
 private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-
+    
     enum class UIMode
     {
         Normal,
@@ -38,23 +39,30 @@ private:
     };
 
     void updateChannelButtonStates();
+    void updateLayout();
     void setUIMode(UIMode newMode);
 
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     MonitorControllerMaxAudioProcessor& audioProcessor;
+    ConfigManager& configManager;
 
     UIMode currentUIMode { UIMode::Normal };
 
     juce::TextButton globalMuteButton{ "Mute" };
     juce::TextButton globalSoloButton{ "Solo" };
-
-    std::array<std::unique_ptr<juce::TextButton>, MonitorControllerMaxAudioProcessor::numManagedChannels> channelButtons;
-    std::array<std::unique_ptr<juce::Slider>, MonitorControllerMaxAudioProcessor::numManagedChannels> gainSliders;
-    std::array<juce::FlexBox, MonitorControllerMaxAudioProcessor::numManagedChannels> channelStripFlexBoxes;
+    juce::TextButton dimButton{ "Dim" };
     
-    std::array<std::unique_ptr<ButtonAttachment>, MonitorControllerMaxAudioProcessor::numManagedChannels> channelButtonAttachments;
-    std::array<std::unique_ptr<SliderAttachment>, MonitorControllerMaxAudioProcessor::numManagedChannels> gainSliderAttachments;
+    juce::ComboBox speakerLayoutSelector;
+    juce::ComboBox subLayoutSelector;
+
+    juce::FlexBox sidebar;
+    juce::FlexBox selectorBox;
+    juce::Grid channelGrid; // Grid for the channel buttons
+    juce::Component channelGridContainer; // A component to host the grid
+
+    std::map<int, std::unique_ptr<juce::TextButton>> channelButtons;
+    std::map<int, std::unique_ptr<ButtonAttachment>> channelButtonAttachments;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };

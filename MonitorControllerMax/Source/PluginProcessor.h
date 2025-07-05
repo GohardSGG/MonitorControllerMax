@@ -88,14 +88,13 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
     
     juce::AudioProcessorValueTreeState apvts;
+    ConfigManager configManager;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     //==============================================================================
     std::atomic<Role> currentRole;
     std::unique_ptr<InterPluginCommunicator> communicator;
-
-    ConfigManager configManager;
 
     // Atomics to hold the state received from a master instance when in slave mode.
     std::array<std::atomic<bool>, 26> remoteMutes;
