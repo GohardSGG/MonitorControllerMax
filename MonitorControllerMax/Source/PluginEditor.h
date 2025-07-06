@@ -40,7 +40,7 @@ public:
                               bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
     {
         auto cornerSize = 6.0f;
-        auto bounds = button.getLocalBounds().toFloat().reduced(0.5f, 0.5f);
+        auto originalBounds = button.getLocalBounds();
 
         auto baseColour = backgroundColour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
 
@@ -48,10 +48,20 @@ public:
             baseColour = baseColour.contrasting(shouldDrawButtonAsDown ? 0.2f : 0.1f);
 
         g.setColour(baseColour);
-        g.fillRoundedRectangle(bounds, cornerSize);
 
-        g.setColour(button.findColour(juce::ComboBox::outlineColourId));
-        g.drawRoundedRectangle(bounds, cornerSize, 1.0f);
+        if (button.getButtonText().startsWith("SUB "))
+        {
+            // 为SUB通道按钮绘制圆形
+            auto diameter = (float)juce::jmin(originalBounds.getWidth(), originalBounds.getHeight());
+            g.fillEllipse(originalBounds.toFloat().withSizeKeepingCentre(diameter, diameter));
+        }
+        else
+        {
+            // 为所有其他按钮绘制强制的正方形
+            auto side = juce::jmin(originalBounds.getWidth(), originalBounds.getHeight());
+            auto squareBounds = originalBounds.toFloat().withSizeKeepingCentre(side, side);
+            g.fillRoundedRectangle(squareBounds, cornerSize);
+        }
     }
 
     juce::Colour getSoloColour() const { return soloColour; }
@@ -112,6 +122,12 @@ private:
     std::map<int, std::unique_ptr<ButtonAttachment>> channelButtonAttachments;
 
     CustomLookAndFeel customLookAndFeel;
+
+    // 用于在Solo操作前缓存Mute状态
+    std::map<juce::String, bool> preSoloMuteStates;
+
+    // 添加私有函数声明
+    void handleSoloButtonClick(int channelIndex, const juce::String& channelName);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };

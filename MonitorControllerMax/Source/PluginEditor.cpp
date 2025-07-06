@@ -78,6 +78,8 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     };
     
     addAndMakeVisible(dimButton);
+    dimButton.setClickingTogglesState(true);
+    dimButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::yellow);
 
     addAndMakeVisible(speakerLayoutSelector);
     speakerLayoutSelector.addItemList(configManager.getSpeakerLayoutNames(), 1);
@@ -229,18 +231,21 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
             
             auto* button = channelButtons[chanInfo.channelIndex].get();
             button->setClickingTogglesState(true);
-            button->onClick = [this, index = chanInfo.channelIndex] 
+
+            // ================== 新的事务性 onClick 逻辑 ==================
+            button->onClick = [this, channelIndex = chanInfo.channelIndex, channelName = chanInfo.name]
             {
-                if (currentUIMode == UIMode::AssignMute)
+                if (currentUIMode == UIMode::AssignSolo)
                 {
-                    if (auto* param = audioProcessor.apvts.getParameter("MUTE_" + juce::String(index + 1)))
-                        param->setValueNotifyingHost(param->getValue() < 0.5f ? 1.0f : 0.0f);
+                    handleSoloButtonClick(channelIndex, channelName);
                 }
-                else if (currentUIMode == UIMode::AssignSolo)
+                else if (currentUIMode == UIMode::AssignMute)
                 {
-                    if (auto* param = audioProcessor.apvts.getParameter("SOLO_" + juce::String(index + 1)))
-                        param->setValueNotifyingHost(param->getValue() < 0.5f ? 1.0f : 0.0f);
+                    // Mute逻辑很简单，直接切换状态
+                    auto* muteParam = audioProcessor.apvts.getParameter("MUTE_" + juce::String(channelIndex + 1));
+                    muteParam->setValueNotifyingHost(muteParam->getValue() < 0.5f ? 1.0f : 0.0f);
                 }
+                // 非分配模式下点击无效
             };
         }
         
@@ -294,60 +299,135 @@ void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 
 void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 {
+    // ================== 全新的、最终的状态显示逻辑 ==================
     const auto& layout = audioProcessor.getCurrentLayout();
     if (layout.channels.empty() && layout.totalChannelCount == 0) return;
 
-    // 1. 检查是否有任何一个通道被Solo
+    // 1. 计算真实的聚合状态
     bool anySoloEngaged = false;
+    bool anyMuteEngaged = false;
     for (const auto& chanInfo : layout.channels)
     {
         if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-        {
             anySoloEngaged = true;
+        if (audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
+            anyMuteEngaged = true;
+    }
+
+    // 2. 更新每个通道按钮的状态
+    for (auto const& [index, button] : channelButtons)
+    {
+        if (!button->isVisible() || index < 0) continue;
+
+        const bool isSoloed = audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(index + 1))->load() > 0.5f;
+        const bool isMuted = audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(index + 1))->load() > 0.5f;
+
+        if (isSoloed)
+        {
+            button->setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
+            button->setToggleState(true, juce::dontSendNotification);
+        }
+        else if (isMuted)
+        {
+            button->setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonOnColourId));
+            button->setToggleState(true, juce::dontSendNotification);
+        }
+        else
+        {
+            button->setToggleState(false, juce::dontSendNotification);
+        }
+    }
+    
+    // 3. 更新主控制按钮的外观，使其反映真实的聚合状态
+    globalMuteButton.setToggleState(anyMuteEngaged, juce::dontSendNotification);
+
+    if (anySoloEngaged)
+    {
+        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
+        globalSoloButton.setToggleState(true, juce::dontSendNotification);
+    }
+    else
+    {
+        // 如果没有通道被solo，则恢复默认颜色，并根据UI模式决定状态
+        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalSoloButton.setToggleState(currentUIMode == UIMode::AssignSolo, juce::dontSendNotification);
+    }
+}
+
+void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channelIndex, const juce::String& channelName)
+{
+    // ================== 全新的、最终的事务逻辑 ==================
+    
+    // 步骤1: 获取动作前的全局Solo状态
+    bool wasAnySoloActive = false;
+    for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
+    {
+        if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
+        {
+            wasAnySoloActive = true;
+            break;
+        }
+    }
+    
+    // 步骤2: 切换被点击按钮的Solo状态
+    auto* targetSoloParam = audioProcessor.apvts.getParameter("SOLO_" + juce::String(channelIndex + 1));
+    bool isTargetCurrentlySoloed = targetSoloParam->getValue() > 0.5f;
+    targetSoloParam->setValueNotifyingHost(!isTargetCurrentlySoloed);
+
+    // 步骤3: 获取动作后的全局Solo状态
+    bool isAnySoloNowActive = false;
+    for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
+    {
+         if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
+        {
+            isAnySoloNowActive = true;
             break;
         }
     }
 
-    // 2. 根据全局状态更新每个通道按钮的颜色和状态
-    for (const auto& chanInfo : layout.channels)
-    {
-        if (auto* button = channelButtons[chanInfo.channelIndex].get())
-        {
-            const bool isMuted = audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f;
-            const bool isSoloed = audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f;
-            
-            // 一个通道应该被静音，如果它被Mute，或者任何其他通道被Solo而它自己没有
-            const bool shouldBeSilent = isMuted || (anySoloEngaged && !isSoloed);
+    // --- 事务处理 ---
 
-            // 优先应用Solo颜色
-            if (isSoloed)
+    // 情况A: 刚刚进入Solo模式 (从无到有)
+    if (isAnySoloNowActive && !wasAnySoloActive)
+    {
+        preSoloMuteStates.clear();
+        for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
+        {
+            if (!chanInfo.name.startsWith("SUB")) // 只缓存主声道
             {
-                button->setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
-                button->setToggleState(true, juce::dontSendNotification);
+                auto muteParamId = "MUTE_" + juce::String(chanInfo.channelIndex + 1);
+                preSoloMuteStates[muteParamId] = audioProcessor.apvts.getRawParameterValue(muteParamId)->load() > 0.5f;
             }
-            // 其次应用Mute颜色
-            else if (shouldBeSilent)
+        }
+    }
+
+    // 情况B: 刚刚退出Solo模式 (从有到无)
+    if (!isAnySoloNowActive && wasAnySoloActive)
+    {
+        // 恢复所有主声道的Mute状态
+        for (auto const& [paramId, wasMuted] : preSoloMuteStates)
+        {
+            audioProcessor.apvts.getParameter(paramId)->setValueNotifyingHost(wasMuted ? 1.0f : 0.0f);
+        }
+        preSoloMuteStates.clear();
+    }
+
+    // 步骤4: 统一应用Solo联动Mute规则
+    if (isAnySoloNowActive)
+    {
+        for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
+        {
+            if (!chanInfo.name.startsWith("SUB")) // 只影响主声道
             {
-                button->setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonOnColourId));
-                button->setToggleState(true, juce::dontSendNotification);
-            }
-            // 默认状态
-            else
-            {
-                button->setToggleState(false, juce::dontSendNotification);
+                auto* soloP = audioProcessor.apvts.getParameter("SOLO_" + juce::String(chanInfo.channelIndex + 1));
+                auto* muteP = audioProcessor.apvts.getParameter("MUTE_" + juce::String(chanInfo.channelIndex + 1));
+                if (soloP->getValue() < 0.5f) // 如果没被solo
+                    muteP->setValueNotifyingHost(1.0f); // 就强制mute
+                else
+                    muteP->setValueNotifyingHost(0.0f); // 如果被solo，就解除mute
             }
         }
     }
     
-    // 3. 更新主控制按钮的外观
-    if (currentUIMode == UIMode::AssignSolo)
-    {
-        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
-    }
-    else
-    {
-        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-    }
-    globalSoloButton.setToggleState(currentUIMode == UIMode::AssignSolo, juce::dontSendNotification);
-    globalMuteButton.setToggleState(currentUIMode == UIMode::AssignMute, juce::dontSendNotification);
+    updateChannelButtonStates();
 }
