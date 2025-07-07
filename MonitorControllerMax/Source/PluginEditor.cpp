@@ -479,6 +479,12 @@ void MonitorControllerMaxAudioProcessorEditor::updatePluginConfiguration()
     // 立即更新插件配置，这会触发updateHostDisplay()
     audioProcessor.setCurrentLayout(speakerLayoutName, subLayoutName);
     
+    // 强制通知宿主更新显示信息 - 使用MessageManager确保在主线程中执行
+    juce::MessageManager::callAsync([this]()
+    {
+        audioProcessor.updateHostDisplay();
+    });
+    
     // 确保UI状态同步更新
     updateChannelButtonStates();
 }
