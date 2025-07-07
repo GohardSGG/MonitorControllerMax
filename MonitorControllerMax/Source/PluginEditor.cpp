@@ -565,7 +565,8 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
         updateLayout();
     }
     
-    updateChannelButtonStates();
+    // 只有在布局变化时才强制更新按钮状态，否则按钮状态通过参数监听自动更新
+    // updateChannelButtonStates(); // 移除过度的定时器更新
 }
 
 void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
@@ -599,19 +600,32 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
         const bool isSoloed = audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(index + 1))->load() > 0.5f;
         const bool isMuted = audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(index + 1))->load() > 0.5f;
 
+        // 优化：只在状态真正改变时才更新颜色和切换状态
+        bool newToggleState = isSoloed || isMuted;
+        juce::Colour newColour;
+        
         if (isSoloed)
         {
-            button->setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
-            button->setToggleState(true, juce::dontSendNotification);
+            newColour = customLookAndFeel.getSoloColour();
         }
         else if (isMuted)
         {
-            button->setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonOnColourId));
-            button->setToggleState(true, juce::dontSendNotification);
+            newColour = customLookAndFeel.getMuteColour();
         }
         else
         {
-            button->setToggleState(false, juce::dontSendNotification);
+            newColour = getLookAndFeel().findColour(juce::TextButton::buttonColourId); // 默认未激活颜色
+        }
+        
+        // 只在状态或颜色真正改变时才更新，避免频繁重绘
+        if (button->getToggleState() != newToggleState)
+        {
+            button->setToggleState(newToggleState, juce::dontSendNotification);
+        }
+        
+        if (button->findColour(juce::TextButton::buttonOnColourId) != newColour)
+        {
+            button->setColour(juce::TextButton::buttonOnColourId, newColour);
         }
     }
     
@@ -645,7 +659,13 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 
 void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channelIndex, const juce::String& channelName)
 {
-    // ================== 全新的、最终的事务逻辑 ==================
+    // ================== 防抖和事务安全的Solo逻辑 ==================
+    
+    // 防抖检查：如果当前正在处理Solo事务，忽略额外的点击
+    static bool isSoloTransactionInProgress = false;
+    if (isSoloTransactionInProgress) return;
+    
+    isSoloTransactionInProgress = true;
     
     // 步骤1: 获取动作前的全局Solo状态
     bool wasAnySoloActive = false;
@@ -686,11 +706,15 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
     // 情况B: 刚刚退出Solo模式 (从有到无)
     if (!isAnySoloNowActive && wasAnySoloActive)
     {
+        // 强制清除所有Solo联动状态，防止快速点击导致的状态残留
+        audioProcessor.clearAllSoloInducedMutes();
+        
         // 恢复到Solo前的状态快照
         if (audioProcessor.hasPreSoloSnapshot())
         {
             audioProcessor.restorePreSoloSnapshot();
             updateChannelButtonStates();
+            isSoloTransactionInProgress = false; // 释放事务锁
             return; // 直接返回，不需要继续执行下面的联动逻辑
         }
     }
@@ -724,8 +748,14 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
             }
         }
     }
+    else 
+    {
+        // 如果没有Solo激活，强制清除所有Solo联动状态
+        audioProcessor.clearAllSoloInducedMutes();
+    }
     
     updateChannelButtonStates();
+    isSoloTransactionInProgress = false; // 释放事务锁
 }
 
 // 立即更新插件配置并通知宿主刷新I/O针脚名

@@ -34,6 +34,8 @@ public:
 
         // 为Solo状态定义一个独特的颜色
         soloColour = juce::Colour(0xff2a8c4a);
+        // 为Mute状态定义一个独特的颜色
+        muteColour = juce::Colour(0xffd13a3a); // 红色，与buttonOnColourId相同但明确
     }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
@@ -65,9 +67,11 @@ public:
     }
 
     juce::Colour getSoloColour() const { return soloColour; }
+    juce::Colour getMuteColour() const { return muteColour; }
 
 private:
     juce::Colour soloColour;
+    juce::Colour muteColour;
 };
 
 //==============================================================================
