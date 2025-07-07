@@ -1,0 +1,222 @@
+Graphics
+
+
+JSFX Programming Reference - Graphics
+Graphics
+
+
+top  Graphics
+
+Effects can specify a @gfx code section, from which the effect can draw its own custom UI and/or analysis display.
+
+These functions and variables must only be used from the @gfx section.
+
+    gfx_set(r[g,b,a,mode,dest]) -- REAPER 4.76+
+    Sets gfx_r/gfx_g/gfx_b to r or r,g,b. gfx_a is set to 1 if not specified. gfx_mode is set to 0 if not specified. gfx_dest is set only if dest is specified.
+
+    gfx_lineto(x,y,aa) -- the aa parameter is optional in REAPER 4.59+
+    Draws a line from gfx_x,gfx_y to x,y. if aa is 0.5 or greater, then antialiasing is used. Updates gfx_x and gfx_y to x,y.
+
+    gfx_line(x,y,x2,y2[,aa]) -- REAPER 4.59+
+    Draws a line from x,y to x2,y2, and if aa is not specified or 0.5 or greater, it will be antialiased.
+
+    gfx_rectto(x,y)
+    Fills a rectangle from gfx_x,gfx_y to x,y. Updates gfx_x,gfx_y to x,y.
+
+    gfx_rect(x,y,w,h) -- REAPER 4.59+
+    Fills a rectngle at x,y, w,h pixels in dimension.
+
+    gfx_setpixel(r,g,b)
+    Writes a pixel of r,g,b to gfx_x,gfx_y.
+
+    gfx_getpixel(r,g,b)
+    Gets the value of the pixel at gfx_x,gfx_y into r,g,b.
+
+    gfx_drawnumber(n,ndigits)
+    Draws the number "n" with "ndigits" of precision to gfx_x, gfx_y, and updates gfx_x to the right side of the drawing. The text height is gfx_texth
+
+    gfx_drawchar($'c')
+    Draws the character 'c' (can be a numeric ASCII code as well), to gfx_x, gfx_y, and moves gfx_x over by the size of the character.
+
+    gfx_drawstr(str[,flags,right,bottom]) -- REAPER 4.59+
+    Draws a string at gfx_x, gfx_y, and updates gfx_x/gfx_y so that subsequent draws will occur in a similar place:
+
+     gfx_drawstr("a"); gfx_drawstr("b");
+
+    will look about the same as:
+
+     gfx_drawstr("ab");
+
+
+    In REAPER 5.30+, flags,right,bottom can be specified to control alignment:
+        flags&1: center horizontally
+        flags&2: right justify
+        flags&4: center vertically
+        flags&8: bottom justify
+        flags&256: ignore right/bottom, otherwise text is clipped to (gfx_x, gfx_y, right, bottom) 
+
+
+    gfx_measurestr(str,w,h) -- REAPER 4.59+
+    Measures the drawing dimensions of a string with the current font (as set by gfx_setfont).
+
+    gfx_setfont(idx[,fontface, sz, flags]) -- REAPER 4.59+
+    Can select a font and optionally configure it. idx=0 for default bitmapped font, no configuration is possible for this font. idx=1..16 for a configurable font, specify fontface such as "Arial", sz of 8-100, and optionally specify flags, which is a multibyte character, which can include 'i' for italics, 'u' for underline, or 'b' for bold. These flags may or may not be supported depending on the font and OS. After calling gfx_setfont, gfx_texth may be updated to reflect the new average line height.
+
+    gfx_getfont() -- REAPER 4.59+
+    Returns current font index.
+
+    gfx_printf(str, ...) -- REAPER 4.59+
+    Formats and draws a string at gfx_x, gfx_y, and updates gfx_x/gfx_y accordingly (the latter only if the formatted string contains newline).
+
+    gfx_blurto(x,y) -- REAPER 2.018+
+    Blurs the region of the screen between gfx_x,gfx_y and x,y, and updates gfx_x,gfx_y to x,y.
+
+    gfx_blit(source, scale, rotation) -- REAPER 2.018+
+    If three parameters are specified, copies the entirity of the source bitmap to gfx_x,gfx_y using current opacity and copy mode (set with gfx_a, gfx_mode). You can specify scale (1.0 is unscaled) and rotation (0.0 is not rotated, angles are in radians).
+
+    For the "source" parameter specify -1 to use the main framebuffer as source, or 0..127 to use the image specified (or PNG file in a filename: line).
+
+    gfx_blit(source, scale, rotation[, srcx, srcy, srcw, srch, destx, desty, destw, desth, rotxoffs, rotyoffs]) -- REAPER 4.59+
+    Srcx/srcy/srcw/srch specify the source rectangle (if omitted srcw/srch default to image size), destx/desty/destw/desth specify dest rectangle (if not specified, these will default to reasonable defaults -- destw/desth default to srcw/srch * scale).
+
+    gfx_blitext(source, coordinatelist, rotation) -- REAPER 2.018+
+    This is a version of gfx_blit which takes many of its parameters via a buffer rather than direct parameters.
+
+    For the "source" parameter specify -1 to use the main framebuffer as source, or 0..127 to use the image specified (or PNG file in a filename: line).
+
+    coordinatelist should be an index to memory where a list of 10 parameters are stored, such as:
+
+     
+      coordinatelist=1000; // use memory slots 1000-1009
+      coordinatelist[0]=source_x;
+      coordinatelist[1]=source_y;
+      coordinatelist[2]=source_w;
+      coordinatelist[3]=source_h;
+      coordinatelist[4]=dest_x;
+      coordinatelist[5]=dest_y;
+      coordinatelist[6]=dest_w;
+      coordinatelist[7]=dest_h;
+      coordinatelist[8]=rotation_x_offset; // only used if rotation is set, represents offset from center of image
+      coordinatelist[9]=rotation_y_offset; // only used if rotation is set, represents offset from center of image
+      gfx_blitext(img,coordinatelist,angle);
+
+
+
+    gfx_getimgdim(image, w, h) -- REAPER 2.018+
+    Retreives the dimensions of image (representing a filename: index number) into w and h. Sets these values to 0 if an image failed loading (or if the filename index is invalid).
+
+    gfx_setimgdim(image, w,h) -- REAPER 4.59+
+    Resize image referenced by index 0..127, width and height must be 0-2048. The contents of the image will be undefined after the resize.
+
+    gfx_loadimg(image, filename) -- REAPER 4.59+
+    Load image from filename (see strings) into slot 0..127 specified by image. Returns the image index if success, otherwise -1 if failure. The image will be resized to the dimensions of the image file.
+
+    gfx_gradrect(x,y,w,h, r,g,b,a[, drdx, dgdx, dbdx, dadx, drdy, dgdy, dbdy, dady]) -- REAPER 4.59+
+    Fills a gradient rectangle with the color and alpha specified. drdx-dadx reflect the adjustment (per-pixel) applied for each pixel moved to the right, drdy-dady are the adjustment applied for each pixel moved toward the bottom. Normally drdx=adjustamount/w, drdy=adjustamount/h, etc.
+
+    gfx_muladdrect(x,y,w,h, mul_r, mul_g, mul_b[, mul_a, add_r, add_g, add_b, add_a]) -- REAPER 4.59+
+    Multiplies each pixel by mul_* and adds add_*, and updates in-place. Useful for changing brightness/contrast, or other effects.
+
+    gfx_deltablit(srcimg,srcx,srcy,srcw,srch, destx, desty, destw, desth, dsdx, dtdx, dsdy, dtdy, dsdxdy, dtdxdy[, usecliprect=1] ) -- REAPER 4.59+
+    Blits from srcimg(srcx,srcy,srcw,srch) to destination (destx,desty,destw,desth). Source texture coordinates are s/t, dsdx represents the change in s coordinate for each x pixel, dtdy represents the change in t coordinate for each y pixel, etc. dsdxdy represents the change in dsdx for each line. In REAPER 5.96+ usecliprect=0 can be specified as an additional parameter.
+
+    gfx_transformblit(srcimg, destx, desty, destw, desth, div_w, div_h, table) -- REAPER 4.59+
+    Blits to destination at (destx,desty), size (destw,desth). div_w and div_h should be 2..64, and table should point to a table of 2*div_w*div_h values (this table must not cross a 65536 item boundary). Each pair in the table represents a S,T coordinate in the source image, and the table is treated as a left-right, top-bottom list of texture coordinates, which will then be rendered to the destination.
+
+    gfx_circle(x,y,r[,fill,antialias]) -- REAPER 4.60+
+    Draws a circle, optionally filling/antialiasing.
+
+    gfx_roundrect(x,y,w,h,radius[,antialias]) -- REAPER 4.60+
+    Draws a rectangle with rounded corners.
+
+    gfx_arc(x,y,r, ang1, ang2[,antialias]) -- REAPER 4.60+
+    Draws an arc of the circle centered at x,y, with ang1/ang2 being specified in radians.
+
+    gfx_triangle(x1,y1,x2,y2,x3,y3[,x4,y4,...]) -- REAPER 5.0+
+    Fills a triangle (or a convex polygon if more than 3 pairs of coordinates are specified).
+
+    gfx_getchar([char, unicodechar]) -- REAPER 4.60+, unicodechar requires REAPER 6.74+
+    If no parameter or zero is passed, returns a character from the plug-in window's keyboard queue. The return value will be less than 1 if no value is available. Note that calling gfx_getchar() at least once causes mouse_cap to reflect keyboard modifiers even when the mouse is not captured.
+
+    If char is passed and nonzero, returns whether that key is currently down.
+
+    Common values are standard ASCII, such as 'a', 'A', '=' and '1', but for many keys multi-byte values are used, including 'home', 'up', 'down', 'left', 'rght', 'f1'.. 'f12', 'pgup', 'pgdn', 'ins', and 'del'.
+
+    If the user has the "send all keyboard input to plug-in" option set, then many modified and special keys will be returned, including:
+        Ctrl/Cmd+A..Ctrl+Z as 1..26
+        Ctrl/Cmd+Alt+A..Z as 257..282,
+        Alt+A..Z as 'A'+256..'Z'+256
+        27 for ESC
+        13 for Enter
+        ' ' for space 
+
+    The plug-in can specify a line (before code sections):
+
+    options:want_all_kb
+
+    which will change the "send all keyboard input to plug-in" option to be on by default for new instances of the plug-in. -- REAPER 4.6+
+
+    In REAPER 5.96+, gfx_getchar(65536) returns a mask of special window information flags: 1 is set if supported, 2 is set if window has focus, 4 is set if window is visible.
+
+    In REAPER 6.74+, non-ASCII unicode characters are returned as: ('u'<<24) | unicode_value. You can also pass unicodechar as a second parameter (passing 0 as the first parameter), and if a non-ASCII unicode character is pressed, unicodechar will be set to unicode value directly.
+
+    gfx_showmenu("str") -- REAPER 4.76+
+    Shows a popup menu at gfx_x,gfx_y. str is a list of fields separated by | characters. Each field represents a menu item. Fields can start with special characters:
+        # : grayed out
+        ! : checked
+        > : this menu item shows a submenu
+        < : last item in the current submenu 
+    An empty field will appear as a separator in the menu. gfx_showmenu returns 0 if the user selected nothing from the menu, 1 if the first field is selected, etc.
+
+    Example:
+
+    gfx_showmenu("first item, followed by separator||!second item, checked|>third item which spawns a submenu|#first item in submenu, grayed out|<second and last item in submenu|fourth item in top menu")
+
+    gfx_setcursor(resource_id[,"custom cursor name"]) -- REAPER 4.76+
+    Sets the mouse cursor. resource_id is a value like 32512 (for an arrow cursor), custom_cursor_name is a string description (such as \"arrow\") that will be override the resource_id, if available. In either case resource_id should be nonzero.
+
+    gfx_r, gfx_g, gfx_b, gfx_a
+    These represent the current red, green, blue, and alpha components used by drawing operations (0.0..1.0).
+
+    gfx_w, gfx_h
+    These are set to the current width and height of the UI framebuffer.
+
+    gfx_x, gfx_y
+    These set the "current" graphics position in x,y. You can set these yourselves, and many of the drawing functions update them as well.
+
+    gfx_mode
+    Set to 0 for default options. Add 1.0 for additive blend mode (if you wish to do subtractive, set gfx_a to negative and use gfx_mode as additive). Add 2.0 to disable source alpha for gfx_blit(). Add 4.0 to disable filtering for gfx_blit().
+
+    gfx_clear
+    If set to a value greater than -1.0, this will result in the framebuffer being cleared to that color. the color for this one is packed RGB (0..255), i.e. red+green*256+blue*65536. The default is 0 (black).
+
+    gfx_dest -- REAPER 4.59+
+    Defaults to -1, set to 0..127 to have drawing operations go to an offscreen buffer (or loaded image).
+
+    gfx_texth
+    Set to the height of a line of text in the current font. Do not modify this variable.
+
+    gfx_ext_retina
+    To support hidpi/retina, callers should set to 1.0 on initialization, this value will be updated to value greater than 1.0 (such as 2.0) if retina/hidpi. On macOS gfx_w/gfx_h/etc will be doubled, but on other systems gfx_w/gfx_h will remain the same and gfx_ext_retina is a scaling hint for drawing.
+
+    gfx_ext_flags
+    The low bit (1) will be set in this if the JSFX is embedded in TCP/MCP -- REAPER 6.30+
+    The 2 will be set in this if the JSFX is running in an idle context (implies options:gfx_idle or options:gfx_idle_only is set) -- REAPER 6.44+
+
+    mouse_x, mouse_y
+    mouse_x and mouse_y are set to the coordinates of the mouse within the graphics area of the window.
+
+    mouse_cap
+    A bitfield of mouse and keyboard modifier state. Note that a script must call gfx_getchar() at least once in order to get modifier state when the mouse is not captured by the window. Bitfield bits:
+        1: left mouse button
+        2: right mouse button
+        4: Control key (Windows), Command key (OSX)
+        8: Shift key
+        16: Alt key (Windows), Option key (OSX)
+        32: Windows key (Windows), Control key (OSX) -- REAPER 4.60+
+        64: middle mouse button -- REAPER 4.60+ 
+
+
+    mouse_wheel, mouse_hwheel -- REAPER 4.60+
+    mouse wheel (and horizontal wheel) positions. These will change typically by 120 or a multiple thereof, the caller should clear the state to 0 after reading it. 
+

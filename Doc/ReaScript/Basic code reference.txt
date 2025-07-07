@@ -1,0 +1,234 @@
+Basic code reference
+
+
+JSFX Programming Reference - Language Essentials
+Basic code reference
+Operator reference
+Simple math functions
+Loops
+Time functions
+
+
+top  Basic code reference
+
+The core of JSFX is custom code written in a simple language (called EEL2), which has many similarities to C. Code is written in one or more of the numerous code sections. Some basic features of this language are:
+
+    Variables do not need to be declared, are by default global to the effect, and are all double-precision floating point.
+    Variable names are NOT case sensitive, so a and A refer to the same variable.
+    Variable names may begin with a _, a-z, or A-Z, and can contain numbers after one of those characters.
+    The maximum variable name length is 127 characters.
+    Variable names can also contain . characters, though this is used for namespaced pseudo-objects.
+    There are a few predefined constant variables: $pi, $phi, and $e.
+    Basic operations including addition (+), subtraction (-), multiplication (*), division (/), and exponential (^)
+    Bitwise operations including OR (|), AND (&), XOR (~), shift-left (<<), and shift-right-sign-extend (>>). These all convert to integer for calculation.
+    Parentheses "(" and ")" can be used to clarify precedence, contain parameters for functions, and collect multiple statements into a single statement.
+    A semicolon ";" is used to separate statements from eachother (including within parentheses).
+    A virtual local address space of about 8 million words, which can be accessed via brackets "[" and "]".
+    A shared global address space of about 1 million words, accessed via gmem[]. These words are shared between all JSFX plug-in instances.
+    Shared global named variables, accessible via the "_global." prefix. These variables are shared between all JSFX plug-in instances.
+    User definable functions, which can define private variables, parameters, and also can optionally access namespaced instance variables.
+    Numbers are in normal decimal, however if you prefix an '$x' to them, they will be hexadecimal (i.e. $x90, $xDEADBEEF, etc). -- (REAPER v4.25+ can also take traditional C syntax, i.e. 0x90)
+    You may specify the ASCII value of a character using $'c' (where c is the character).
+    If you wish to generate a mask of 1 bits in integer, you can use $~X, for example $~7 is 127, $~8 is 255, $~16 is 65535, etc.         -- REAPER 4.25+.
+    Comments can be specified using:
+        // comments to end of line
+        /* comments block of code that span lines or be part of a line */ 
+
+top  Operator reference
+
+Listed from highest precedence to lowest (but one should use parentheses whenever there is doubt!):
+
+    [ ]
+
+        z=x[y]; 
+        x[y]=z;
+
+    You may use brackets to index into memory that is local to your effect. Your effect has approximately 8 million (8,388,608) slots of memory and you may access them either with fixed offsets (i.e. 16811[0]) or with variables (myBuffer[5]). The sum of the value to the left of the brackets and the value within the brackets is used to index memory. If a value in the brackets is omitted then only the value to the left of the brackets is used.
+
+    Note: due to legacy reasons, the summed address is rounded unconventionally (value + 0.00001, truncated to integer). If using fractional values to index a array, you may wish to manually truncate them to integer, e.g.:
+
+        x[y|0] = z
+
+    ...if y is not an integer.
+
+    If 'gmem' is specified as the left parameter to the brackets, then the global shared buffer is used, which by default is approximately 1 million (1,048,576) slots that are shared across all instances of all JSFX effects:
+
+        z=gmem[y]; 
+        gmem[y]=z;
+
+    The plug-in can also specify a line (before code sections):
+
+    options:gmem=someUniquelyNamedSpace
+
+    which will make gmem[] refer to a larger shared buffer, accessible by any plugin that uses options:gmem=<the same name>. So, if you have a single plug-in, or a few plug-ins that access the shared namespace, they can communicate without having to worry about other plug-ins. This option also increases the size of gmem[] to be 8 million entries (from the default 1 million). -- REAPER 4.6+
+
+    !value -- returns the logical NOT of the parameter (if the parameter is 0.0, returns 1.0, otherwise returns 0.0).
+    -value -- returns value with a reversed sign (-1 * value).
+    +value -- returns value unmodified.
+
+    base ^ exponent -- returns the first parameter raised to the power of the second parameter. This is also available the function pow(x,y)
+
+    numerator % denominator -- converts the absolute values of numerator and denominator to integers (may be 32-bit or 64-bit integers depending on platform/OS/etc), returns the remainder of numerator divided by denominator.
+
+    value << shift_amt -- converts both values to 32 bit integers, bitwise left shifts the first value by the second. Note that shifts by more than 32 or less than 0 produce undefined results. -- REAPER 4.111+
+
+    value >> shift_amt -- converts both values to 32 bit integers, bitwise right shifts the first value by the second, with sign-extension (negative values of y produce non-positive results). Note that shifts by more than 32 or less than 0 produce undefined results. -- REAPER 4.111+
+
+    value / divisor -- divides two values and returns the quotient.
+
+    value * another_value -- multiplies two values and returns the product.
+
+    value - another_value -- subtracts two values and returns the difference.
+
+    value + another_value -- adds two values and returns the sum.
+
+    Note: the relative precedence of |, &, and ~ are equal, meaning a mix of these operators is evaluated left-to-right (which is different from other languages and may not be as expected). Use parentheses when mixing these operators.
+    a | b -- converts both values to integers (may be 32-bit or 64-bit integers depending on platform/OS/etc), and returns bitwise OR of values.
+    a & b -- converts both values to integers (may be 32-bit or 64-bit integers depending on platform/OS/etc), and returns bitwise AND of values.
+    a ~ b -- converts both values to integers (may be 32-bit or 64-bit integers depending on platform/OS/etc), bitwise XOR the values. -- REAPER 4.25+
+
+    value1 == value2 -- compares two values, returns 1 if difference is less than 0.00001, 0 if not.
+    value1 === value2 -- compares two values, returns 1 if exactly equal, 0 if not. -- REAPER 4.53+
+    value1 != value2 -- compares two values, returns 0 if difference is less than 0.00001, 1 if not.
+    value1 !== value2 -- compares two values, returns 0 if exactly equal, 1 if not. -- REAPER 4.53+
+    value1 < value2 -- compares two values, returns 1 if first parameter is less than second.
+    value1 > value2 -- compares two values, returns 1 if first parameter is greater than second.
+    value1 <= value2 -- compares two values, returns 1 if first is less than or equal to second.
+    value1 >= value2 -- compares two values, returns 1 if first is greater than or equal to second.
+
+    Note: the relative precedence of || and && are equal, meaning a mix of these operators is evaluated left-to-right (which is different from other languages and may not be as expected). Use parentheses when mixing these operators.
+    y || z -- returns logical OR of values. If 'y' is nonzero, 'z' is not evaluated.
+    y && z -- returns logical AND of values. If 'y' is zero, 'z' is not evaluated.
+
+    y ? z      -- how conditional branching is done -- similar to C's if/else
+    y ? z : x
+
+    If y is non-zero, executes and returns z, otherwise executes and returns x (or 0.0 if ': x' is not specified).
+
+    Note that the expressions used can contain multiple statements within parentheses, such as:
+
+     
+          x % 5 ? (
+            f += 1;
+            x *= 1.5;
+          ) : (
+            f=max(3,f);
+            x=0;
+          );
+
+    y = z -- assigns the value of 'z' to 'y'. 'z' can be a variable or an expression.
+    y *= z -- multiplies two values and stores the product back into 'y'.
+    y /= divisor -- divides two values and stores the quotient back into 'y'.
+    y %= divisor -- converts the absolute values of y and divisor to integers (may be 32-bit or 64-bit integers depending on platform/OS/etc), returns and sets y to the remainder of y divided by divisor.
+    base ^= exponent -- raises first parameter to the second parameter-th power, saves back to 'base'
+    y += z -- adds two values and stores the sum back into 'y'.
+    y -= z -- subtracts 'z' from 'y' and stores the difference into 'y'.
+    y |= z -- converts both values to integer, and stores the bitwise OR into 'y'
+    y &= z -- converts both values to integer, and stores the bitwise AND into 'y'
+    y ~= z -- converts both values to integer, and stores the bitwise XOR into 'y' -- REAPER 4.25+ 
+
+
+
+Some key notes about the above, especially for C programmers:
+
+    ( and ) (vs { } ) -- enclose multiple statements, and the value of that expression is the last statement within the block:
+
+         z = (
+           a = 5; 
+           b = 3; 
+           a+b;
+         ); // z will be set to 8, for example
+      
+
+    Conditional branching is done using the ? or ? : operator, rather than if()/else.
+
+       a < 5 ? b = 6; // if a is less than 5, set b to 6
+       a < 5 ? b = 6 : c = 7; // if a is less than 5, set b to 6, otherwise set c to 7
+       a < 5 ? ( // if a is less than 5, set b to 6 and c to 7
+         b = 6;
+         c = 7;
+       );
+
+    The ? and ?: operators can also be used as the lvalue of expressions:
+
+       (a < 5 ? b : c) = 8; // if a is less than 5, set b to 8, otherwise set c to 8
+
+
+
+top  Simple math functions
+
+    sin(angle) -- returns the Sine of the angle specified (specified in radians -- to convert from degrees to radians, multiply by $pi/180, or 0.017453)
+    cos(angle) -- returns the Cosine of the angle specified (specified in radians).
+    tan(angle) -- returns the Tangent of the angle specified (specified in radians).
+    asin(x) -- returns the Arc Sine of the value specified (return value is in radians).
+    acos(x) -- returns the Arc Cosine of the value specified (return value is in radians).
+    atan(x) -- returns the Arc Tangent of the value specified (return value is in radians).
+    atan2(x,y) -- returns the Arc Tangent of x divided by y (return value is in radians).
+    sqr(x) -- returns the square of the parameter (similar to x*x, though only evaluating x once).
+    sqrt(x) -- returns the square root of the parameter.
+    pow(x,y) -- returns the first parameter raised to the second parameter-th power. Identical in behavior and performance to the ^ operator.
+    exp(x) -- returns the number e (approx 2.718) raised to the parameter-th power. This function is significantly faster than pow() or the ^ operator
+    log(x) -- returns the natural logarithm (base e) of the parameter.
+    log10(x) -- returns the logarithm (base 10) of the parameter.
+    abs(x) -- returns the absolute value of the parameter.
+    min(x,y) -- returns the minimum value of the two parameters.
+    max(x,y) -- returns the maximum value of the two parameters.
+    sign(x) -- returns the sign of the parameter (-1, 0, or 1).
+    rand(x) -- returns a psuedorandom number between 0 and the parameter.
+    floor(x) -- rounds the value to the lowest integer possible (floor(3.9)==3, floor(-3.1)==-4).
+    ceil(x) -- rounds the value to the highest integer possible (ceil(3.1)==4, ceil(-3.9)==-3).
+    invsqrt(x) -- returns a fast inverse square root (1/sqrt(x)) approximation of the parameter. 
+
+
+
+top  Loops
+
+Looping is supported in JSFX via the following functions:
+
+    loop(count,code)
+
+          loop(32, 
+             r += b;
+             b = var * 1.5;
+          );
+        
+
+    Evaluates the first parameter once in order to determine a loop count. If the loop count is less than 1, the second parameter is not evaluated.
+    Be careful with specifying large values for the first parameter -- it is possible to hang your effect for long periods of time. In the interest of avoiding common runtime hangs, the loop count will be limited to approximately 1,000,000: if you need a loop with more iterations, you may wish to reconsider your design (or as a last resort, nest loops).
+
+    The first parameter is only evaluated once (so modifying it within the code will have no effect on the number of loops). For a loop of indeterminate length, see while() below.
+
+    while(code)
+
+           while(
+             a += b;
+             b *= 1.5;
+             a < 1000; // as long as a is below 1000, we go again.
+           );
+        
+
+    Evaluates the first parameter until the last statement in the code block evaluates to zero.
+
+    In the interest of avoiding common runtime hangs, the loop count will be limited to approximately 1,000,000: if you need a loop with more iterations, you may wish to reconsider your design (or as a last resort, nest loops).
+
+    while(condition) ( code ) -- REAPER 4.59+
+
+           while ( a < 1000 ) (
+             a += b;
+             b *= 1.5;
+           );
+        
+
+    Evaluates the parameter, and if nonzero, evaluates the following code block, and repeats. This is similar to a C style while() construct.
+
+    In the interest of avoiding common runtime hangs, the repeat count will be limited to approximately 1,000,000: if you need a loop with more iterations, you may wish to reconsider your design (or as a last resort, nest loops).
+
+
+
+top  Time functions
+
+    time([v]) -- REAPER 4.60+
+    Returns the current time as seconds since January 1, 1970. 1 second granularity. If a parameter is specified, it will be set to the timestamp.
+
+    time_precise([v]) -- REAPER 4.60+
+    Returns a system-specific timestamp in seconds. Granularity is system-defined, but generally much less than 1 millisecond. Useful for benchmarking. If a parameter is specified, it will be set to the timestamp. 

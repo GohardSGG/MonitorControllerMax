@@ -69,6 +69,43 @@
 
 *   **UI状态显示的最终原则：** 插件UI上任何按钮的颜色（绿/红），都**必须**忠实地反映其**背后参数的真实状态**。当用户Solo主声道时，SUB通道的状态不会被自动改变，因此其按钮颜色也应维持不变。
 
+**E. 宿主集成与动态显示 (Host Integration & Dynamic Display) - 当前主要目标**
+为了提供顶级的用户体验和无缝的DAW集成，插件将实现动态名称显示功能。**这是当前开发的核心目标。**
+
+**目标1：动态VST3插件参数名**
+*   **目的:** 当DAW界面从插件GUI切换到纯参数列表模式时，参数名称应该动态反映当前音箱布局
+*   **实现:** 通过正确重写JUCE AudioProcessor的虚函数`getParameterName(int index)`
+*   **效果:** DAW参数列表中显示"Mute LFE"、"Solo C"等清晰名称，而非"Mute 1"、"Solo 3"
+
+**目标2：动态插件输入输出针脚名 (阶段1优先实现)**  
+*   **目的:** 在DAW的I/O连接矩阵或路由界面中显示有意义的通道名称
+*   **实现:** 通过正确重写JUCE AudioProcessor的虚函数`getInputChannelName(int channelIndex)`和`getOutputChannelName(int channelIndex)`
+*   **效果:** I/O矩阵中显示"LFE"、"L"、"R"等声道名称，而非"Input 4"、"Output 1"
+*   **动态响应:** 随着DAW轨道大小变化→插件总线大小变化→插件配置切换而自动更新针脚名称
+
+**技术要点:**
+*   必须在布局切换时调用`updateHostDisplay()`通知DAW刷新名称
+*   函数需要将物理通道索引映射到当前布局的逻辑通道信息
+*   对于未映射的通道索引，应返回合理的默认名称
+
+### **F. 关键Bug修复：Solo功能的UI和逻辑问题**
+
+**发现的问题:**
+当前版本存在Solo功能的严重问题，影响用户体验和功能正确性。
+
+**问题1：Solo主按钮UI状态更新延迟**
+*   **现象:** Solo主按钮点击后功能激活，但按钮颜色不会立即变绿，需要额外点击某个通道按钮才会更新颜色
+*   **原因分析:** `updateChannelButtonStates`函数的调用时机有问题，或者主按钮的状态计算逻辑有误
+*   **影响:** 用户无法直观地确认Solo状态，导致操作困惑
+
+**问题2：Solo撤销时Mute状态恢复失败**
+*   **现象:** 当有通道激活solo时，点击solo主按钮可以正确去除所有solo状态，但之前因为solo而自动mute的通道没有恢复到原始状态，继续保持mute
+*   **原因分析:** "独奏前状态"缓存(`preSoloMuteStates`)的恢复逻辑有问题，可能在撤销所有solo时没有正确执行状态恢复
+*   **影响:** 破坏了用户的原始Mute配置，需要手动逐个恢复通道状态
+
+**修复优先级:**
+这些问题严重影响插件的基本可用性，必须在实现新功能之前优先修复。
+
 **B. 状态管理与联动逻辑的最终范式：UI驱动的"事务"模型**
 
 这是对先前方案的最终优化，旨在解决在`parameterChanged`中处理联动逻辑所带来的**递归、性能和状态覆盖**三大风险。
@@ -140,6 +177,41 @@
 
 *   **步骤 3.7: 实现自定义视觉风格 (`CustomLookAndFeel` in `PluginEditor.h`)**: 定义颜色和按钮形状。
 
+#### **第八阶段：动态宿主显示实现 (当前优先目标)**
+
+*   **目标：** 实现动态VST3参数名和I/O针脚名，提升DAW集成体验。
+
+*   **步骤 8.1: 修复错误的函数签名并声明正确的虚函数重写 (`PluginProcessor.h`)**:
+    *   **动作:** 修复当前代码中错误的getParameterName签名，并添加缺失的I/O通道名函数
+    *   **发现的问题:** 当前代码错误地使用了`getParameterName(int parameterIndex, int maximumStringLength)`，这不是正确的JUCE虚函数签名
+    *   **修复要点:**
+        1.  **移除错误的:** `juce::String getParameterName(int parameterIndex, int maximumStringLength) override;`
+        2.  **JUCE使用的是APVTS系统:** 对于使用AudioProcessorValueTreeState的插件，参数名称通过参数创建时的ID自动处理
+        3.  **添加缺失的I/O函数:** 
+           - `const String getInputChannelName(int channelIndex) const override;`
+           - `const String getOutputChannelName(int channelIndex) const override;`
+        4.  **关键理解:** 现代JUCE插件通过APVTS的参数ID（如"MUTE_LFE"）来实现动态参数名，而不是重写getParameterName
+
+*   **步骤 8.2: 实现动态参数名 - 重新设计方案 (`PluginProcessor.cpp`)**:
+    *   **新的理解:** JUCE APVTS系统中，参数名称来自createParameterLayout()中的参数创建时指定的名称
+    *   **正确的实现方案:**
+        1.  **修改createParameterLayout():** 在创建参数时动态生成参数名称，而不是使用固定的"MUTE_1"等ID
+        2.  **布局切换时重建参数:** 当切换布局时，需要重新创建AudioProcessorValueTreeState以使用新的参数名称
+        3.  **或者使用参数名称映射:** 在参数创建时使用描述性名称，通过参数的displayName属性实现动态显示
+
+*   **步骤 8.3: 实现动态I/O通道名 (`PluginProcessor.cpp`)**:
+    *   **动作:** 实现getInputChannelName和getOutputChannelName函数
+    *   **实现要点:**
+        1.  根据物理通道索引在当前Layout中查找对应的ChannelInfo
+        2.  返回通道名称（如"LFE"）或默认名称（如"Channel 4"）
+        3.  确保输入和输出使用相同的映射逻辑
+
+*   **步骤 8.4: 添加宿主通知机制 (`PluginProcessor.cpp`)**:
+    *   **动作:** 在setCurrentLayout函数末尾添加updateHostDisplay()调用
+    *   **实现要点:**
+        1.  在布局切换完成后调用updateHostDisplay()
+        2.  确保DAW能及时刷新参数和I/O名称显示
+
 #### **第四阶段：编译、测试与交付**
 
 *   **目标：** 确保插件在所有场景下都表现稳定、符合预期。
@@ -148,3 +220,4 @@
     2.  **布局与功能测试：** 在DAW中，切换不同的Speaker和SUB配置，验证UI布局、Mute/Solo/Gain功能是否完全正确。
     3.  **主从模式测试：** 在DAW中加载两个实例，测试连接、角色分配、状态同步、从插件UI锁定等功能是否正常。
     4.  **特殊场景测试：** 严格测试文档中描述的所有Solo场景（只solo主、只solo sub、混合solo），确保音频处理逻辑与预期完全一致。
+    5.  **动态命名测试:** 在多个DAW中（如Reaper, Cubase, Pro Tools），验证切换布局后，参数列表和I/O针脚的名称是否都能正确刷新。

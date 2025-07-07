@@ -49,6 +49,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalSoloButton.setClickingTogglesState(true);
     globalSoloButton.onClick = [this]
     {
+        // 检查当前是否有任何Solo通道激活
         bool anySoloActive = false;
         for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
         {
@@ -61,19 +62,31 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
 
         if (anySoloActive)
         {
+            // 如果有Solo激活，执行"一键取消"操作
+            // 需要先恢复preSoloMuteStates中缓存的Mute状态
+            for (auto const& [paramId, wasMuted] : preSoloMuteStates)
+            {
+                audioProcessor.apvts.getParameter(paramId)->setValueNotifyingHost(wasMuted ? 1.0f : 0.0f);
+            }
+            preSoloMuteStates.clear();
+            
+            // 然后清除所有Solo状态
             for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
             {
                 audioProcessor.apvts.getParameter("SOLO_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
             }
-            globalSoloButton.setToggleState(false, juce::sendNotification);
+            
             currentUIMode = UIMode::Normal;
         }
         else
         {
+            // 如果没有Solo激活，进入Solo分配模式
             currentUIMode = globalSoloButton.getToggleState() ? UIMode::AssignSolo : UIMode::Normal;
             if (currentUIMode == UIMode::AssignSolo)
                 globalMuteButton.setToggleState(false, juce::sendNotification);
         }
+        
+        // 立即更新UI状态显示
         updateChannelButtonStates();
     };
     
@@ -343,6 +356,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 
     if (anySoloEngaged)
     {
+        // 当有Solo通道激活时，主按钮显示为激活状态（绿色）
         globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
         globalSoloButton.setToggleState(true, juce::dontSendNotification);
     }
