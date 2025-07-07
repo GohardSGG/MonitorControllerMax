@@ -68,10 +68,12 @@ public:
     // 设置UI更新回调
     void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
     
-    // 真正手动Mute状态管理 - 区分手动mute和solo联动mute
+    // Mute状态分类管理 - 区分手动mute和solo联动mute
     void setManualMuteState(const juce::String& paramId, bool isManuallyMuted);
     bool isManuallyMuted(const juce::String& paramId) const;
-    void clearAllManualMuteFlags();
+    void setSoloInducedMuteState(const juce::String& paramId, bool isSoloInduced);
+    bool isSoloInducedMute(const juce::String& paramId) const;
+    void clearAllSoloInducedMutes();
     
 
     //==============================================================================
@@ -134,6 +136,9 @@ private:
     
     // 记录哪些Mute是真正手动激活的（而不是Solo联动产生的）
     std::set<juce::String> manualMuteStates;
+    
+    // 记录哪些Mute是Solo联动产生的（用于全局状态管理）
+    std::set<juce::String> soloInducedMuteStates;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

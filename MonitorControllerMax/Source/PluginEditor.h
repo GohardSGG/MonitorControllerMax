@@ -123,8 +123,6 @@ private:
 
     CustomLookAndFeel customLookAndFeel;
 
-    // 用于在Solo操作前缓存Mute状态 - 简化版本不持久化
-    std::map<juce::String, bool> preSoloMuteStates;
     
     // 用于检测总线布局变化
     int lastKnownChannelCount = 0;

@@ -275,6 +275,17 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
         state.appendChild(manualMuteChild, nullptr);
     }
     
+    // 添加Solo联动Mute标记到状态树中
+    if (!soloInducedMuteStates.empty())
+    {
+        auto soloInducedChild = juce::ValueTree("SoloInducedMuteStates");
+        for (const auto& paramId : soloInducedMuteStates)
+        {
+            soloInducedChild.setProperty(paramId, true, nullptr);
+        }
+        state.appendChild(soloInducedChild, nullptr);
+    }
+    
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
 }
@@ -300,6 +311,18 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
                 {
                     auto propName = manualMuteChild.getPropertyName(i);
                     manualMuteStates.insert(propName.toString());
+                }
+            }
+            
+            // 恢复Solo联动Mute标记
+            auto soloInducedChild = state.getChildWithName("SoloInducedMuteStates");
+            if (soloInducedChild.isValid())
+            {
+                soloInducedMuteStates.clear();
+                for (int i = 0; i < soloInducedChild.getNumProperties(); ++i)
+                {
+                    auto propName = soloInducedChild.getPropertyName(i);
+                    soloInducedMuteStates.insert(propName.toString());
                 }
             }
         }
@@ -505,9 +528,31 @@ bool MonitorControllerMaxAudioProcessor::isManuallyMuted(const juce::String& par
     return manualMuteStates.find(paramId) != manualMuteStates.end();
 }
 
-void MonitorControllerMaxAudioProcessor::clearAllManualMuteFlags()
+void MonitorControllerMaxAudioProcessor::setSoloInducedMuteState(const juce::String& paramId, bool isSoloInduced)
 {
-    manualMuteStates.clear();
+    if (isSoloInduced)
+        soloInducedMuteStates.insert(paramId);
+    else
+        soloInducedMuteStates.erase(paramId);
+}
+
+bool MonitorControllerMaxAudioProcessor::isSoloInducedMute(const juce::String& paramId) const
+{
+    return soloInducedMuteStates.find(paramId) != soloInducedMuteStates.end();
+}
+
+void MonitorControllerMaxAudioProcessor::clearAllSoloInducedMutes()
+{
+    // 清除所有Solo联动的Mute状态
+    for (const auto& paramId : soloInducedMuteStates)
+    {
+        auto* muteParam = apvts.getParameter(paramId);
+        if (muteParam && muteParam->getValue() > 0.5f)
+        {
+            muteParam->setValueNotifyingHost(0.0f);
+        }
+    }
+    soloInducedMuteStates.clear();
 }
 
 

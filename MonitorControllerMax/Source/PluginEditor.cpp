@@ -63,16 +63,8 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         if (anySoloActive)
         {
             // 如果有Solo激活，执行"一键取消"操作
-            // 只恢复非手动Mute的状态，保留手动Mute
-            for (const auto& pair : preSoloMuteStates)
-            {
-                // 只有不是手动Mute的通道才恢复原状态
-                if (!audioProcessor.isManuallyMuted(pair.first))
-                {
-                    audioProcessor.apvts.getParameter(pair.first)->setValueNotifyingHost(pair.second ? 1.0f : 0.0f);
-                }
-            }
-            preSoloMuteStates.clear();
+            // 直接使用处理器的全局清除功能
+            audioProcessor.clearAllSoloInducedMutes();
             
             // 然后清除所有Solo状态
             for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
@@ -533,36 +525,14 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
 
     // --- 事务处理 ---
 
-    // 情况A: 刚刚进入Solo模式 (从无到有)
-    if (isAnySoloNowActive && !wasAnySoloActive)
-    {
-        preSoloMuteStates.clear();
-        for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-        {
-            if (!chanInfo.name.startsWith("SUB")) // 只缓存主声道
-            {
-                auto muteParamId = "MUTE_" + juce::String(chanInfo.channelIndex + 1);
-                preSoloMuteStates[muteParamId] = audioProcessor.apvts.getRawParameterValue(muteParamId)->load() > 0.5f;
-            }
-        }
-    }
-
     // 情况B: 刚刚退出Solo模式 (从有到无)
     if (!isAnySoloNowActive && wasAnySoloActive)
     {
-        // 只恢复非手动Mute的状态，保留手动Mute
-        for (const auto& pair : preSoloMuteStates)
-        {
-            // 只有不是手动Mute的通道才恢复原状态
-            if (!audioProcessor.isManuallyMuted(pair.first))
-            {
-                audioProcessor.apvts.getParameter(pair.first)->setValueNotifyingHost(pair.second ? 1.0f : 0.0f);
-            }
-        }
-        preSoloMuteStates.clear();
+        // 使用处理器的全局清除功能，自动处理Solo联动Mute
+        audioProcessor.clearAllSoloInducedMutes();
     }
 
-    // 步骤4: 统一应用Solo联动Mute规则（不覆盖手动Mute）
+    // 步骤4: 统一应用Solo联动Mute规则（使用全局状态管理）
     if (isAnySoloNowActive)
     {
         for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
@@ -577,13 +547,17 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
                 {
                     // 只有不是手动Mute的才由Solo联动控制
                     if (!audioProcessor.isManuallyMuted(muteParamId))
+                    {
                         muteP->setValueNotifyingHost(1.0f); // 就强制mute
+                        audioProcessor.setSoloInducedMuteState(muteParamId, true); // 标记为Solo联动Mute
+                    }
                 }
                 else // 如果被solo
                 {
                     // 被Solo的通道解除Mute（无论是否手动）
                     muteP->setValueNotifyingHost(0.0f);
-                    // 如果之前是手动Mute，现在被Solo了，就清除手动标记
+                    // 清除各种标记
+                    audioProcessor.setSoloInducedMuteState(muteParamId, false);
                     if (audioProcessor.isManuallyMuted(muteParamId))
                         audioProcessor.setManualMuteState(muteParamId, false);
                 }
