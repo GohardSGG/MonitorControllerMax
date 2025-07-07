@@ -63,12 +63,13 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         if (anySoloActive)
         {
             // 如果有Solo激活，执行"一键取消"操作
-            // 需要先恢复preSoloMuteStates中缓存的Mute状态
-            for (auto const& [paramId, wasMuted] : preSoloMuteStates)
+            // 需要先恢复处理器中缓存的Mute状态
+            auto savedStates = audioProcessor.getPreSoloMuteStates();
+            for (auto const& [paramId, wasMuted] : savedStates)
             {
                 audioProcessor.apvts.getParameter(paramId)->setValueNotifyingHost(wasMuted ? 1.0f : 0.0f);
             }
-            preSoloMuteStates.clear();
+            audioProcessor.clearPreSoloMuteStates();
             
             // 然后清除所有Solo状态
             for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
@@ -527,26 +528,28 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
     // 情况A: 刚刚进入Solo模式 (从无到有)
     if (isAnySoloNowActive && !wasAnySoloActive)
     {
-        preSoloMuteStates.clear();
+        std::map<juce::String, bool> newPreSoloStates;
         for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
         {
             if (!chanInfo.name.startsWith("SUB")) // 只缓存主声道
             {
                 auto muteParamId = "MUTE_" + juce::String(chanInfo.channelIndex + 1);
-                preSoloMuteStates[muteParamId] = audioProcessor.apvts.getRawParameterValue(muteParamId)->load() > 0.5f;
+                newPreSoloStates[muteParamId] = audioProcessor.apvts.getRawParameterValue(muteParamId)->load() > 0.5f;
             }
         }
+        audioProcessor.setPreSoloMuteStates(newPreSoloStates);
     }
 
     // 情况B: 刚刚退出Solo模式 (从有到无)
     if (!isAnySoloNowActive && wasAnySoloActive)
     {
         // 恢复所有主声道的Mute状态
-        for (auto const& [paramId, wasMuted] : preSoloMuteStates)
+        auto savedStates = audioProcessor.getPreSoloMuteStates();
+        for (auto const& [paramId, wasMuted] : savedStates)
         {
             audioProcessor.apvts.getParameter(paramId)->setValueNotifyingHost(wasMuted ? 1.0f : 0.0f);
         }
-        preSoloMuteStates.clear();
+        audioProcessor.clearPreSoloMuteStates();
     }
 
     // 步骤4: 统一应用Solo联动Mute规则

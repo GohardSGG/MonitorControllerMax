@@ -65,6 +65,11 @@ public:
     
     // 设置UI更新回调
     void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
+    
+    // Solo前Mute状态管理 - 用于解决插件重载后状态丢失问题
+    void setPreSoloMuteStates(const std::map<juce::String, bool>& states);
+    std::map<juce::String, bool> getPreSoloMuteStates() const;
+    void clearPreSoloMuteStates();
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -123,6 +128,9 @@ private:
     std::array<std::atomic<float>*, 26> muteParams{};
     std::array<std::atomic<float>*, 26> soloParams{};
     std::array<std::atomic<float>*, 26> gainParams{};
+    
+    // Solo前的Mute状态缓存 - 保存在处理器中以便状态持久化
+    std::map<juce::String, bool> preSoloMuteStates;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };
