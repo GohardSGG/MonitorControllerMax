@@ -124,7 +124,12 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
         apvts.addParameterListener(gainId, this);
     }
     
-    setCurrentLayout("7.1.4", "None");
+    // 根据当前总线布局自动选择合适的配置
+    int currentChannelCount = getTotalNumInputChannels();
+    if (currentChannelCount > 0)
+    {
+        autoSelectLayoutForChannelCount(currentChannelCount);
+    }
 }
 
 void MonitorControllerMaxAudioProcessor::releaseResources()
@@ -150,12 +155,6 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
         // 支持1到26个通道的任意配置
         if (requestedChannelCount >= 1 && requestedChannelCount <= 26)
         {
-            // 如果通道数发生变化，自动切换到最合适的配置
-            if (requestedChannelCount != getTotalNumInputChannels())
-            {
-                const_cast<MonitorControllerMaxAudioProcessor*>(this)->autoSelectLayoutForChannelCount(requestedChannelCount);
-            }
-            
             return true;
         }
     }
@@ -262,15 +261,31 @@ juce::AudioProcessorEditor* MonitorControllerMaxAudioProcessor::createEditor()
 //==============================================================================
 void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
+    // 使用APVTS内建的状态保存功能 - 这是JUCE推荐的标准方法
+    auto state = apvts.copyState();
+    auto xml = state.createXml();
+    copyXmlToBinary(*xml, destData);
 }
 
 void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
+    // 使用APVTS内建的状态恢复功能 - 这是JUCE推荐的标准方法
+    auto xmlState = getXmlFromBinary(data, sizeInBytes);
+    
+    if (xmlState.get() != nullptr)
+    {
+        if (xmlState->hasTagName(apvts.state.getType()))
+        {
+            apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+        }
+    }
+    
+    // 状态恢复后立即根据当前通道数选择布局
+    int currentChannelCount = getTotalNumInputChannels();
+    if (currentChannelCount > 0)
+    {
+        autoSelectLayoutForChannelCount(currentChannelCount);
+    }
 }
 
 // 动态获取输入通道名称，根据当前音箱布局映射物理通道到逻辑声道名
@@ -278,18 +293,60 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
 // 返回: 对应的声道名称（如"LFE"）或默认名称
 const juce::String MonitorControllerMaxAudioProcessor::getInputChannelName(int channelIndex) const
 {
-    // 遍历当前布局中的所有通道配置
-    for (const auto& chanInfo : currentLayout.channels)
+    // 获取当前输入总线的通道数
+    int totalChannels = getTotalNumInputChannels();
+    
+    // 检查通道索引是否有效
+    if (channelIndex >= 0 && channelIndex < totalChannels)
     {
-        // 检查物理通道索引是否匹配布局中的通道索引
-        if (chanInfo.channelIndex == channelIndex)
+        // 根据总通道数和通道索引返回标准通道名称
+        if (totalChannels == 2)
         {
-            // 为REAPER添加"Input "前缀以保持一致性
-            return "Input " + chanInfo.name;
+            // 立体声
+            if (channelIndex == 0) return "Left";
+            if (channelIndex == 1) return "Right";
+        }
+        else if (totalChannels == 6)
+        {
+            // 5.1环绕声
+            if (channelIndex == 0) return "Left";
+            if (channelIndex == 1) return "Right";
+            if (channelIndex == 2) return "Centre";
+            if (channelIndex == 3) return "LFE";
+            if (channelIndex == 4) return "Left Surround";
+            if (channelIndex == 5) return "Right Surround";
+        }
+        else if (totalChannels == 8)
+        {
+            // 7.1环绕声
+            if (channelIndex == 0) return "Left";
+            if (channelIndex == 1) return "Right";
+            if (channelIndex == 2) return "Centre";
+            if (channelIndex == 3) return "LFE";
+            if (channelIndex == 4) return "Left Surround";
+            if (channelIndex == 5) return "Right Surround";
+            if (channelIndex == 6) return "Left Side";
+            if (channelIndex == 7) return "Right Side";
+        }
+        else if (totalChannels == 12)
+        {
+            // 7.1.4杜比全景声
+            if (channelIndex == 0) return "Left";
+            if (channelIndex == 1) return "Right";
+            if (channelIndex == 2) return "Centre";
+            if (channelIndex == 3) return "LFE";
+            if (channelIndex == 4) return "Left Surround";
+            if (channelIndex == 5) return "Right Surround";
+            if (channelIndex == 6) return "Left Side";
+            if (channelIndex == 7) return "Right Side";
+            if (channelIndex == 8) return "Top Front Left";
+            if (channelIndex == 9) return "Top Front Right";
+            if (channelIndex == 10) return "Top Rear Left";
+            if (channelIndex == 11) return "Top Rear Right";
         }
     }
     
-    // 未找到映射时返回默认通道名称
+    // 回退到默认名称
     return "Input " + juce::String(channelIndex + 1);
 }
 
@@ -298,19 +355,17 @@ const juce::String MonitorControllerMaxAudioProcessor::getInputChannelName(int c
 // 返回: 对应的声道名称（如"LFE"）或默认名称
 const juce::String MonitorControllerMaxAudioProcessor::getOutputChannelName(int channelIndex) const
 {
-    // 遍历当前布局中的所有通道配置
-    for (const auto& chanInfo : currentLayout.channels)
+    // 复用输入通道名称逻辑，但替换前缀
+    auto inputName = getInputChannelName(channelIndex);
+    
+    // 如果是默认格式，替换为Output前缀
+    if (inputName.startsWith("Input "))
     {
-        // 检查物理通道索引是否匹配布局中的通道索引
-        if (chanInfo.channelIndex == channelIndex)
-        {
-            // 为REAPER添加"Output "前缀以保持一致性
-            return "Output " + chanInfo.name;
-        }
+        return "Output " + inputName.substring(6);
     }
     
-    // 未找到映射时返回默认通道名称
-    return "Output " + juce::String(channelIndex + 1);
+    // 否则直接返回通道名称（如"Left", "Right", "Centre"等）
+    return inputName;
 }
 
 void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)

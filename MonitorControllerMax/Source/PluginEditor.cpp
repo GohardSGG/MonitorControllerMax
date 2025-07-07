@@ -157,6 +157,14 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     });
     
     startTimerHz(30);
+    
+    // 编辑器创建后，同步处理器的当前状态到UI
+    // 这解决了关闭/重新打开编辑器时配置重置的问题
+    juce::MessageManager::callAsync([this]()
+    {
+        updateLayout(); // 强制UI与处理器状态同步
+        updateChannelButtonStates(); // 同步按钮状态
+    });
 }
 
 MonitorControllerMaxAudioProcessorEditor::~MonitorControllerMaxAudioProcessorEditor()
@@ -216,6 +224,50 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
     const int availableChannels = audioProcessor.getAvailableChannels();
     auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
     auto subLayoutNames = configManager.getSubLayoutNames();
+    
+    // 0. 首先同步下拉框选择与处理器当前布局状态（解决重新打开编辑器的问题）
+    const auto& currentLayout = audioProcessor.getCurrentLayout();
+    
+    // 获取当前通道数用于下拉框同步
+    int currentChannelCount = audioProcessor.getTotalNumInputChannels();
+    
+    // 根据当前总通道数找到最合适的配置并设置下拉框
+    juce::String expectedSpeaker = "2.0";
+    juce::String expectedSub = "None";
+    
+    // 使用相同的自动选择逻辑
+    switch (currentChannelCount)
+    {
+        case 1: expectedSpeaker = "1.0"; break;
+        case 2: expectedSpeaker = "2.0"; break;
+        case 6: expectedSpeaker = "5.1"; break;
+        case 8: expectedSpeaker = "7.1"; break;
+        case 12: expectedSpeaker = "7.1.4"; break;
+        default:
+            if (currentChannelCount > 12) expectedSpeaker = "7.1.4";
+            else if (currentChannelCount > 8) expectedSpeaker = "7.1.2";
+            else if (currentChannelCount > 6) expectedSpeaker = "7.1";
+            break;
+    }
+    
+    // 设置下拉框到期望的值（不触发onChange）
+    for (int i = 0; i < speakerLayoutNames.size(); ++i)
+    {
+        if (speakerLayoutNames[i] == expectedSpeaker)
+        {
+            speakerLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+            break;
+        }
+    }
+    
+    for (int i = 0; i < subLayoutNames.size(); ++i)
+    {
+        if (subLayoutNames[i] == expectedSub)
+        {
+            subLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+            break;
+        }
+    }
 
     // 1. 根据可用通道数，动态启用/禁用下拉菜单项
     int firstValidSpeakerId = 0;
@@ -350,9 +402,13 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
 {
     // 检查总线布局是否发生变化
     int currentChannelCount = audioProcessor.getTotalNumInputChannels();
-    if (currentChannelCount != lastKnownChannelCount)
+    if (currentChannelCount != lastKnownChannelCount && currentChannelCount > 0)
     {
         lastKnownChannelCount = currentChannelCount;
+        
+        // 安全地触发布局自动选择（在UI线程中）
+        audioProcessor.autoSelectLayoutForChannelCount(currentChannelCount);
+        
         // 总线布局发生变化，重新更新整个UI布局
         updateLayout();
     }
