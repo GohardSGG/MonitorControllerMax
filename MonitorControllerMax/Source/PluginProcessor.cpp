@@ -261,38 +261,32 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     // whose contents will have been created by the getStateInformation() call.
 }
 
-juce::String MonitorControllerMaxAudioProcessor::getParameterName(int parameterIndex, int maximumStringLength)
+// 动态获取输入通道名称，根据当前音箱布局映射物理通道到逻辑声道名
+// channelIndex: 物理通道索引（从0开始）
+// 返回: 对应的声道名称（如"LFE"）或默认名称
+const juce::String MonitorControllerMaxAudioProcessor::getInputChannelName(int channelIndex) const
 {
-    const int numParamsPerChannel = 3;
-    const int channelIndex = parameterIndex / numParamsPerChannel;
-    const int paramType = parameterIndex % numParamsPerChannel;
-
+    // 遍历当前布局中的所有通道配置
     for (const auto& chanInfo : currentLayout.channels)
     {
+        // 检查物理通道索引是否匹配布局中的通道索引
         if (chanInfo.channelIndex == channelIndex)
         {
-            switch (paramType)
-            {
-                case 0: return "Mute " + chanInfo.name;
-                case 1: return "Solo " + chanInfo.name;
-                case 2: return "Gain " + chanInfo.name;
-            }
+            return chanInfo.name;  // 返回配置文件中定义的声道名称
         }
     }
     
-    juce::String genericName = "Mute " + juce::String(channelIndex + 1);
-    switch (paramType)
-    {
-        case 1: genericName = "Solo " + juce::String(channelIndex + 1); break;
-        case 2: genericName = "Gain " + juce::String(channelIndex + 1); break;
-    }
-    return genericName.substring(0, maximumStringLength);
+    // 未找到映射时返回默认通道名称
+    return "Channel " + juce::String(channelIndex + 1);
 }
 
-juce::String MonitorControllerMaxAudioProcessor::getParameterLabel(int parameterIndex) const
+// 动态获取输出通道名称，与输入通道使用相同的映射逻辑
+// channelIndex: 物理通道索引（从0开始）
+// 返回: 对应的声道名称（如"LFE"）或默认名称
+const juce::String MonitorControllerMaxAudioProcessor::getOutputChannelName(int channelIndex) const
 {
-     // For now, we don't need a special label.
-    return {};
+    // 输出通道名称与输入相同，复用输入通道名称逻辑
+    return getInputChannelName(channelIndex);
 }
 
 void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)

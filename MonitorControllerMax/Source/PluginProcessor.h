@@ -74,8 +74,10 @@ public:
 
     //==============================================================================
     const juce::String getName() const override;
-    juce::String getParameterName(int parameterIndex, int maximumStringLength) override;
-    juce::String getParameterLabel(int parameterIndex) const override;
+    
+    // 动态I/O通道名函数 - 根据当前布局提供有意义的通道名称
+    const juce::String getInputChannelName(int channelIndex) const override;
+    const juce::String getOutputChannelName(int channelIndex) const override;
 
     bool acceptsMidi() const override;
     bool producesMidi() const override;
