@@ -97,12 +97,22 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     addAndMakeVisible(speakerLayoutSelector);
     speakerLayoutSelector.addItemList(configManager.getSpeakerLayoutNames(), 1);
     speakerLayoutSelector.setSelectedId(1);
-    speakerLayoutSelector.onChange = [this] { resized(); };
+    speakerLayoutSelector.onChange = [this] 
+    { 
+        // 立即更新插件配置和UI布局
+        updatePluginConfiguration();
+        resized(); 
+    };
 
     addAndMakeVisible(subLayoutSelector);
     subLayoutSelector.addItemList(configManager.getSubLayoutNames(), 1);
     subLayoutSelector.setSelectedId(1);
-    subLayoutSelector.onChange = [this] { resized(); };
+    subLayoutSelector.onChange = [this] 
+    { 
+        // 立即更新插件配置和UI布局
+        updatePluginConfiguration();
+        resized(); 
+    };
     
     addAndMakeVisible(channelGridContainer);
 
@@ -352,19 +362,30 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     }
     
     // 3. 更新主控制按钮的外观，使其反映真实的聚合状态
-    globalMuteButton.setToggleState(anyMuteEngaged, juce::dontSendNotification);
-
-    if (anySoloEngaged)
+    // Mute主按钮状态逻辑：有激活通道 OR 处于分配模式时都应该亮起
+    if (anyMuteEngaged || currentUIMode == UIMode::AssignMute)
     {
-        // 当有Solo通道激活时，主按钮显示为激活状态（绿色）
+        // 当有Mute通道激活或处于Mute分配模式时，主按钮显示为激活状态
+        globalMuteButton.setToggleState(true, juce::dontSendNotification);
+    }
+    else
+    {
+        // 既没有通道被mute，也不在分配模式，显示为未激活状态
+        globalMuteButton.setToggleState(false, juce::dontSendNotification);
+    }
+
+    // Solo主按钮状态逻辑：有激活通道 OR 处于分配模式时都应该亮起
+    if (anySoloEngaged || currentUIMode == UIMode::AssignSolo)
+    {
+        // 当有Solo通道激活或处于Solo分配模式时，主按钮显示为激活状态（绿色）
         globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
         globalSoloButton.setToggleState(true, juce::dontSendNotification);
     }
     else
     {
-        // 如果没有通道被solo，则恢复默认颜色，并根据UI模式决定状态
+        // 既没有通道被solo，也不在分配模式，恢复默认颜色
         globalSoloButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        globalSoloButton.setToggleState(currentUIMode == UIMode::AssignSolo, juce::dontSendNotification);
+        globalSoloButton.setToggleState(false, juce::dontSendNotification);
     }
 }
 
@@ -443,5 +464,21 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
         }
     }
     
+    updateChannelButtonStates();
+}
+
+// 立即更新插件配置并通知宿主刷新I/O针脚名
+void MonitorControllerMaxAudioProcessorEditor::updatePluginConfiguration()
+{
+    // 获取当前选择的配置
+    auto speakerLayoutName = speakerLayoutSelector.getText();
+    auto subLayoutName = subLayoutSelector.getText();
+
+    if (speakerLayoutName.isEmpty()) return;
+
+    // 立即更新插件配置，这会触发updateHostDisplay()
+    audioProcessor.setCurrentLayout(speakerLayoutName, subLayoutName);
+    
+    // 确保UI状态同步更新
     updateChannelButtonStates();
 }

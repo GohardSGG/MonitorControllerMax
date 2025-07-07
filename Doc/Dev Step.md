@@ -271,6 +271,44 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
 相关: Dev.md 阶段1完成
 ```
 
+## 新发现的关键问题 (需要立即修复)
+
+**基于实际测试发现的问题：**
+
+### 问题1: 轨道通道数变化时插件配置不自动切换
+**现象:** 
+- DAW轨道从2声道改为6声道时，插件没有自动从"2.0"切换到"5.1"
+- 需要手动切换配置才能正确显示所有通道
+
+**原因分析:**
+- 缺少监听DAW总线布局变化的机制
+- 需要在`isBusesLayoutSupported`或类似函数中添加自动配置切换逻辑
+
+### 问题2: 手动切换配置后I/O针脚名不更新
+**现象:**
+- 即使手动切换到5.1配置，REAPER的I/O矩阵针脚名依然显示"Input 1, Input 2"
+- 说明`updateHostDisplay()`调用无效或REAPER没有响应
+
+**原因分析:**
+- `updateHostDisplay()`可能在错误的线程中调用
+- 或者REAPER需要特殊的通知机制来刷新I/O针脚名
+
+### 问题3: Solo/Mute主按钮分配模式颜色逻辑错误
+**现象:**
+- Solo和Mute主按钮只有在有通道被激活时才会亮起
+- 但应该在进入"分配模式"时就立即亮起，提示用户当前处于分配状态
+
+**原因分析:**
+- `updateChannelButtonStates`中主按钮状态逻辑只考虑了通道激活状态
+- 没有考虑UI模式(AssignSolo/AssignMute)的显示需求
+
+## 修复计划
+
+### 阶段C: 新问题修复
+1. **C.1** 实现轨道通道数变化时自动切换插件配置
+2. **C.2** 修复手动切换配置后I/O针脚名不更新
+3. **C.3** 修复Solo/Mute主按钮分配模式颜色逻辑
+
 ## 开发注意事项
 
 ### Git工作流程
@@ -287,3 +325,5 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
 - 优先使用Debug独立程序进行测试
 - 重点关注Solo功能的边界情况
 - 验证各种布局切换场景
+- **新增:** 测试DAW轨道通道数变化场景
+- **新增:** 验证I/O针脚名在不同DAW中的更新效果

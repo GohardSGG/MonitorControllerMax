@@ -128,6 +128,7 @@ private:
 
     // 添加私有函数声明
     void handleSoloButtonClick(int channelIndex, const juce::String& channelName);
+    void updatePluginConfiguration(); // 立即更新插件配置并通知宿主
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };
