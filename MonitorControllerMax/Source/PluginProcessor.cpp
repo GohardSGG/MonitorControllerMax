@@ -140,11 +140,21 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
     juce::ignoreUnused (layouts);
     return true;
   #else
-    // We now accept any layout where input and output busses match.
-    // The UI will be responsible for disabling layouts that are not supported by the current channel count.
+    // 检查输入输出总线是否匹配
     if (layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet()
         && !layouts.getMainInputChannelSet().isDisabled())
     {
+        // 获取新的通道数
+        int newChannelCount = layouts.getMainInputChannelSet().size();
+        
+        // 如果通道数发生变化，自动切换到最合适的配置
+        // 注意：这里使用const_cast是因为我们需要在const函数中修改状态
+        // 这在JUCE插件中是常见的模式，因为布局变化需要更新内部状态
+        if (newChannelCount != getTotalNumInputChannels())
+        {
+            const_cast<MonitorControllerMaxAudioProcessor*>(this)->autoSelectLayoutForChannelCount(newChannelCount);
+        }
+        
         return true;
     }
 
@@ -306,6 +316,62 @@ const Layout& MonitorControllerMaxAudioProcessor::getCurrentLayout() const
 int MonitorControllerMaxAudioProcessor::getAvailableChannels() const
 {
     return getTotalNumInputChannels();
+}
+
+// 根据通道数自动选择最合适的布局配置
+void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int channelCount)
+{
+    juce::String bestSpeakerLayout = "2.0"; // 默认立体声
+    juce::String bestSubLayout = "None";     // 默认无低音炮
+    
+    // 根据通道数自动匹配最合适的布局
+    switch (channelCount)
+    {
+        case 1:
+            bestSpeakerLayout = "1.0"; // 单声道
+            break;
+        case 2:
+            bestSpeakerLayout = "2.0"; // 立体声
+            break;
+        case 3:
+            bestSpeakerLayout = "2.0"; // 立体声
+            bestSubLayout = "Single Sub"; // 加单个低音炮
+            break;
+        case 4:
+            bestSpeakerLayout = "2.0"; // 立体声  
+            bestSubLayout = "Dual Sub"; // 加双低音炮
+            break;
+        case 5:
+            bestSpeakerLayout = "5.0"; // 5.0环绕声
+            break;
+        case 6:
+            bestSpeakerLayout = "5.1"; // 5.1环绕声
+            break;
+        case 7:
+            bestSpeakerLayout = "7.0"; // 7.0环绕声
+            break;
+        case 8:
+            bestSpeakerLayout = "7.1"; // 7.1环绕声
+            break;
+        case 10:
+            bestSpeakerLayout = "7.1.2"; // 7.1.2杜比全景声
+            break;
+        case 12:
+            bestSpeakerLayout = "7.1.4"; // 7.1.4杜比全景声
+            break;
+        default:
+            // 对于其他通道数，选择最接近的配置
+            if (channelCount > 12)
+                bestSpeakerLayout = "7.1.4";
+            else if (channelCount > 8)
+                bestSpeakerLayout = "7.1.2";
+            else if (channelCount > 6)
+                bestSpeakerLayout = "7.1";
+            break;
+    }
+    
+    // 应用新的布局配置
+    setCurrentLayout(bestSpeakerLayout, bestSubLayout);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()

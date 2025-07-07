@@ -55,6 +55,9 @@ public:
     void setCurrentLayout(const juce::String& speaker, const juce::String& sub);
     const Layout& getCurrentLayout() const;
     int getAvailableChannels() const;
+    
+    // 根据通道数自动选择最合适的布局配置
+    void autoSelectLayoutForChannelCount(int channelCount);
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
