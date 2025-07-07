@@ -97,6 +97,7 @@ private:
 
     void updateChannelButtonStates();
     void updateLayout();
+    void updateLayoutWithoutSelectorOverride(); // Layout update without forcing selector choice
     void setUIMode(UIMode newMode);
 
     // This reference is provided as a quick way for your editor to

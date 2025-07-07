@@ -115,9 +115,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     speakerLayoutSelector.setSelectedId(1);
     speakerLayoutSelector.onChange = [this] 
     { 
-        // 立即更新插件配置和UI布局
+        // 用户手动选择时，直接更新配置，不强制验证选择
         updatePluginConfiguration();
-        resized(); 
+        
+        // 重新布局UI，但跳过下拉框的强制选择逻辑
+        updateLayoutWithoutSelectorOverride();
     };
 
     addAndMakeVisible(subLayoutSelector);
@@ -125,9 +127,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     subLayoutSelector.setSelectedId(1);
     subLayoutSelector.onChange = [this] 
     { 
-        // 立即更新插件配置和UI布局
+        // 用户手动选择时，直接更新配置，不强制验证选择
         updatePluginConfiguration();
-        resized(); 
+        
+        // 重新布局UI，但跳过下拉框的强制选择逻辑
+        updateLayoutWithoutSelectorOverride();
     };
     
     addAndMakeVisible(channelGridContainer);
@@ -425,6 +429,127 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
     updateChannelButtonStates(); // Ensure button states are updated immediately
 }
 
+void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverride()
+{
+    // 这个函数和updateLayout()基本相同，但不会强制改变用户的下拉框选择
+    const int availableChannels = audioProcessor.getAvailableChannels();
+    auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
+    auto subLayoutNames = configManager.getSubLayoutNames();
+    
+    // 1. 根据可用通道数，动态启用/禁用下拉菜单项
+    for (int i = 0; i < speakerLayoutNames.size(); ++i)
+    {
+        const auto& name = speakerLayoutNames[i];
+        const int requiredChannels = configManager.getChannelCountForLayout("Speaker", name);
+        bool isEnabled = (requiredChannels <= availableChannels);
+        speakerLayoutSelector.setItemEnabled(i + 1, isEnabled);
+    }
+
+    // 2. 跳过强制选择逻辑，尊重用户的选择
+    // (用户手动选择时，即使选择了超出可用通道的配置也允许)
+    
+    auto selectedSpeakerName = speakerLayoutSelector.getText();
+    auto selectedSubName = subLayoutSelector.getText();
+    
+    if (selectedSpeakerName.isEmpty()) return;
+
+    audioProcessor.setCurrentLayout(selectedSpeakerName, selectedSubName);
+    const auto& layout = audioProcessor.getCurrentLayout();
+    
+    // 3. 根据新布局重绘UI网格 (与updateLayout()相同的网格重绘逻辑)
+    for(auto& pair : channelButtons)
+        pair.second->setVisible(false);
+
+    channelGrid.items.clear();
+    channelGrid.setGap(juce::Grid::Px(5));
+    channelGrid.templateRows.clear();
+    channelGrid.templateColumns.clear();
+
+    for (int i = 0; i < 5; ++i)
+    {
+        channelGrid.templateRows.add(juce::Grid::TrackInfo(juce::Grid::Fr(1)));
+        channelGrid.templateColumns.add(juce::Grid::TrackInfo(juce::Grid::Fr(1)));
+    }
+    
+    // 创建一个包含25个空GridItem的向量，代表5x5网格
+    std::vector<juce::GridItem> gridItems(25);
+
+    // 将实际的按钮放置到网格的正确位置
+    for (const auto& chanInfo : layout.channels)
+    {
+        if (channelButtons.find(chanInfo.channelIndex) == channelButtons.end())
+        {
+            channelButtons[chanInfo.channelIndex] = std::make_unique<juce::TextButton>(chanInfo.name);
+            channelGridContainer.addAndMakeVisible(*channelButtons[chanInfo.channelIndex]);
+            
+            auto* button = channelButtons[chanInfo.channelIndex].get();
+            button->setClickingTogglesState(true);
+
+            // 复用相同的onClick逻辑
+            button->onClick = [this, channelIndex = chanInfo.channelIndex, channelName = chanInfo.name]
+            {
+                if (currentUIMode == UIMode::AssignSolo)
+                {
+                    handleSoloButtonClick(channelIndex, channelName);
+                }
+                else if (currentUIMode == UIMode::AssignMute)
+                {
+                    // Mute逻辑：纯粹的Mute操作，完全独立于Solo状态
+                    auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
+                    auto* muteParam = audioProcessor.apvts.getParameter(muteParamId);
+                    bool newMuteState = muteParam->getValue() < 0.5f;
+                    muteParam->setValueNotifyingHost(newMuteState ? 1.0f : 0.0f);
+                    
+                    // 记录这个Mute是手动激活的
+                    audioProcessor.setManualMuteState(muteParamId, newMuteState);
+                    
+                    // 如果当前有Solo状态，需要移除Solo联动标记（因为现在是手动控制）
+                    if (newMuteState && audioProcessor.isSoloInducedMute(muteParamId))
+                    {
+                        audioProcessor.setSoloInducedMuteState(muteParamId, false);
+                    }
+                }
+                // 非分配模式下点击无效
+            };
+        }
+        
+        auto* button = channelButtons[chanInfo.channelIndex].get();
+        button->setButtonText(chanInfo.name);
+        button->setVisible(true);
+
+        int gridPosIndex = chanInfo.gridPosition - 1; // 转换为0-based索引
+        if (gridPosIndex >= 0 && gridPosIndex < 25)
+        {
+            gridItems[gridPosIndex] = juce::GridItem(*button);
+        }
+    }
+
+    // 处理特殊的SUB按钮
+    if (selectedSubName != "None")
+    {
+        const int subChannelIndex = -1; 
+        if (channelButtons.find(subChannelIndex) == channelButtons.end())
+        {
+             channelButtons[subChannelIndex] = std::make_unique<juce::TextButton>("SUB");
+             channelGridContainer.addAndMakeVisible(*channelButtons[subChannelIndex]);
+        }
+        auto* button = channelButtons[subChannelIndex].get();
+        button->setVisible(true);
+        int gridPosIndex = 23 - 1; // 23号位置，0-based索引为22
+        if (gridPosIndex >= 0 && gridPosIndex < 25)
+        {
+            gridItems[gridPosIndex] = juce::GridItem(*button);
+        }
+    }
+    
+    // 将包含按钮和占位符的完整项列表赋给Grid
+    for (const auto& item : gridItems)
+        channelGrid.items.add(item);
+
+    channelGrid.performLayout(channelGridContainer.getLocalBounds());
+    updateChannelButtonStates();
+}
+
 void MonitorControllerMaxAudioProcessorEditor::timerCallback()
 {
     // 检查总线布局是否发生变化
@@ -583,13 +708,10 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
                 
                 if (soloP->getValue() < 0.5f) // 如果没被solo
                 {
-                    // 只有不是手动Mute的才由Solo联动控制
-                    if (!audioProcessor.isManuallyMuted(muteParamId))
-                    {
-                        muteP->setValueNotifyingHost(1.0f); // Solo联动Mute
-                        audioProcessor.setSoloInducedMuteState(muteParamId, true);
-                    }
-                    // 如果是手动Mute，保持现状，不强制改变
+                    // 进入Solo模式后，所有非Solo通道都应该被Mute
+                    // (因为已经保存了快照，退出时会正确恢复)
+                    muteP->setValueNotifyingHost(1.0f); // Solo联动Mute
+                    audioProcessor.setSoloInducedMuteState(muteParamId, true);
                 }
                 else // 如果被solo
                 {
