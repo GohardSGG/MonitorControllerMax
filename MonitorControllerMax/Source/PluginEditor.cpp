@@ -90,6 +90,13 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
             {
                 // 进入Solo分配模式时，立即保存当前状态快照
                 audioProcessor.savePreSoloSnapshot();
+                
+                // 清除所有当前Mute状态，提供干净的Solo选择环境
+                for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
+                {
+                    audioProcessor.apvts.getParameter("MUTE_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
+                }
+                
                 // 取消Mute分配模式 (不触发Mute按钮的onClick)
                 globalMuteButton.setToggleState(false, juce::dontSendNotification);
             }
