@@ -284,12 +284,13 @@ const juce::String MonitorControllerMaxAudioProcessor::getInputChannelName(int c
         // 检查物理通道索引是否匹配布局中的通道索引
         if (chanInfo.channelIndex == channelIndex)
         {
-            return chanInfo.name;  // 返回配置文件中定义的声道名称
+            // 为REAPER添加"Input "前缀以保持一致性
+            return "Input " + chanInfo.name;
         }
     }
     
     // 未找到映射时返回默认通道名称
-    return "Channel " + juce::String(channelIndex + 1);
+    return "Input " + juce::String(channelIndex + 1);
 }
 
 // 动态获取输出通道名称，与输入通道使用相同的映射逻辑
@@ -297,8 +298,19 @@ const juce::String MonitorControllerMaxAudioProcessor::getInputChannelName(int c
 // 返回: 对应的声道名称（如"LFE"）或默认名称
 const juce::String MonitorControllerMaxAudioProcessor::getOutputChannelName(int channelIndex) const
 {
-    // 输出通道名称与输入相同，复用输入通道名称逻辑
-    return getInputChannelName(channelIndex);
+    // 遍历当前布局中的所有通道配置
+    for (const auto& chanInfo : currentLayout.channels)
+    {
+        // 检查物理通道索引是否匹配布局中的通道索引
+        if (chanInfo.channelIndex == channelIndex)
+        {
+            // 为REAPER添加"Output "前缀以保持一致性
+            return "Output " + chanInfo.name;
+        }
+    }
+    
+    // 未找到映射时返回默认通道名称
+    return "Output " + juce::String(channelIndex + 1);
 }
 
 void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)
@@ -306,8 +318,19 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
     // 只更新内部状态，不再尝试改变总线布局
     currentLayout = configManager.getLayoutFor(speaker, sub);
 
-    // 请求宿主更新参数名称等显示信息
+    // 立即请求宿主更新显示信息
     updateHostDisplay();
+    
+    // 为REAPER等DAW添加延迟的额外刷新 - 某些DAW需要多次通知
+    juce::Timer::callAfterDelay(50, [this]()
+    {
+        updateHostDisplay();
+    });
+    
+    juce::Timer::callAfterDelay(200, [this]()
+    {
+        updateHostDisplay();
+    });
 }
 
 const Layout& MonitorControllerMaxAudioProcessor::getCurrentLayout() const
