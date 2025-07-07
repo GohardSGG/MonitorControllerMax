@@ -16,9 +16,9 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
      : AudioProcessor (BusesProperties()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::create7point1(), true)
+                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                       #endif
-                       .withOutput ("Output", juce::AudioChannelSet::create7point1(), true)
+                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
                        ),
       apvts (*this, nullptr, "Parameters", createParameterLayout()),
@@ -144,18 +144,20 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
     if (layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet()
         && !layouts.getMainInputChannelSet().isDisabled())
     {
-        // 获取新的通道数
-        int newChannelCount = layouts.getMainInputChannelSet().size();
+        // 获取请求的通道数
+        int requestedChannelCount = layouts.getMainInputChannelSet().size();
         
-        // 如果通道数发生变化，自动切换到最合适的配置
-        // 注意：这里使用const_cast是因为我们需要在const函数中修改状态
-        // 这在JUCE插件中是常见的模式，因为布局变化需要更新内部状态
-        if (newChannelCount != getTotalNumInputChannels())
+        // 支持1到26个通道的任意配置
+        if (requestedChannelCount >= 1 && requestedChannelCount <= 26)
         {
-            const_cast<MonitorControllerMaxAudioProcessor*>(this)->autoSelectLayoutForChannelCount(newChannelCount);
+            // 如果通道数发生变化，自动切换到最合适的配置
+            if (requestedChannelCount != getTotalNumInputChannels())
+            {
+                const_cast<MonitorControllerMaxAudioProcessor*>(this)->autoSelectLayoutForChannelCount(requestedChannelCount);
+            }
+            
+            return true;
         }
-        
-        return true;
     }
 
     return false;
@@ -372,6 +374,18 @@ void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int cha
     
     // 应用新的布局配置
     setCurrentLayout(bestSpeakerLayout, bestSubLayout);
+    
+    // 通知UI更新下拉框选择
+    if (onLayoutAutoChanged)
+    {
+        onLayoutAutoChanged(bestSpeakerLayout, bestSubLayout);
+    }
+}
+
+// 设置UI更新回调
+void MonitorControllerMaxAudioProcessor::setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback)
+{
+    onLayoutAutoChanged = callback;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()

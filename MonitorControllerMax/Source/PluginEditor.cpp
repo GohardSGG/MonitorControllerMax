@@ -119,6 +119,43 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     // Make sure the look and feel is applied to all children
     setLookAndFeel(&customLookAndFeel);
     setSize (800, 600);
+    
+    // 初始化已知的通道数
+    lastKnownChannelCount = audioProcessor.getTotalNumInputChannels();
+    
+    // 设置处理器的布局自动切换回调
+    audioProcessor.setLayoutChangeCallback([this](const juce::String& speaker, const juce::String& sub)
+    {
+        // 在主线程中更新UI选择器
+        juce::MessageManager::callAsync([this, speaker, sub]()
+        {
+            // 更新下拉框选择而不触发onChange事件
+            auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
+            auto subLayoutNames = configManager.getSubLayoutNames();
+            
+            for (int i = 0; i < speakerLayoutNames.size(); ++i)
+            {
+                if (speakerLayoutNames[i] == speaker)
+                {
+                    speakerLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                    break;
+                }
+            }
+            
+            for (int i = 0; i < subLayoutNames.size(); ++i)
+            {
+                if (subLayoutNames[i] == sub)
+                {
+                    subLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                    break;
+                }
+            }
+            
+            // 强制重新布局以显示新的通道配置
+            resized();
+        });
+    });
+    
     startTimerHz(30);
 }
 
@@ -311,6 +348,15 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
 
 void MonitorControllerMaxAudioProcessorEditor::timerCallback()
 {
+    // 检查总线布局是否发生变化
+    int currentChannelCount = audioProcessor.getTotalNumInputChannels();
+    if (currentChannelCount != lastKnownChannelCount)
+    {
+        lastKnownChannelCount = currentChannelCount;
+        // 总线布局发生变化，重新更新整个UI布局
+        updateLayout();
+    }
+    
     updateChannelButtonStates();
 }
 

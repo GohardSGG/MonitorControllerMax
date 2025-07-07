@@ -125,6 +125,9 @@ private:
 
     // 用于在Solo操作前缓存Mute状态
     std::map<juce::String, bool> preSoloMuteStates;
+    
+    // 用于检测总线布局变化
+    int lastKnownChannelCount = 0;
 
     // 添加私有函数声明
     void handleSoloButtonClick(int channelIndex, const juce::String& channelName);

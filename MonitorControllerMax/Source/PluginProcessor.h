@@ -11,6 +11,7 @@
 #include <JuceHeader.h>
 #include <atomic>
 #include <array>
+#include <functional>
 #include "ConfigManager.h"
 
 class InterPluginCommunicator;
@@ -58,6 +59,12 @@ public:
     
     // 根据通道数自动选择最合适的布局配置
     void autoSelectLayoutForChannelCount(int channelCount);
+    
+    // UI更新回调函数类型
+    std::function<void(const juce::String&, const juce::String&)> onLayoutAutoChanged;
+    
+    // 设置UI更新回调
+    void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
