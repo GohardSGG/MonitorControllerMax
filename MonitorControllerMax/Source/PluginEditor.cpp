@@ -40,7 +40,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         {
             currentUIMode = globalMuteButton.getToggleState() ? UIMode::AssignMute : UIMode::Normal;
             if (currentUIMode == UIMode::AssignMute)
-                globalSoloButton.setToggleState(false, juce::sendNotification);
+                globalSoloButton.setToggleState(false, juce::dontSendNotification);
         }
         updateChannelButtonStates();
     };
@@ -90,8 +90,8 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
             {
                 // 进入Solo分配模式时，立即保存当前状态快照
                 audioProcessor.savePreSoloSnapshot();
-                // 取消Mute分配模式
-                globalMuteButton.setToggleState(false, juce::sendNotification);
+                // 取消Mute分配模式 (不触发Mute按钮的onClick)
+                globalMuteButton.setToggleState(false, juce::dontSendNotification);
             }
         }
         
