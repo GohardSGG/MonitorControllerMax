@@ -14,9 +14,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     : AudioProcessorEditor (&p), audioProcessor (p), configManager(p.configManager)
 {
     addAndMakeVisible(globalMuteButton);
-    globalMuteButton.setClickingTogglesState(true);
+    globalMuteButton.setButtonText("MUTE");
+    globalMuteButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalMuteButton.onClick = [this]
     {
+        // 检查是否有任何Mute激活
         bool anyMuteActive = false;
         for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
         {
@@ -29,24 +31,31 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
 
         if (anyMuteActive)
         {
+            // 如果有任何Mute激活，执行"一键取消"操作
             for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
             {
                 audioProcessor.apvts.getParameter("MUTE_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
             }
-            globalMuteButton.setToggleState(false, juce::sendNotification);
+            currentUIMode = UIMode::Normal;
+        }
+        else if (currentUIMode == UIMode::AssignMute)
+        {
+            // 如果没有激活通道但在选择模式，退出模式
             currentUIMode = UIMode::Normal;
         }
         else
         {
-            currentUIMode = globalMuteButton.getToggleState() ? UIMode::AssignMute : UIMode::Normal;
-            if (currentUIMode == UIMode::AssignMute)
-                globalSoloButton.setToggleState(false, juce::dontSendNotification);
+            // 既没有激活通道也不在选择模式，进入Mute分配模式
+            currentUIMode = UIMode::AssignMute;
+            // 取消Solo分配模式 (不触发Solo按钮的onClick)
+            globalSoloButton.setToggleState(false, juce::dontSendNotification);
         }
         updateChannelButtonStates();
     };
 
     addAndMakeVisible(globalSoloButton);
-    globalSoloButton.setClickingTogglesState(true);
+    globalSoloButton.setButtonText("SOLO");
+    globalSoloButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalSoloButton.onClick = [this]
     {
         // 检查当前是否有任何Solo通道激活
@@ -82,15 +91,17 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
             
             currentUIMode = UIMode::Normal;
         }
+        else if (currentUIMode == UIMode::AssignSolo)
+        {
+            // 如果没有激活通道但在选择模式，退出模式
+            currentUIMode = UIMode::Normal;
+        }
         else
         {
-            // 如果没有Solo激活，进入Solo分配模式
-            currentUIMode = globalSoloButton.getToggleState() ? UIMode::AssignSolo : UIMode::Normal;
-            if (currentUIMode == UIMode::AssignSolo)
-            {
-                // 取消Mute分配模式 (不触发Mute按钮的onClick)
-                globalMuteButton.setToggleState(false, juce::dontSendNotification);
-            }
+            // 既没有激活通道也不在选择模式，进入Solo分配模式
+            currentUIMode = UIMode::AssignSolo;
+            // 取消Mute分配模式 (不触发Mute按钮的onClick)
+            globalMuteButton.setToggleState(false, juce::dontSendNotification);
         }
         
         // 立即更新UI状态显示
@@ -98,6 +109,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     };
     
     addAndMakeVisible(dimButton);
+    dimButton.setButtonText("DIM");
     dimButton.setClickingTogglesState(true);
     dimButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::yellow);
 
@@ -353,7 +365,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
             channelGridContainer.addAndMakeVisible(*channelButtons[chanInfo.channelIndex]);
             
             auto* button = channelButtons[chanInfo.channelIndex].get();
-            button->setClickingTogglesState(true);
+            button->setClickingTogglesState(false); // 手动管理状态
 
             // ================== 新的事务性 onClick 逻辑 ==================
             button->onClick = [this, channelIndex = chanInfo.channelIndex, channelName = chanInfo.name]
@@ -378,6 +390,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
                     {
                         audioProcessor.setSoloInducedMuteState(muteParamId, false);
                     }
+                    
+                    // 立即更新UI状态显示
+                    updateChannelButtonStates();
                 }
                 // 非分配模式下点击无效
             };
@@ -474,7 +489,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
             channelGridContainer.addAndMakeVisible(*channelButtons[chanInfo.channelIndex]);
             
             auto* button = channelButtons[chanInfo.channelIndex].get();
-            button->setClickingTogglesState(true);
+            button->setClickingTogglesState(false); // 手动管理状态
 
             // 复用相同的onClick逻辑
             button->onClick = [this, channelIndex = chanInfo.channelIndex, channelName = chanInfo.name]
@@ -499,6 +514,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
                     {
                         audioProcessor.setSoloInducedMuteState(muteParamId, false);
                     }
+                    
+                    // 立即更新UI状态显示
+                    updateChannelButtonStates();
                 }
                 // 非分配模式下点击无效
             };
