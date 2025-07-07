@@ -290,9 +290,9 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     if (!preSoloSnapshot.empty())
     {
         auto snapshotChild = juce::ValueTree("PreSoloSnapshot");
-        for (const auto& pair : preSoloSnapshot)
+        for (auto it = preSoloSnapshot.begin(); it != preSoloSnapshot.end(); ++it)
         {
-            snapshotChild.setProperty(pair.first, pair.second, nullptr);
+            snapshotChild.setProperty(it->first, it->second, nullptr);
         }
         state.appendChild(snapshotChild, nullptr);
     }
@@ -599,15 +599,15 @@ void MonitorControllerMaxAudioProcessor::savePreSoloSnapshot()
 void MonitorControllerMaxAudioProcessor::restorePreSoloSnapshot()
 {
     // 恢复到Solo前的完整状态
-    for (const auto& pair : preSoloSnapshot)
+    for (auto it = preSoloSnapshot.begin(); it != preSoloSnapshot.end(); ++it)
     {
-        auto* muteParam = apvts.getParameter(pair.first);
+        auto* muteParam = apvts.getParameter(it->first);
         if (muteParam)
         {
-            muteParam->setValueNotifyingHost(pair.second ? 1.0f : 0.0f);
+            muteParam->setValueNotifyingHost(it->second ? 1.0f : 0.0f);
             
             // 同时更新手动Mute标记：快照中为true的就是真正的手动Mute
-            setManualMuteState(pair.first, pair.second);
+            setManualMuteState(it->first, it->second);
         }
     }
     

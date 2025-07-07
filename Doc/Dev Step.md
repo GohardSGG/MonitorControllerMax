@@ -4,134 +4,11 @@
 
 基于Dev.md V7的分析和发现的关键问题，当前开发任务按优先级排序：
 
-### **优先级1：关键Bug修复 (必须先解决)**
-1. **Solo主按钮UI状态更新延迟** - 影响用户体验的关键问题
-2. **Solo撤销时Mute状态恢复失败** - 破坏用户配置的严重问题
-
 ### **优先级2：阶段1功能实现**
 3. **动态插件输入输出针脚名** - 随配置切换动态更新I/O通道名称
 
 ### **优先级3：未来阶段**
 4. **动态VST3插件参数名** - DAW参数列表显示优化
-
-## 阶段A：Solo功能Bug修复
-
-### A.1 分析Solo主按钮UI更新问题
-
-#### A.1.1 代码审查 (PluginEditor.cpp)
-**目标:** 找到Solo主按钮点击处理和UI更新的代码位置
-
-**分析要点:**
-- 检查Solo主按钮的onClick事件处理器
-- 找到`updateChannelButtonStates`函数的调用时机
-- 确认主按钮状态计算逻辑
-
-**预期发现:**
-- Solo主按钮点击后可能没有立即调用UI更新
-- 或者`updateChannelButtonStates`中主按钮的状态计算有误
-
-#### A.1.2 修复Solo主按钮UI更新延迟
-**问题定位后的修复方案:**
-
-**方案1: 添加即时UI更新**
-```cpp
-// 在Solo主按钮onClick处理器中添加
-globalSoloButton.onClick = [this]()
-{
-    // 现有的Solo切换逻辑...
-    
-    // 立即更新UI状态 - 新增这行
-    updateChannelButtonStates();
-};
-```
-
-**方案2: 修复updateChannelButtonStates中的逻辑**
-- 检查主按钮状态计算是否正确
-- 确保聚合状态(`anySoloEngaged`)计算准确
-
-### A.2 分析Solo撤销时Mute状态恢复问题
-
-#### A.2.1 代码审查 (PluginEditor.cpp)
-**目标:** 找到"独奏前状态"缓存相关的代码
-
-**分析要点:**
-- 检查`preSoloMuteStates`的声明和使用
-- 找到状态缓存的保存时机
-- 找到状态恢复的触发条件和执行逻辑
-
-**预期发现:**
-- 状态缓存可能没有正确保存
-- 或者恢复逻辑的触发条件有问题
-- 或者恢复时没有正确设置参数值
-
-#### A.2.2 修复Solo撤销时的状态恢复
-**根据代码审查结果实施修复:**
-
-**修复要点:**
-- 确保在激活第一个solo时正确缓存所有主声道的mute状态
-- 确保在撤销最后一个solo时正确恢复缓存的状态
-- 确保状态恢复后立即更新UI显示
-
-**可能的修复代码框架:**
-```cpp
-// 在handleSoloButtonClick或类似函数中
-void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channelIndex)
-{
-    bool wasAnySoloActive = /* 计算动作前的solo状态 */;
-    
-    // 切换被点击按钮的Solo参数
-    auto* soloParam = /* 获取对应的solo参数 */;
-    soloParam->setValueNotifyingHost(/* 新值 */);
-    
-    bool isAnySoloNowActive = /* 计算动作后的solo状态 */;
-    
-    // 状态变化处理
-    if (!wasAnySoloActive && isAnySoloNowActive)
-    {
-        // 进入solo模式：缓存当前mute状态
-        saveMuteStatesBeforeSolo();
-    }
-    else if (wasAnySoloActive && !isAnySoloNowActive)
-    {
-        // 退出solo模式：恢复缓存的mute状态
-        restoreMuteStatesAfterSolo();
-    }
-    
-    // 应用solo联动逻辑
-    if (isAnySoloNowActive)
-    {
-        applySoloMuteLogic();
-    }
-    
-    // 立即更新UI
-    updateChannelButtonStates();
-}
-```
-
-### A.3 验证Solo功能修复
-
-#### A.3.1 编译和基础测试
-- 使用快速Debug编译验证修复
-- 测试Solo主按钮点击后的即时UI响应
-- 测试Solo撤销后Mute状态的正确恢复
-
-#### A.3.2 完整功能测试
-- 测试单通道solo激活/撤销
-- 测试多通道solo激活/撤销
-- 测试混合mute+solo场景
-- 验证UI状态显示与实际参数状态一致
-
-#### A.3.3 Git提交修复版本
-**提交信息示例:**
-```
-修复: Solo功能的关键UI和逻辑问题
-
-- 修复Solo主按钮UI状态更新延迟问题
-- 修复Solo撤销时Mute状态恢复失败问题
-- 确保UI状态与参数状态实时同步
-
-相关: Dev Step.md 阶段A
-```
 
 ## 阶段B：动态I/O针脚名实现
 
@@ -275,15 +152,6 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
 
 **基于实际测试发现的问题：**
 
-### 问题1: 轨道通道数变化时插件配置不自动切换
-**现象:** 
-- DAW轨道从2声道改为6声道时，插件没有自动从"2.0"切换到"5.1"
-- 需要手动切换配置才能正确显示所有通道
-
-**原因分析:**
-- 缺少监听DAW总线布局变化的机制
-- 需要在`isBusesLayoutSupported`或类似函数中添加自动配置切换逻辑
-
 ### 问题2: 手动切换配置后I/O针脚名不更新
 **现象:**
 - 即使手动切换到5.1配置，REAPER的I/O矩阵针脚名依然显示"Input 1, Input 2"
@@ -293,21 +161,11 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
 - `updateHostDisplay()`可能在错误的线程中调用
 - 或者REAPER需要特殊的通知机制来刷新I/O针脚名
 
-### 问题3: Solo/Mute主按钮分配模式颜色逻辑错误
-**现象:**
-- Solo和Mute主按钮只有在有通道被激活时才会亮起
-- 但应该在进入"分配模式"时就立即亮起，提示用户当前处于分配状态
-
-**原因分析:**
-- `updateChannelButtonStates`中主按钮状态逻辑只考虑了通道激活状态
-- 没有考虑UI模式(AssignSolo/AssignMute)的显示需求
 
 ## 修复计划
 
 ### 阶段C: 新问题修复
-1. **C.1** 实现轨道通道数变化时自动切换插件配置
 2. **C.2** 修复手动切换配置后I/O针脚名不更新
-3. **C.3** 修复Solo/Mute主按钮分配模式颜色逻辑
 
 ## 开发注意事项
 

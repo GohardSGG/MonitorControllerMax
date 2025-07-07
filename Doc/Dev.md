@@ -228,6 +228,11 @@
 #### **第四阶段：编译、测试与交付**
 
 *   **目标：** 确保插件在所有场景下都表现稳定、符合预期。
+
+*   **标准调试方式：**
+    1.  **Debug模式 - Standalone调试：** 使用Debug配置编译MonitorControllerMax_StandalonePlugin.vcxproj，运行.exe文件进行功能测试和界面调试
+    2.  **Release模式 - VST3 DAW测试：** 使用Release配置编译MonitorControllerMax_VST3.vcxproj，在REAPER等DAW中加载.vst3文件进行集成测试
+
 *   **测试要点：**
     1.  **独立模式测试：** 在音频设备通道数受限（如8通道）的情况下，验证高通道数布局是否被正确禁用。
     2.  **布局与功能测试：** 在DAW中，切换不同的Speaker和SUB配置，验证UI布局、Mute/Solo/Gain功能是否完全正确。
