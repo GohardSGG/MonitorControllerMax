@@ -263,18 +263,6 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
 {
     // 使用APVTS内建的状态保存功能 - 这是JUCE推荐的标准方法
     auto state = apvts.copyState();
-    
-    // 添加preSoloMuteStates到状态树中
-    if (!preSoloMuteStates.empty())
-    {
-        auto preSoloStatesChild = juce::ValueTree("PreSoloMuteStates");
-        for (const auto& [paramId, wasMuted] : preSoloMuteStates)
-        {
-            preSoloStatesChild.setProperty(paramId, wasMuted, nullptr);
-        }
-        state.appendChild(preSoloStatesChild, nullptr);
-    }
-    
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
 }
@@ -288,21 +276,7 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     {
         if (xmlState->hasTagName(apvts.state.getType()))
         {
-            auto state = juce::ValueTree::fromXml(*xmlState);
-            apvts.replaceState(state);
-            
-            // 恢复preSoloMuteStates
-            auto preSoloStatesChild = state.getChildWithName("PreSoloMuteStates");
-            if (preSoloStatesChild.isValid())
-            {
-                preSoloMuteStates.clear();
-                for (int i = 0; i < preSoloStatesChild.getNumProperties(); ++i)
-                {
-                    auto propName = preSoloStatesChild.getPropertyName(i);
-                    auto propValue = preSoloStatesChild.getProperty(propName);
-                    preSoloMuteStates[propName.toString()] = static_cast<bool>(propValue);
-                }
-            }
+            apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
         }
     }
     
@@ -492,21 +466,6 @@ void MonitorControllerMaxAudioProcessor::setLayoutChangeCallback(std::function<v
     onLayoutAutoChanged = callback;
 }
 
-// Solo前Mute状态管理实现
-void MonitorControllerMaxAudioProcessor::setPreSoloMuteStates(const std::map<juce::String, bool>& states)
-{
-    preSoloMuteStates = states;
-}
-
-std::map<juce::String, bool> MonitorControllerMaxAudioProcessor::getPreSoloMuteStates() const
-{
-    return preSoloMuteStates;
-}
-
-void MonitorControllerMaxAudioProcessor::clearPreSoloMuteStates()
-{
-    preSoloMuteStates.clear();
-}
 
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()
 {
