@@ -88,15 +88,6 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
             currentUIMode = globalSoloButton.getToggleState() ? UIMode::AssignSolo : UIMode::Normal;
             if (currentUIMode == UIMode::AssignSolo)
             {
-                // 进入Solo分配模式时，立即保存当前状态快照
-                audioProcessor.savePreSoloSnapshot();
-                
-                // 清除所有当前Mute状态，提供干净的Solo选择环境
-                for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-                {
-                    audioProcessor.apvts.getParameter("MUTE_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
-                }
-                
                 // 取消Mute分配模式 (不触发Mute按钮的onClick)
                 globalMuteButton.setToggleState(false, juce::dontSendNotification);
             }
@@ -659,103 +650,18 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 
 void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channelIndex, const juce::String& channelName)
 {
-    // ================== 防抖和事务安全的Solo逻辑 ==================
+    // ================== 简洁的JS风格Solo逻辑 ==================
     
-    // 防抖检查：如果当前正在处理Solo事务，忽略额外的点击
-    static bool isSoloTransactionInProgress = false;
-    if (isSoloTransactionInProgress) return;
-    
-    isSoloTransactionInProgress = true;
-    
-    // 步骤1: 获取动作前的全局Solo状态
-    bool wasAnySoloActive = false;
-    for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-    {
-        if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-        {
-            wasAnySoloActive = true;
-            break;
-        }
-    }
-    
-    // 步骤2: 切换被点击按钮的Solo状态
+    // 步骤1: 简单切换被点击按钮的Solo状态
     auto* targetSoloParam = audioProcessor.apvts.getParameter("SOLO_" + juce::String(channelIndex + 1));
-    bool isTargetCurrentlySoloed = targetSoloParam->getValue() > 0.5f;
-    targetSoloParam->setValueNotifyingHost(!isTargetCurrentlySoloed);
-
-    // 步骤3: 获取动作后的全局Solo状态
-    bool isAnySoloNowActive = false;
-    for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-    {
-         if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-        {
-            isAnySoloNowActive = true;
-            break;
-        }
-    }
-
-    // --- 事务处理 ---
-
-    // 情况A: 刚刚进入Solo模式 (从无到有)
-    if (isAnySoloNowActive && !wasAnySoloActive)
-    {
-        // 快照已经在进入分配模式时保存，这里不需要重复保存
-        // audioProcessor.savePreSoloSnapshot(); // 已移除重复保存
-    }
-
-    // 情况B: 刚刚退出Solo模式 (从有到无)
-    if (!isAnySoloNowActive && wasAnySoloActive)
-    {
-        // 强制清除所有Solo联动状态，防止快速点击导致的状态残留
-        audioProcessor.clearAllSoloInducedMutes();
-        
-        // 恢复到Solo前的状态快照
-        if (audioProcessor.hasPreSoloSnapshot())
-        {
-            audioProcessor.restorePreSoloSnapshot();
-            updateChannelButtonStates();
-            isSoloTransactionInProgress = false; // 释放事务锁
-            return; // 直接返回，不需要继续执行下面的联动逻辑
-        }
-    }
-
-    // 步骤4: 统一应用Solo联动Mute规则（智能处理手动Mute）
-    if (isAnySoloNowActive)
-    {
-        for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-        {
-            if (!chanInfo.name.startsWith("SUB")) // 只影响主声道
-            {
-                auto muteParamId = "MUTE_" + juce::String(chanInfo.channelIndex + 1);
-                auto* soloP = audioProcessor.apvts.getParameter("SOLO_" + juce::String(chanInfo.channelIndex + 1));
-                auto* muteP = audioProcessor.apvts.getParameter(muteParamId);
-                
-                if (soloP->getValue() < 0.5f) // 如果没被solo
-                {
-                    // 进入Solo模式后，所有非Solo通道都应该被Mute
-                    // (因为已经保存了快照，退出时会正确恢复)
-                    muteP->setValueNotifyingHost(1.0f); // Solo联动Mute
-                    audioProcessor.setSoloInducedMuteState(muteParamId, true);
-                }
-                else // 如果被solo
-                {
-                    // 被Solo的通道强制解除Mute（覆盖任何状态）
-                    muteP->setValueNotifyingHost(0.0f);
-                    // 清除所有相关标记（Solo优先级最高）
-                    audioProcessor.setSoloInducedMuteState(muteParamId, false);
-                    audioProcessor.setManualMuteState(muteParamId, false);
-                }
-            }
-        }
-    }
-    else 
-    {
-        // 如果没有Solo激活，强制清除所有Solo联动状态
-        audioProcessor.clearAllSoloInducedMutes();
-    }
+    bool isCurrentlySoloed = targetSoloParam->getValue() > 0.5f;
+    targetSoloParam->setValueNotifyingHost(!isCurrentlySoloed);
     
+    // 步骤2: 让处理器检查Solo状态变化并处理（像JS代码那样）
+    audioProcessor.checkSoloStateChange();
+    
+    // 步骤3: 更新UI显示
     updateChannelButtonStates();
-    isSoloTransactionInProgress = false; // 释放事务锁
 }
 
 // 立即更新插件配置并通知宿主刷新I/O针脚名

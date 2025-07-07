@@ -147,6 +147,10 @@ private:
     
     // State snapshot before entering Solo (complete Mute state memory)
     std::map<juce::String, bool> preSoloSnapshot;
+    
+    // JS-style Solo state management (inspired by the working JSFX code)
+    bool previousSoloActive = false;
+    void checkSoloStateChange(); // Check if Solo state changed and handle accordingly
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

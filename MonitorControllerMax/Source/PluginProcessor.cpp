@@ -621,6 +621,73 @@ bool MonitorControllerMaxAudioProcessor::hasPreSoloSnapshot() const
     return !preSoloSnapshot.empty();
 }
 
+// JS-style Solo state management - Simple and Correct
+void MonitorControllerMaxAudioProcessor::checkSoloStateChange()
+{
+    // Check if ANY Solo is currently active
+    bool currentSoloActive = false;
+    for (int i = 0; i < 26; ++i)
+    {
+        auto* soloParam = apvts.getRawParameterValue("SOLO_" + juce::String(i + 1));
+        if (soloParam && soloParam->load() > 0.5f)
+        {
+            currentSoloActive = true;
+            break;
+        }
+    }
+    
+    // Only act when Solo state CHANGES (like the JSFX code)
+    if (currentSoloActive != previousSoloActive)
+    {
+        if (currentSoloActive)
+        {
+            // Entering Solo mode: Save current user Mute states
+            preSoloSnapshot.clear();
+            for (int i = 0; i < 26; ++i)
+            {
+                auto muteParamId = "MUTE_" + juce::String(i + 1);
+                auto* muteParam = apvts.getRawParameterValue(muteParamId);
+                if (muteParam)
+                {
+                    preSoloSnapshot[muteParamId] = muteParam->load() > 0.5f;
+                }
+            }
+        }
+        else
+        {
+            // Exiting Solo mode: Restore user Mute states
+            for (auto it = preSoloSnapshot.begin(); it != preSoloSnapshot.end(); ++it)
+            {
+                auto* muteParam = apvts.getParameter(it->first);
+                if (muteParam)
+                {
+                    muteParam->setValueNotifyingHost(it->second ? 1.0f : 0.0f);
+                }
+            }
+            preSoloSnapshot.clear();
+        }
+        
+        previousSoloActive = currentSoloActive;
+    }
+    
+    // Apply Solo logic when Solo is active (like lines 204-238 in JSFX)
+    if (currentSoloActive)
+    {
+        for (int i = 0; i < 26; ++i)
+        {
+            auto* soloParam = apvts.getRawParameterValue("SOLO_" + juce::String(i + 1));
+            auto* muteParam = apvts.getParameter("MUTE_" + juce::String(i + 1));
+            
+            if (soloParam && muteParam)
+            {
+                // If this channel is Solo'd: unmute it. If not: mute it.
+                bool shouldBeMuted = soloParam->load() <= 0.5f;
+                muteParam->setValueNotifyingHost(shouldBeMuted ? 1.0f : 0.0f);
+            }
+        }
+    }
+}
+
 
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()
 {

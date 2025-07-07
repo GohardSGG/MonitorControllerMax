@@ -46,8 +46,10 @@ public:
 
         auto baseColour = backgroundColour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
 
-        if (shouldDrawButtonAsDown || shouldDrawButtonAsHighlighted)
-            baseColour = baseColour.contrasting(shouldDrawButtonAsDown ? 0.2f : 0.1f);
+        // Remove mouse hover effects - only respond to button press
+        if (shouldDrawButtonAsDown)
+            baseColour = baseColour.contrasting(0.2f);
+        // Remove: shouldDrawButtonAsHighlighted handling
 
         g.setColour(baseColour);
 
