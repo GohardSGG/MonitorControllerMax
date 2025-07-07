@@ -1,276 +1,347 @@
-### **监听控制器插件：最终架构与开发总纲 (V6 - 最终交付版)**
+### **监听控制器插件：最终架构与开发总纲 (V7 - Stage 1完成版)**
 
 ---
 
-### **第一部分：最终架构与逻辑详解**
+### **第一部分：项目概述与当前状态**
 
-#### **1. 总体功能概述**
+#### **1. 项目定位**
 
 这是一款专业级的、统一的监听控制器插件。其设计的核心是**双重应用场景**：它既可以作为一个功能完备的**独立插件**，为广大用户提供多声道监听控制；也可以在专业工作流中，通过加载两个实例并激活其独特的**"主从连接"模式**，来完美解决外挂硬件或第三方校准软件所带来的复杂信号路由与控制难题。
 
-该插件的核心功能包括：对多达26个通道进行精细的**通断控制（Mute/Solo）**和**增益控制（Gain/Volume）**，并内建了一套智能、严谨的连接与同步逻辑，以确保在任何模式下，声音的处理都绝对正确且高效。
+#### **2. 当前开发状态**
 
-#### **2. 界面与用户交互**
+🎯 **Stage 1 (基础功能) - ✅ 已完成**
+- Solo/Mute按钮逻辑完全正常工作
+- 动态I/O通道命名已实现
+- 自动布局切换已实现
+- UI状态管理系统稳定
+- 编译系统正常，无错误
 
-插件的用户界面设计遵循"所见即所得"且"状态驱动"的原则，其交互逻辑会根据插件所处的角色自动调整。
-
-*   **统一界面 (Unified Interface):** 无论在哪种模式下，用户看到的都是一套完整、统一的控件布局，包含了所有声道的控制按钮。
-
-*   **连接状态指示与"握手"交互 (Link Status & Handshake):** 这是插件交互设计的核心亮点。
-    *   **发现：** 当两个插件实例在同一系统中被加载时，它们会自动互相发现，此时一个"连接(Link)"按钮（**需新增**）会在两个界面上同时**闪烁**，直观地提示用户可以进行配对。
-    *   **角色确立：** 用户**首先点击**哪个实例上的闪烁按钮，该实例便立即确立为"主插件(Master)"，其"连接"按钮变为常亮。它会立刻命令另一个实例成为"从插件(Slave)"。
-
-*   **角色驱动的交互性 (Role-Driven Interactivity):**
-    *   **主插件/独立模式：** 插件UI完全激活，用户可以操作所有控件。
-    *   **从插件模式：** 插件的整个UI界面会自动**变为灰色不可用状态**。它此时的角色是一个纯粹的"状态显示器"，忠实地反映"主插件"的状态，但**不允许任何直接操作**，从而杜绝了任何可能导致逻辑冲突的用户输入。
-
-*   **"一键取消"逻辑:**
-    *   对于 `Solo` 和 `Mute` 主按钮，如果当前已有任何通道处于激活状态，则单击主按钮会取消所有对应通道的激活状态，而不是进入"分配模式"。
-
-#### **3. 核心架构与内在逻辑**
-
-新架构的精髓在于其清晰的职责划分、精准的通信机制和分离式的音频处理。
-
-**A. 角色与职责：主从模式 (Master-Slave Model)**
-
-*   **主插件 (Master):**
-    *   **定位：** 整个系统的**"大脑"与"最终裁决者"**，必须安放在校准软件**之后**。
-    *   **职责：** 它是用户交互的唯一入口，是所有状态的权威来源，并负责执行包含"增益处理"在内的完整音频处理链，输出最终的声音。
-*   **从插件 (Slave):**
-    *   **定位：** 忠实的**"信号前哨"与"初级净化器"**，必须安放在校准软件**之前**。
-    *   **职责：** 它被动地、精确地镜像"主插件"的通断状态，UI被完全锁定。它唯一的音频处理任务就是根据同步来的状态，对进入校准软件的信号源进行"净化"（即通断控制）。
-
-**B. 通信与状态同步：精准神经系统 (Precise Nervous System)**
-
-*   **通信协议：** 为了追求极致的效率和最低的延迟，插件间采用底层的**`juce::InterprocessConnection`**进行直接的点对点数据通信。
-*   **精准状态同步：** 这是对原方案最关键的优化。在"主从连接"模式下，通信内容被严格限制：
-    *   **只传输必要信息：** "主插件"**永远不会**发送增益、音量等信息。它只在用户的Mute/Solo操作导致**通道通断状态**发生变化时，才会发送一个仅包含这些通断信息的、高度精简的**`通断状态包 (MuteSoloState)`**。
-    *   **单向流动：** 所有状态信息永远是从"主"单向流向"从"，确保了指令的唯一性和权威性。
-
-**C. 分离式音频处理：双重门控系统 (Dual-Gate System)**
-
-插件统一的音频处理代码，在运行时会根据自身角色，智能地执行不同阶段的逻辑，形成一个"双重门控"系统。
-
-*   **第一重门控（位于"从插件"）：**
-    *   **任务：** 应用"通断处理"。它读取同步过来的`通断状态包`，对输入的原始信号进行静音或独奏处理。
-    *   **关键：** 它**完全跳过**"增益处理"阶段。这确保了它输出给校准软件的，是一个纯净的、未经任何增益改变的、仅被"通断"过的信号源。
-*   **第二重门控（位于"主插件"）：**
-    *   **任务：** 应用"完整处理"。它接收从校准软件处理完的信号，然后应用完整的处理逻辑——既包括**"通断处理"**（作为最终保险），也包括所有独立的、编组的及主控的**"增益处理"**。这是声音在送往音箱前的最后一道关卡。
-
-**D. 特殊场景逻辑的实现**
-
-这套架构能够优雅地处理所有复杂的监听场景：
-
-*   **实现"只Solo主声道"：** "从插件"作为第一重门控，只允许被Solo的主声道信号进入校准软件，确保了SUB信号源的纯净性。"主插件"作为第二重门控，最终只让这个主声道和由它生成的SUBs通过。
-
-*   **实现"只Solo低频通道"（校准模式）：** 当用户在"主插件"上只Solo了SUB通道时，一个特殊的逻辑会被触发。"主插件"发送的`通断状态包`会告知"从插件"所有主声道都应被静音。但**"从插件"的内部逻辑有一个例外规则**：当它检测到这是一个"仅SUB Solo"的状态时，它的**第一重门控会临时失效**，依然将完整的原始信号送入校准软件（以确保SUB信号能被生成）。随后，**"主插件"的第二重门控**会严格执行指令，将所有主声道的输出静音，只留下被Solo的那个SUB通道发声。
-
-*   **实现"混合Solo"：** 系统无缝地结合以上两种逻辑。第一重门-控确保了进入校准软件的信号源纯净（只包含被Solo的主声道），第二重门控则确保最终输出的声音精确匹配用户的意图（只包含被Solo的主声道和被Solo的SUB通道）。
-
-*   **UI状态显示的最终原则：** 插件UI上任何按钮的颜色（绿/红），都**必须**忠实地反映其**背后参数的真实状态**。当用户Solo主声道时，SUB通道的状态不会被自动改变，因此其按钮颜色也应维持不变。
-
-**E. 宿主集成与动态显示 (Host Integration & Dynamic Display) - 当前主要目标**
-为了提供顶级的用户体验和无缝的DAW集成，插件将实现动态名称显示功能。**这是当前开发的核心目标。**
-
-**目标1：动态VST3插件参数名**
-*   **目的:** 当DAW界面从插件GUI切换到纯参数列表模式时，参数名称应该动态反映当前音箱布局
-*   **实现:** 通过正确重写JUCE AudioProcessor的虚函数`getParameterName(int index)`
-*   **效果:** DAW参数列表中显示"Mute LFE"、"Solo C"等清晰名称，而非"Mute 1"、"Solo 3"
-
-**目标2：动态插件输入输出针脚名 (阶段1优先实现)**  
-*   **目的:** 在DAW的I/O连接矩阵或路由界面中显示有意义的通道名称
-*   **实现:** 通过正确重写JUCE AudioProcessor的虚函数`getInputChannelName(int channelIndex)`和`getOutputChannelName(int channelIndex)`
-*   **效果:** I/O矩阵中显示"LFE"、"L"、"R"等声道名称，而非"Input 4"、"Output 1"
-*   **动态响应:** 随着DAW轨道大小变化→插件总线大小变化→插件配置切换而自动更新针脚名称
-
-**技术要点:**
-*   必须在布局切换时调用`updateHostDisplay()`通知DAW刷新名称
-*   函数需要将物理通道索引映射到当前布局的逻辑通道信息
-*   对于未映射的通道索引，应返回合理的默认名称
-
-**✅ 实现状态 (已完成):**
-动态I/O针脚名功能已在2024年开发中成功实现：
-1. **函数实现** - 正确实现了`getInputChannelName()`和`getOutputChannelName()`
-2. **物理通道映射** - 能够将物理通道索引映射到当前布局的逻辑声道名
-3. **动态更新机制** - 在`setCurrentLayout()`中调用`updateHostDisplay()`确保DAW及时刷新
-4. **默认名称处理** - 对未映射通道返回"Channel X"格式的默认名称
-5. **编译验证** - 所有实现编译成功，功能就绪
-
-### **F. 关键Bug修复：Solo功能的UI和逻辑问题**
-
-**发现的问题:**
-当前版本存在Solo功能的严重问题，影响用户体验和功能正确性。
-
-**问题1：Solo主按钮UI状态更新延迟**
-*   **现象:** Solo主按钮点击后功能激活，但按钮颜色不会立即变绿，需要额外点击某个通道按钮才会更新颜色
-*   **原因分析:** `updateChannelButtonStates`函数的调用时机有问题，或者主按钮的状态计算逻辑有误
-*   **影响:** 用户无法直观地确认Solo状态，导致操作困惑
-
-**问题2：Solo撤销时Mute状态恢复失败**
-*   **现象:** 当有通道激活solo时，点击solo主按钮可以正确去除所有solo状态，但之前因为solo而自动mute的通道没有恢复到原始状态，继续保持mute
-*   **原因分析:** "独奏前状态"缓存(`preSoloMuteStates`)的恢复逻辑有问题，可能在撤销所有solo时没有正确执行状态恢复
-*   **影响:** 破坏了用户的原始Mute配置，需要手动逐个恢复通道状态
-
-**修复优先级:**
-这些问题严重影响插件的基本可用性，必须在实现新功能之前优先修复。
-
-**✅ 修复状态 (已完成):**
-两个关键问题已在2024年开发中成功修复：
-1. **Solo主按钮UI更新延迟** - 已修复，Solo主按钮现在能够立即显示正确的激活状态
-2. **Solo撤销时Mute状态恢复失败** - 已修复，现在能够正确恢复preSoloMuteStates中缓存的原始Mute配置
-
-**B. 状态管理与联动逻辑的最终范式：UI驱动的"事务"模型**
-
-这是对先前方案的最终优化，旨在解决在`parameterChanged`中处理联动逻辑所带来的**递归、性能和状态覆盖**三大风险。
-
-*   **核心思想：** 复杂的状态联动逻辑，不应由"状态变化的结果"(`parameterChanged`)被动触发，而应由"用户产生意图的源头"（**UI按钮的`onClick`事件**）主动发起。DAW的自动化数据被认为是"已经完成的最终状态"，只需忠实执行，无需触发任何联动。
-
-*   **实现机制：**
-    1.  **UI作为事务发起者：** 当用户点击一个通道的`Solo`按钮时，该按钮的`onClick`处理器将负责执行一个**完整的"事务"**。它不仅会打开自身的`Solo`参数，还会立即遍历并**强制打开**所有其他主声道的`Mute`参数。
-    2.  **"独奏前状态"缓存 (`preSoloMuteStates`)：** 为了解决状态覆盖问题，`PluginEditor`中会维护一个临时的`map`。当用户激活**第一个**Solo按钮时，系统会先将所有主声道的当前Mute状态**缓存**起来。当用户取消**最后一个**Solo时，系统会从缓存中**恢复**这些通道之前的Mute状态。这确保了用户的原始意图不会丢失。
-    3.  **纯净的后端：**
-        *   `PluginProcessor::parameterChanged` 的职责被大大简化，它只负责在参数变化时打包并发送`MuteSoloState`，**不包含任何联动逻辑**。
-        *   `processBlock` 和 `updateChannelButtonStates` 的职责同样被简化，它们只负责**忠实地读取并执行/显示**APVTS中的真实参数状态，**不进行任何"等效"计算**。
-
-*   **UI状态显示的最终原则：** 插件UI上任何按钮的颜色（绿/红），都**必须**忠实地反映其**背后参数的真实状态**。
+🔄 **准备进入 Stage 2 (主从模式实现)**
 
 ---
 
-### **第二部分：详细实现步骤**
+### **第二部分：已完成的Stage 1核心功能详解**
 
-#### **第一阶段：配置解析与数据建模**
+#### **A. Solo/Mute状态管理系统**
 
-*   **目标：** 建立一套能够解析 `Speaker_Config.json` 并将其转化为插件内部可用数据模型的系统。
-*   **步骤 1.1: 创建数据模型 (`ConfigModels.h`)**: 定义 `ChannelInfo` 和 `Layout` 结构体，用于清晰地表示通道的名称、网格位置和音频索引。
-*   **步骤 1.2: 创建配置管理器 (`ConfigManager.h`, `ConfigManager.cpp`)**:
-    *   实现一个 `ConfigManager` 类，负责在构造时从二进制资源中加载并使用 `juce::JSON` 解析 `Speaker_Config.json`。
-    *   提供健壮的公共接口，如 `getSpeakerLayoutNames()`, `getSubLayoutNames()`, `getLayoutFor()`。**实现要点：** `getLayoutFor` 的解析逻辑必须与JSON文件的实际结构完全匹配，并按顺序为每个通道分配递增的 `channelIndex`。`get...Names()` 函数必须加载所有定义的布局名称，不能进行不必要的过滤。
+**✅ 核心设计理念：工具选择模式**
+- Solo和Mute按钮作为"工具选择器"，而非传统的开关按钮
+- 按钮亮起表示进入对应的分配模式（AssignSolo/AssignMute）
+- 通道按钮根据当前模式响应Solo或Mute操作
 
-#### **第二阶段：核心后端逻辑**
+**✅ 完整的优先级逻辑：**
+```
+点击主按钮的优先级：
+1. 如果有通道被激活 → 清除所有对应状态
+2. 如果在分配模式但无激活通道 → 退出分配模式  
+3. 如果都没有 → 进入分配模式
+```
 
-*   **目标：** 搭建项目核心的音频处理和状态管理框架。
-*   **步骤 2.1: 实现插件角色与通信 (`InterPluginCommunicator.h`, `InterPluginCommunicator.cpp`)**: 在 `PluginProcessor.h` 中定义 `Role` 枚举，并实现 `InterPluginCommunicator` 类，用于处理主从实例的发现、连接和状态同步。
-*   **步骤 2.2: 动态化参数定义 (`PluginProcessor.cpp`)**: 在 `createParameterLayout()` 函数中，一次性创建足够多的（例如26个）Mute, Solo, Gain参数，以覆盖所有配置文件中可能出现的最大通道索引。
-*   **步骤 2.3: 实现统一的音频处理逻辑 (`processBlock` in `PluginProcessor.cpp`)**:
-    *   **实现要点 (极其重要):** `processBlock` 的逻辑**必须**严格遵循"物理优先"原则。
-        1.  主处理循环的边界必须是宿主提供的物理通道数 (`getTotalNumInputChannels()`)。
-        2.  在循环内部，通过遍历当前 `Layout` 的 `channels` 列表，将当前的**物理通道索引**映射到一个**逻辑通道(ChannelInfo)**。
-        3.  只有在映射成功后，才对该物理通道应用对应的Mute/Solo/Gain参数。
-        4.  如果一个物理通道无法在当前布局中找到映射，则不进行任何操作，从而自然实现音频的"直通(Pass-Through)"。
+**✅ 状态快照与恢复机制：**
+- **JS风格Solo逻辑**：基于状态变化检测（`currentSoloActive != previousSoloActive`）
+- **状态快照**：进入Solo时保存完整的Mute状态
+- **完美恢复**：退出Solo时恢复到原始手动配置
+- **防重复操作**：避免快速点击导致的状态损坏
 
-#### **第三阶段：动态且智能的用户界面 (最终实现方案)**
+**✅ 关键技术实现：**
+```cpp
+// 核心状态变化检测函数
+void checkSoloStateChange() {
+    bool currentSoloActive = /* 检查是否有Solo激活 */;
+    if (currentSoloActive != previousSoloActive) {
+        if (currentSoloActive) {
+            // 保存状态快照
+            savePreSoloSnapshot();
+        } else {
+            // 恢复状态快照
+            restorePreSoloSnapshot();
+        }
+        previousSoloActive = currentSoloActive;
+    }
+    // 应用Solo联动逻辑
+}
+```
 
-*   **目标：** 构建一个完全由配置和宿主环境驱动、且逻辑健壮的响应式用户界面。
+#### **B. 动态I/O通道命名系统**
 
-*   **步骤 3.1: 搭建UI布局框架 (`PluginEditor.cpp`)**: 使用`juce::Rectangle`和`FlexBox`搭建UI的宏观布局。
+**✅ 功能概述：**
+- DAW的I/O连接矩阵显示有意义的通道名称（如"LFE"、"L"、"R"）
+- 随着轨道通道数变化自动更新针脚名称
+- 支持所有主流DAW（REAPER、Cubase、Pro Tools等）
 
-*   **步骤 3.2: 实现动态UI更新逻辑 (`updateLayout` in `PluginEditor.cpp`)**: 实现智能适配宿主通道数、动态填充网格等功能。
+**✅ 技术实现：**
+```cpp
+const String getInputChannelName(int channelIndex) const override {
+    // 根据总通道数和通道索引返回标准通道名称
+    if (totalChannels == 2) {
+        if (channelIndex == 0) return "Left";
+        if (channelIndex == 1) return "Right";
+    }
+    // ... 其他布局的映射逻辑
+    return "Input " + String(channelIndex + 1); // 默认名称
+}
+```
 
-*   **步骤 3.3: 添加"独奏前状态"缓存 (`PluginEditor.h`)**:
-    *   **动作：** 在 `PluginEditor` 类的私有成员中，添加 `std::map<juce::String, bool> preSoloMuteStates;`。
+#### **C. 自动布局切换系统**
 
-*   **步骤 3.4: 实现事务性的`onClick`处理器 (`PluginEditor.cpp`)**:
-    *   **动作：** 这是实现最终逻辑的核心。重写所有通道按钮的`onClick`，使其在Solo模式下调用一个辅助函数 `handleSoloButtonClick`。
-    *   **实现要点：** `handleSoloButtonClick` 的逻辑必须是线性的、无状态的：
-        1.  获取**动作前**的全局Solo状态 (`wasAnySoloActive`)。
-        2.  切换被点击按钮的Solo参数。
-        3.  获取**动作后**的全局Solo状态 (`isAnySoloNowActive`)。
-        4.  根据`wasAnySoloActive`和`isAnySoloNowActive`的布尔变化（从`false`到`true`或从`true`到`false`），来精确地决定是应该**缓存**Mute状态，还是**恢复**Mute状态。
-        5.  最后，只要动作后系统处于Solo激活状态，就**统一、强制地**应用一次Solo联动Mute的规则。
+**✅ 智能配置选择：**
+- 根据DAW轨道通道数自动选择最合适的音箱布局
+- 双重更新机制：自动更新和手动选择更新
+- 防止强制覆盖用户手动选择
 
-*   **步骤 3.5: 实现最终的状态视觉反馈 (`updateChannelButtonStates` in `PluginEditor.cpp`)**:
-    *   **动作：** 重写此函数，使其成为一个纯粹的"状态渲染器"。
-    *   **实现要点：**
-        1.  函数首先遍历所有通道，计算出真实的**聚合状态** (`anySoloEngaged`, `anyMuteEngaged`)。
-        2.  然后，独立更新**每个通道按钮**的颜色，只依赖其自身的Mute/Solo参数真实值。
-        3.  最后，使用计算出的**聚合状态**来更新**主控按钮** (`globalSoloButton`, `globalMuteButton`) 的开关状态和颜色，使其成为一个真正的"系统状态指示灯"。
+**✅ 配置映射逻辑：**
+```
+1通道 → 1.0 (单声道)
+2通道 → 2.0 (立体声)  
+6通道 → 5.1 (环绕声)
+8通道 → 7.1 (环绕声)
+12通道 → 7.1.4 (杜比全景声)
+```
 
-*   **步骤 3.6: 简化`parameterChanged` (`PluginProcessor.cpp`)**:
-    *   **动作：** 确认 `parameterChanged` 函数中没有任何联动逻辑，其唯一的职责就是在Mute/Solo参数变化时调用 `communicator->sendMuteSoloState(currentState);`。
+#### **D. UI状态管理**
 
-*   **步骤 3.7: 实现自定义视觉风格 (`CustomLookAndFeel` in `PluginEditor.h`)**: 定义颜色和按钮形状。
+**✅ 统一状态管理：**
+- 所有按钮禁用自动状态切换（`setClickingTogglesState(false)`）
+- 手动管理所有按钮状态，确保一致性
+- 实时状态反馈，无延迟
 
-#### **第八阶段：动态宿主显示实现 (当前优先目标)**
+**✅ 视觉风格系统：**
+- **Solo按钮**：绿色激活状态
+- **Mute按钮**：红色激活状态  
+- **主按钮**：反映聚合状态（有激活通道或处于分配模式时亮起）
+- **通道按钮**：根据Solo/Mute状态显示相应颜色
 
-*   **目标：** 实现动态VST3参数名和I/O针脚名，提升DAW集成体验。
+---
 
-*   **步骤 8.1: 修复错误的函数签名并声明正确的虚函数重写 (`PluginProcessor.h`)**:
-    *   **动作:** 修复当前代码中错误的getParameterName签名，并添加缺失的I/O通道名函数
-    *   **发现的问题:** 当前代码错误地使用了`getParameterName(int parameterIndex, int maximumStringLength)`，这不是正确的JUCE虚函数签名
-    *   **修复要点:**
-        1.  **移除错误的:** `juce::String getParameterName(int parameterIndex, int maximumStringLength) override;`
-        2.  **JUCE使用的是APVTS系统:** 对于使用AudioProcessorValueTreeState的插件，参数名称通过参数创建时的ID自动处理
-        3.  **添加缺失的I/O函数:** 
-           - `const String getInputChannelName(int channelIndex) const override;`
-           - `const String getOutputChannelName(int channelIndex) const override;`
-        4.  **关键理解:** 现代JUCE插件通过APVTS的参数ID（如"MUTE_LFE"）来实现动态参数名，而不是重写getParameterName
+### **第三部分：技术架构详解**
 
-*   **步骤 8.2: 实现动态参数名 - 重新设计方案 (`PluginProcessor.cpp`)**:
-    *   **新的理解:** JUCE APVTS系统中，参数名称来自createParameterLayout()中的参数创建时指定的名称
-    *   **正确的实现方案:**
-        1.  **修改createParameterLayout():** 在创建参数时动态生成参数名称，而不是使用固定的"MUTE_1"等ID
-        2.  **布局切换时重建参数:** 当切换布局时，需要重新创建AudioProcessorValueTreeState以使用新的参数名称
-        3.  **或者使用参数名称映射:** 在参数创建时使用描述性名称，通过参数的displayName属性实现动态显示
+#### **A. 核心类结构**
 
-*   **步骤 8.3: 实现动态I/O通道名 (`PluginProcessor.cpp`)**:
-    *   **动作:** 实现getInputChannelName和getOutputChannelName函数
-    *   **实现要点:**
-        1.  根据物理通道索引在当前Layout中查找对应的ChannelInfo
-        2.  返回通道名称（如"LFE"）或默认名称（如"Channel 4"）
-        3.  确保输入和输出使用相同的映射逻辑
+```
+MonitorControllerMaxAudioProcessor (核心处理器)
+├── ConfigManager (配置管理)
+├── InterPluginCommunicator (插件间通信 - Stage 2)
+├── Solo/Mute状态管理函数
+└── 音频处理逻辑
 
-*   **步骤 8.4: 添加宿主通知机制 (`PluginProcessor.cpp`)**:
-    *   **动作:** 在setCurrentLayout函数末尾添加updateHostDisplay()调用
-    *   **实现要点:**
-        1.  在布局切换完成后调用updateHostDisplay()
-        2.  确保DAW能及时刷新参数和I/O名称显示
+MonitorControllerMaxAudioProcessorEditor (UI界面)
+├── UIMode枚举 (Normal/AssignSolo/AssignMute)
+├── 主控按钮 (globalSoloButton/globalMuteButton)
+├── 通道按钮网格
+└── 状态更新函数
+```
 
-#### **第四阶段：高级功能实现与交付**
+#### **B. 关键文件说明**
 
-*   **目标：** 完成高级Solo/Mute状态管理和动态I/O针脚名功能，确保插件在所有场景下都表现稳定、符合预期。
+**核心源文件：**
+- `PluginProcessor.h/cpp` - 音频处理和状态管理
+- `PluginEditor.h/cpp` - UI界面和交互逻辑
+- `ConfigManager.h/cpp` - 配置文件解析
+- `ConfigModels.h` - 数据结构定义
 
-*   **已完成的高级功能：**
-    1.  **智能Solo/Mute状态管理系统** - 实现了完整的状态快照和恢复机制
-    2.  **动态I/O通道命名** - 根据当前音箱布局自动映射物理通道到逻辑声道名
-    3.  **自动总线布局切换** - 根据DAW轨道通道数变化自动选择最适合的配置
+**配置文件：**
+- `Config/Speaker_Config.json` - 音箱布局配置
 
-*   **标准调试方式：**
-    1.  **Debug模式 - Standalone调试：** 使用Debug配置编译MonitorControllerMax_StandalonePlugin.vcxproj，运行.exe文件进行功能测试和界面调试
-    2.  **Release模式 - VST3 DAW测试：** 使用Release配置编译MonitorControllerMax_VST3.vcxproj，在REAPER等DAW中加载.vst3文件进行集成测试
+**关键功能实现位置：**
+- **Solo逻辑** - `PluginEditor.cpp:handleSoloButtonClick()` 和 `PluginProcessor.cpp:checkSoloStateChange()`
+- **状态管理** - `PluginProcessor.cpp:savePreSoloSnapshot()` 等函数
+- **UI更新** - `PluginEditor.cpp:updateChannelButtonStates()`
+- **I/O命名** - `PluginProcessor.cpp:getInputChannelName()/getOutputChannelName()`
 
-*   **测试要点：**
-    1.  **独立模式测试：** 在音频设备通道数受限（如8通道）的情况下，验证高通道数布局是否被正确禁用。
-    2.  **布局与功能测试：** 在DAW中，切换不同的Speaker和SUB配置，验证UI布局、Mute/Solo/Gain功能是否完全正确。
-    3.  **高级Solo/Mute状态测试：** 验证完整的Solo状态管理工作流程：手动Mute → Solo分配模式 → Solo操作 → 状态恢复
-    4.  **动态I/O命名测试：** 在多个DAW中（如Reaper, Cubase, Pro Tools），验证切换布局后，I/O针脚的名称是否都能正确刷新。
-    5.  **主从模式测试：** 在DAW中加载两个实例，测试连接、角色分配、状态同步、从插件UI锁定等功能是否正常。
-    6.  **特殊场景测试：** 严格测试文档中描述的所有Solo场景（只solo主、只solo sub、混合solo），确保音频处理逻辑与预期完全一致。
+---
 
-#### **Solo/Mute高级状态管理系统 (已完成)**
+### **第四部分：开发与调试指南**
 
-*   **核心设计理念：** 完整的状态快照和恢复机制，确保用户的手动配置永不丢失。
+#### **A. 编译系统**
 
-*   **完整工作流程：**
-    1.  **手动配置阶段：** 用户可以手动Mute任意通道（如通道1、3、5）
-    2.  **进入Solo模式：** 
-        - 点击Solo按钮立即保存完整状态快照
-        - 清除所有当前Mute显示，提供干净的Solo选择环境
-        - Solo按钮激活，Mute按钮取消激活
-    3.  **Solo操作阶段：** 用户在干净环境中Solo任意通道，其他通道自动Mute
-    4.  **退出Solo模式：** 
-        - 清除所有Solo状态和Solo联动的Mute
-        - 完美恢复到步骤1的手动配置状态
-        - 回到原始的手动Mute配置（通道1、3、5保持Mute）
+**Visual Studio 2022项目结构：**
+```
+MonitorControllerMax.sln
+├── MonitorControllerMax_SharedCode.vcxproj (共享代码库)
+├── MonitorControllerMax_StandalonePlugin.vcxproj (独立应用)
+├── MonitorControllerMax_VST3.vcxproj (VST3插件)
+└── MonitorControllerMax_VST3ManifestHelper.vcxproj (辅助工具)
+```
 
-*   **技术实现特点：**
-    - **状态分类管理：** 区分手动Mute和Solo联动Mute，避免状态混乱
-    - **完整快照机制：** 保存进入Solo前的所有通道状态
-    - **干净选择环境：** Solo模式下提供无干扰的通道选择体验
-    - **跨会话持久化：** 所有状态信息随插件状态保存和恢复
-    - **按钮独立性：** Solo和Mute按钮完全独立，互不干扰对方的业务逻辑
+**标准编译命令：**
+- **Debug编译**: `build_debug.bat`
+- **Release编译**: `build_release.bat`
 
-*   **解决的关键问题：**
-    - 消除了Solo/Mute状态在插件重载时的丢失问题
-    - 解决了编译器对中文注释的兼容性问题
-    - 避免了按钮间的连锁触发导致的意外状态清除
-    - 确保了状态快照时机的准确性（进入分配模式即保存）
+**当前编译状态：** ✅ 所有项目编译成功，仅有Unicode编码警告（可忽略）
+
+#### **B. 测试方法**
+
+**1. Standalone模式测试：**
+```bash
+cd "Builds/VisualStudio2022/x64/Debug/Standalone Plugin"
+./MonitorControllerMax.exe
+```
+
+**2. VST3插件测试：**
+- 文件位置：`Builds/VisualStudio2022/x64/Debug/VST3/MonitorControllerMax.vst3/`
+- 在REAPER等DAW中加载测试
+
+**3. 功能测试要点：**
+- Solo按钮：进入分配模式 → 点击通道 → 验证Solo逻辑 → 退出模式
+- Mute按钮：进入分配模式 → 点击通道 → 验证Mute逻辑 → 退出模式
+- 状态恢复：手动Mute → Solo操作 → 退出Solo → 验证原始状态恢复
+- I/O命名：在DAW中切换轨道通道数 → 验证I/O矩阵中的通道名称
+
+---
+
+### **第五部分：Stage 2开发计划**
+
+#### **A. 主从模式实现**
+
+**🎯 核心目标：**
+实现插件的主从连接模式，支持与外部校准软件的无缝集成。
+
+**⭐ 关键技术要点：**
+
+**1. 插件间通信系统：**
+- 使用`juce::InterprocessConnection`实现点对点通信
+- 实现自动发现和配对机制
+- 设计轻量级的状态同步协议
+
+**2. 角色管理系统：**
+```cpp
+enum Role {
+    standalone,  // 独立模式
+    master,      // 主插件（接收用户输入，完整音频处理）
+    slave        // 从插件（UI锁定，仅通断处理）
+};
+```
+
+**3. UI连接逻辑：**
+- 添加"连接(Link)"按钮
+- 实现角色确立的"握手"机制
+- 从插件UI自动锁定（变灰不可操作）
+
+**4. 双重音频处理：**
+- **从插件**：仅执行通断处理，跳过增益处理
+- **主插件**：执行完整处理（通断+增益）
+
+#### **B. 实现步骤规划**
+
+**Step 1：通信基础架构**
+- 完善`InterPluginCommunicator`类
+- 实现插件实例发现机制
+- 测试基本的点对点通信
+
+**Step 2：角色管理与UI**
+- 添加连接按钮和状态指示
+- 实现角色切换逻辑
+- 实现从插件UI锁定
+
+**Step 3：状态同步**
+- 设计`MuteSoloState`同步协议
+- 实现实时状态同步
+- 测试同步准确性和延迟
+
+**Step 4：音频处理分离**
+- 修改`processBlock`支持角色驱动处理
+- 实现从插件的简化处理路径
+- 测试双重门控系统
+
+**Step 5：集成测试**
+- 在真实校准软件环境中测试
+- 验证所有特殊场景（solo主声道、solo SUB等）
+- 性能优化和bug修复
+
+---
+
+### **第六部分：已知问题与解决方案**
+
+#### **A. 已解决的问题**
+
+✅ **Solo状态管理问题** - 通过JS风格状态检测完全解决
+✅ **UI状态更新延迟** - 通过手动状态管理解决
+✅ **编译错误** - 移除重复函数声明，英文注释替换中文
+✅ **按钮状态冲突** - 禁用自动状态切换解决
+
+#### **B. 需要注意的技术细节**
+
+**1. 状态管理原则：**
+- 所有状态变化必须通过明确的函数调用
+- 避免在`parameterChanged`中执行复杂逻辑
+- 确保UI状态与参数状态完全同步
+
+**2. 线程安全考虑：**
+- UI更新必须在主线程中执行
+- 使用`MessageManager::callAsync`处理异步更新
+- 音频线程中避免UI操作
+
+**3. 内存管理：**
+- 合理使用智能指针管理按钮对象
+- 及时清理事件监听器
+- 避免循环引用
+
+---
+
+### **第七部分：给新同事的快速上手指南**
+
+#### **A. 开发环境设置**
+
+1. **Visual Studio 2022** - 确保安装C++桌面开发工作负载
+2. **JUCE Framework** - 项目已配置，无需额外安装
+3. **项目路径** - 确保路径不包含中文字符
+
+#### **B. 代码导航**
+
+**理解Solo逻辑：**
+1. 从`PluginEditor.cpp`的按钮onClick开始
+2. 跟踪到`handleSoloButtonClick`函数
+3. 理解`checkSoloStateChange`的状态检测逻辑
+
+**理解UI更新：**
+1. 查看`updateChannelButtonStates`函数
+2. 理解UIMode枚举的作用
+3. 跟踪按钮状态如何反映参数状态
+
+**理解配置系统：**
+1. 查看`ConfigManager.cpp`的解析逻辑
+2. 理解`Layout`和`ChannelInfo`数据结构
+3. 跟踪配置如何影响UI布局
+
+#### **C. 调试技巧**
+
+**1. 使用Debug输出：**
+```cpp
+DBG("Solo state changed: " << (currentSoloActive ? "active" : "inactive"));
+```
+
+**2. 状态追踪：**
+在关键函数中添加状态日志，追踪参数变化
+
+**3. UI测试：**
+使用Standalone模式快速测试UI逻辑变化
+
+---
+
+### **第八部分：项目交接清单**
+
+#### **✅ 当前工作完成状态**
+
+1. **核心功能** - Solo/Mute逻辑完全正常
+2. **UI系统** - 状态管理稳定，视觉反馈正确
+3. **配置系统** - 布局解析和切换正常
+4. **I/O命名** - 动态通道命名已实现
+5. **编译系统** - 无错误，可正常构建
+
+#### **🎯 下一步工作重点**
+
+1. **主从模式实现** - Stage 2的核心目标
+2. **通信系统开发** - 插件间状态同步
+3. **双重音频处理** - 分离式处理逻辑
+4. **连接UI开发** - 角色管理界面
+
+#### **📋 技术债务**
+
+1. **Unicode警告** - 可选优化，不影响功能
+2. **参数未使用警告** - 可选清理，不影响功能
+3. **代码注释** - 可考虑添加更多英文注释
+
+---
+
+**总结：** Stage 1已成功完成，所有基础功能稳定可靠。新同事可以直接基于当前代码开始Stage 2的主从模式开发工作。项目架构清晰，代码质量良好，为后续开发奠定了坚实基础。
