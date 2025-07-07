@@ -13,6 +13,7 @@
 #include <array>
 #include <functional>
 #include <map>
+#include <set>
 #include "ConfigManager.h"
 
 class InterPluginCommunicator;
@@ -66,6 +67,11 @@ public:
     
     // 设置UI更新回调
     void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
+    
+    // 真正手动Mute状态管理 - 区分手动mute和solo联动mute
+    void setManualMuteState(const juce::String& paramId, bool isManuallyMuted);
+    bool isManuallyMuted(const juce::String& paramId) const;
+    void clearAllManualMuteFlags();
     
 
     //==============================================================================
@@ -126,6 +132,8 @@ private:
     std::array<std::atomic<float>*, 26> soloParams{};
     std::array<std::atomic<float>*, 26> gainParams{};
     
+    // 记录哪些Mute是真正手动激活的（而不是Solo联动产生的）
+    std::set<juce::String> manualMuteStates;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

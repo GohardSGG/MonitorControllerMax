@@ -263,6 +263,18 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
 {
     // 使用APVTS内建的状态保存功能 - 这是JUCE推荐的标准方法
     auto state = apvts.copyState();
+    
+    // 添加手动Mute标记到状态树中
+    if (!manualMuteStates.empty())
+    {
+        auto manualMuteChild = juce::ValueTree("ManualMuteStates");
+        for (const auto& paramId : manualMuteStates)
+        {
+            manualMuteChild.setProperty(paramId, true, nullptr);
+        }
+        state.appendChild(manualMuteChild, nullptr);
+    }
+    
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
 }
@@ -276,7 +288,20 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     {
         if (xmlState->hasTagName(apvts.state.getType()))
         {
-            apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+            auto state = juce::ValueTree::fromXml(*xmlState);
+            apvts.replaceState(state);
+            
+            // 恢复手动Mute标记
+            auto manualMuteChild = state.getChildWithName("ManualMuteStates");
+            if (manualMuteChild.isValid())
+            {
+                manualMuteStates.clear();
+                for (int i = 0; i < manualMuteChild.getNumProperties(); ++i)
+                {
+                    auto propName = manualMuteChild.getPropertyName(i);
+                    manualMuteStates.insert(propName.toString());
+                }
+            }
         }
     }
     
@@ -464,6 +489,25 @@ void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int cha
 void MonitorControllerMaxAudioProcessor::setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback)
 {
     onLayoutAutoChanged = callback;
+}
+
+// 真正手动Mute状态管理实现
+void MonitorControllerMaxAudioProcessor::setManualMuteState(const juce::String& paramId, bool isManuallyMuted)
+{
+    if (isManuallyMuted)
+        manualMuteStates.insert(paramId);
+    else
+        manualMuteStates.erase(paramId);
+}
+
+bool MonitorControllerMaxAudioProcessor::isManuallyMuted(const juce::String& paramId) const
+{
+    return manualMuteStates.find(paramId) != manualMuteStates.end();
+}
+
+void MonitorControllerMaxAudioProcessor::clearAllManualMuteFlags()
+{
+    manualMuteStates.clear();
 }
 
 
