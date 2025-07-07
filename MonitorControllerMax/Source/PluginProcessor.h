@@ -75,6 +75,11 @@ public:
     bool isSoloInducedMute(const juce::String& paramId) const;
     void clearAllSoloInducedMutes();
     
+    // Solo状态快照管理 - 记忆进入Solo前的完整状态
+    void savePreSoloSnapshot();
+    void restorePreSoloSnapshot();
+    bool hasPreSoloSnapshot() const;
+    
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -139,6 +144,9 @@ private:
     
     // 记录哪些Mute是Solo联动产生的（用于全局状态管理）
     std::set<juce::String> soloInducedMuteStates;
+    
+    // Solo进入前的状态快照（完整的Mute状态记忆）
+    std::map<juce::String, bool> preSoloSnapshot;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

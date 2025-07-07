@@ -63,13 +63,21 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         if (anySoloActive)
         {
             // 如果有Solo激活，执行"一键取消"操作
-            // 直接使用处理器的全局清除功能
-            audioProcessor.clearAllSoloInducedMutes();
-            
-            // 然后清除所有Solo状态
+            // 首先清除所有Solo状态
             for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
             {
                 audioProcessor.apvts.getParameter("SOLO_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
+            }
+            
+            // 然后恢复到Solo前的状态快照（如果有的话）
+            if (audioProcessor.hasPreSoloSnapshot())
+            {
+                audioProcessor.restorePreSoloSnapshot();
+            }
+            else
+            {
+                // 如果没有快照，就清除Solo联动Mute
+                audioProcessor.clearAllSoloInducedMutes();
             }
             
             currentUIMode = UIMode::Normal;
@@ -349,7 +357,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
                 }
                 else if (currentUIMode == UIMode::AssignMute)
                 {
-                    // Mute逻辑：切换状态并记录这是手动激活的Mute
+                    // Mute逻辑：纯粹的Mute操作，完全独立于Solo状态
                     auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
                     auto* muteParam = audioProcessor.apvts.getParameter(muteParamId);
                     bool newMuteState = muteParam->getValue() < 0.5f;
@@ -357,6 +365,12 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
                     
                     // 记录这个Mute是手动激活的
                     audioProcessor.setManualMuteState(muteParamId, newMuteState);
+                    
+                    // 如果当前有Solo状态，需要移除Solo联动标记（因为现在是手动控制）
+                    if (newMuteState && audioProcessor.isSoloInducedMute(muteParamId))
+                    {
+                        audioProcessor.setSoloInducedMuteState(muteParamId, false);
+                    }
                 }
                 // 非分配模式下点击无效
             };
@@ -525,14 +539,26 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
 
     // --- 事务处理 ---
 
+    // 情况A: 刚刚进入Solo模式 (从无到有)
+    if (isAnySoloNowActive && !wasAnySoloActive)
+    {
+        // 保存进入Solo前的状态快照
+        audioProcessor.savePreSoloSnapshot();
+    }
+
     // 情况B: 刚刚退出Solo模式 (从有到无)
     if (!isAnySoloNowActive && wasAnySoloActive)
     {
-        // 使用处理器的全局清除功能，自动处理Solo联动Mute
-        audioProcessor.clearAllSoloInducedMutes();
+        // 恢复到Solo前的状态快照
+        if (audioProcessor.hasPreSoloSnapshot())
+        {
+            audioProcessor.restorePreSoloSnapshot();
+            updateChannelButtonStates();
+            return; // 直接返回，不需要继续执行下面的联动逻辑
+        }
     }
 
-    // 步骤4: 统一应用Solo联动Mute规则（使用全局状态管理）
+    // 步骤4: 统一应用Solo联动Mute规则（智能处理手动Mute）
     if (isAnySoloNowActive)
     {
         for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
@@ -548,18 +574,18 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
                     // 只有不是手动Mute的才由Solo联动控制
                     if (!audioProcessor.isManuallyMuted(muteParamId))
                     {
-                        muteP->setValueNotifyingHost(1.0f); // 就强制mute
-                        audioProcessor.setSoloInducedMuteState(muteParamId, true); // 标记为Solo联动Mute
+                        muteP->setValueNotifyingHost(1.0f); // Solo联动Mute
+                        audioProcessor.setSoloInducedMuteState(muteParamId, true);
                     }
+                    // 如果是手动Mute，保持现状，不强制改变
                 }
                 else // 如果被solo
                 {
-                    // 被Solo的通道解除Mute（无论是否手动）
+                    // 被Solo的通道强制解除Mute（覆盖任何状态）
                     muteP->setValueNotifyingHost(0.0f);
-                    // 清除各种标记
+                    // 清除所有相关标记（Solo优先级最高）
                     audioProcessor.setSoloInducedMuteState(muteParamId, false);
-                    if (audioProcessor.isManuallyMuted(muteParamId))
-                        audioProcessor.setManualMuteState(muteParamId, false);
+                    audioProcessor.setManualMuteState(muteParamId, false);
                 }
             }
         }

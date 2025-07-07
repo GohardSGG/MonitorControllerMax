@@ -286,6 +286,17 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
         state.appendChild(soloInducedChild, nullptr);
     }
     
+    // 添加Solo前状态快照到状态树中
+    if (!preSoloSnapshot.empty())
+    {
+        auto snapshotChild = juce::ValueTree("PreSoloSnapshot");
+        for (const auto& pair : preSoloSnapshot)
+        {
+            snapshotChild.setProperty(pair.first, pair.second, nullptr);
+        }
+        state.appendChild(snapshotChild, nullptr);
+    }
+    
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
 }
@@ -323,6 +334,19 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
                 {
                     auto propName = soloInducedChild.getPropertyName(i);
                     soloInducedMuteStates.insert(propName.toString());
+                }
+            }
+            
+            // 恢复Solo前状态快照
+            auto snapshotChild = state.getChildWithName("PreSoloSnapshot");
+            if (snapshotChild.isValid())
+            {
+                preSoloSnapshot.clear();
+                for (int i = 0; i < snapshotChild.getNumProperties(); ++i)
+                {
+                    auto propName = snapshotChild.getPropertyName(i);
+                    auto propValue = snapshotChild.getProperty(propName);
+                    preSoloSnapshot[propName.toString()] = static_cast<bool>(propValue);
                 }
             }
         }
@@ -553,6 +577,48 @@ void MonitorControllerMaxAudioProcessor::clearAllSoloInducedMutes()
         }
     }
     soloInducedMuteStates.clear();
+}
+
+// Solo状态快照管理实现
+void MonitorControllerMaxAudioProcessor::savePreSoloSnapshot()
+{
+    preSoloSnapshot.clear();
+    
+    // 保存当前所有通道的Mute状态
+    for (int i = 0; i < 26; ++i)
+    {
+        auto muteParamId = "MUTE_" + juce::String(i + 1);
+        auto* muteParam = apvts.getRawParameterValue(muteParamId);
+        if (muteParam)
+        {
+            preSoloSnapshot[muteParamId] = muteParam->load() > 0.5f;
+        }
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::restorePreSoloSnapshot()
+{
+    // 恢复到Solo前的完整状态
+    for (const auto& pair : preSoloSnapshot)
+    {
+        auto* muteParam = apvts.getParameter(pair.first);
+        if (muteParam)
+        {
+            muteParam->setValueNotifyingHost(pair.second ? 1.0f : 0.0f);
+            
+            // 同时更新手动Mute标记：快照中为true的就是真正的手动Mute
+            setManualMuteState(pair.first, pair.second);
+        }
+    }
+    
+    // 清除快照和Solo联动状态
+    preSoloSnapshot.clear();
+    soloInducedMuteStates.clear();
+}
+
+bool MonitorControllerMaxAudioProcessor::hasPreSoloSnapshot() const
+{
+    return !preSoloSnapshot.empty();
 }
 
 
