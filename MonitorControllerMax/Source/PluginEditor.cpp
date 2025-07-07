@@ -87,7 +87,12 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
             // 如果没有Solo激活，进入Solo分配模式
             currentUIMode = globalSoloButton.getToggleState() ? UIMode::AssignSolo : UIMode::Normal;
             if (currentUIMode == UIMode::AssignSolo)
+            {
+                // 进入Solo分配模式时，立即保存当前状态快照
+                audioProcessor.savePreSoloSnapshot();
+                // 取消Mute分配模式
                 globalMuteButton.setToggleState(false, juce::sendNotification);
+            }
         }
         
         // 立即更新UI状态显示
@@ -542,8 +547,8 @@ void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channel
     // 情况A: 刚刚进入Solo模式 (从无到有)
     if (isAnySoloNowActive && !wasAnySoloActive)
     {
-        // 保存进入Solo前的状态快照
-        audioProcessor.savePreSoloSnapshot();
+        // 快照已经在进入分配模式时保存，这里不需要重复保存
+        // audioProcessor.savePreSoloSnapshot(); // 已移除重复保存
     }
 
     // 情况B: 刚刚退出Solo模式 (从有到无)
