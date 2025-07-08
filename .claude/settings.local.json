@@ -25,7 +25,21 @@
       "Bash(MSBuild.exe:*)",
       "Bash(cmake:*)",
       "Bash(./build_debug.bat)",
-      "Bash(./MonitorControllerMax.exe --help)"
+      "Bash(./MonitorControllerMax.exe --help)",
+      "Bash(\"/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" MonitorControllerMax.sln /p:Configuration=Debug /p:Platform=x64 /t:MonitorControllerMax_StandalonePlugin /v:minimal)",
+      "Bash(\"/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" MonitorControllerMax.sln /p:Configuration=Debug /p:Platform=x64 /v:minimal)",
+      "Bash(chmod:*)",
+      "Bash(mkdir:*)",
+      "Bash(./claude_auto_build.sh status:*)",
+      "Bash(bash:*)",
+      "Bash(dos2unix:*)",
+      "Bash(sed:*)",
+      "Bash(./claude_auto_build.sh:*)",
+      "Bash(mv:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(./run_toolkit.bat -Status)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

@@ -122,6 +122,89 @@ MonitorControllerMax/
 - ✅ 代码质量保证
 - ⚠️ 避免不必要的Release构建
 
+### 🛠️ Claude Code 统一自动化工具套件 (现代 PowerShell 版本)
+
+**⚡ 首要规则：使用现代化的 PowerShell 集成工具套件**
+
+Claude Code 必须使用位于 `/Debug/` 目录的统一自动化工具套件，现已升级为 PowerShell 集成版本，提供更好的 Windows 环境兼容性：
+
+#### 核心命令
+
+```bash
+# 进入工具目录
+cd "/mnt/c/REAPER/Effects/Masking Effects/Debug"
+
+# 日常开发 - 快速Debug编译 (必须首选)
+./claude_auto_build.sh quick
+
+# 问题排查 - 完整Debug编译
+./claude_auto_build.sh full
+
+# 状态检查 - 随时查看构建状态
+./claude_auto_build.sh status
+
+# 发布准备 - Release编译 (最终阶段)
+./claude_auto_build.sh release
+
+# 清理环境
+./claude_auto_build.sh clean
+```
+
+#### PowerShell 直接调用 (可选)
+
+如果在 Windows 环境中，也可以直接使用 PowerShell 版本：
+
+```powershell
+# 直接使用 PowerShell 工具套件
+powershell.exe -ExecutionPolicy Bypass -File "claude_toolkit_en.ps1" -QuickDebug
+powershell.exe -ExecutionPolicy Bypass -File "claude_toolkit_en.ps1" -Status
+powershell.exe -ExecutionPolicy Bypass -File "claude_toolkit_en.ps1" -Clean
+```
+
+#### 标准开发循环
+
+```
+1. 修改代码
+   ↓
+2. ./claude_auto_build.sh quick  (自动编译验证)
+   ↓
+3. 检查编译结果 (立即修复错误)
+   ↓
+4. 功能验证 (可选测试)
+   ↓
+5. Git提交稳定状态
+   ↓
+6. 重复循环
+```
+
+#### 工具套件特性 (PowerShell 增强版)
+
+- ✅ **PowerShell 集成**: 现代化 PowerShell 核心，提供更好的 Windows 兼容性
+- ✅ **智能编译**: 根据场景自动选择最佳编译策略
+- ✅ **错误检测**: 自动分析编译错误并提供建议
+- ✅ **状态验证**: 验证构建产物的正确性
+- ✅ **彩色输出**: 清晰的状态指示 (成功/警告/错误)
+- ✅ **日志管理**: 自动保存和分析编译日志
+- ✅ **编码兼容**: 解决了 bat 脚本的字符编码问题
+- ✅ **跨环境**: 支持 WSL 调用 Windows PowerShell 的混合环境
+
+#### Claude Code 使用约定
+
+1. **永远优先使用 `quick` 模式** - 最快的日常开发验证
+2. **编译失败时使用 `full` 模式** - 完整清理重建解决问题
+3. **定期检查 `status`** - 了解当前构建状态
+4. **遵循小步快跑** - 每个稳定状态及时Git提交
+5. **避免手动编译** - 统一使用自动化工具确保一致性
+
+这套工具位于 `/Debug/` 目录，包含：
+- `claude_auto_build.sh` - Claude Code专用自动化脚本 (WSL 入口，PowerShell 集成)
+- `claude_toolkit_en.ps1` - 现代化 PowerShell 工具套件核心 (英文版，避免编码问题)
+- `claude_dev_toolkit.ps1` - PowerShell 交互式工具 (中文版，用户友好)
+- `run_toolkit.bat` - Windows 快速启动脚本
+- `README.md` - 详细使用说明
+
+**此工具套件是Claude Code开发的核心，必须严格遵循使用。现在基于现代化 PowerShell 实现，提供更好的稳定性和兼容性。**
+
 ### 🔄 Git版本控制和渐进式开发流程
 
 **核心原则：小步快跑，稳健迭代**
