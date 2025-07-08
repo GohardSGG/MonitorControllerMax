@@ -41,7 +41,8 @@
       "Bash(./run_toolkit.bat -Status)",
       "Bash(touch:*)",
       "Bash(cat:*)",
-      "Bash(\"/c/Program Files/JUCE/Projucer.exe\" --resave MonitorControllerMax.jucer)"
+      "Bash(\"/c/Program Files/JUCE/Projucer.exe\" --resave MonitorControllerMax.jucer)",
+      "Bash(\"/mnt/c/REAPER/Effects/Masking Effects/MonitorControllerMax/JuceLibraryCode/juce_header.h\" --resave MonitorControllerMax.jucer)"
     ],
     "deny": []
   }

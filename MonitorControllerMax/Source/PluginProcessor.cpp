@@ -36,105 +36,9 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     linkageEngine = std::make_unique<ParameterLinkageEngine>(apvts);
     
     // Initialize legacy StateManager (will be phased out)
-    initializeStateManager();
 }
 
-void MonitorControllerMaxAudioProcessor::initializeStateManager()
-{
-    stateManager = std::make_unique<StateManager>();
-    
-    // 首先设置状态机回调
-    stateManager->setParameterUpdateCallback([this](int channelIndex, float value) {
-        onParameterUpdate(channelIndex, value);
-    });
-    
-    stateManager->setUIUpdateCallback([this]() {
-        onUIUpdate();
-    });
-    
-    // 然后完成初始化（包括内存恢复）
-    stateManager->completeInitialization();
-    
-    VST3_DBG("StateManager initialization completed");
-}
 
-StateManager& MonitorControllerMaxAudioProcessor::getStateManager()
-{
-    return *stateManager;
-}
-
-void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, float value)
-{
-    VST3_DBG("StateManager requesting parameter update: Channel " << channelIndex);
-    
-    // 设置标志防止循环更新 (暂时简化实现)
-    static bool updating = false;
-    if (updating) return;
-    updating = true;
-    
-    // 安全检查：确保StateManager有效
-    if (!stateManager) {
-        VST3_DBG("Warning: onParameterUpdate called but StateManager is null");
-        updating = false;
-        return;
-    }
-    
-    // 验证通道索引范围
-    if (channelIndex < 0 || channelIndex >= 26) {
-        VST3_DBG("Warning: Invalid channel index: " << channelIndex);
-        updating = false;
-        return;
-    }
-    
-    // 获取当前通道的Solo和Mute参数ID
-    auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
-    auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
-    
-    // 获取状态机中的通道状态
-    auto channelState = stateManager->getChannelState(channelIndex);
-    
-    // 更新Solo参数 - 基于当前通道状态
-    auto* soloParam = apvts.getParameter(soloParamId);
-    if (soloParam) {
-        float soloValue = (channelState == ChannelState::Solo) ? 1.0f : 0.0f;
-        soloParam->setValueNotifyingHost(soloValue);
-    } else {
-        VST3_DBG("Warning: Solo parameter not found: " << soloParamId);
-    }
-    
-    // 更新Mute参数 - 基于当前通道状态 (包含ManualMute和AutoMute)
-    auto* muteParam = apvts.getParameter(muteParamId);
-    if (muteParam) {
-        float muteValue = (channelState == ChannelState::ManualMute || 
-                          channelState == ChannelState::AutoMute) ? 1.0f : 0.0f;
-        muteParam->setValueNotifyingHost(muteValue);
-    } else {
-        VST3_DBG("Warning: Mute parameter not found: " << muteParamId);
-    }
-    
-    // 清除标志
-    updating = false;
-    
-    VST3_DBG("Parameter sync completed: Channel " << channelIndex << 
-             " | Solo=" << (channelState == ChannelState::Solo ? "Active" : "Inactive") << 
-             " | Mute=" << (channelState == ChannelState::ManualMute ? "Active" : "Inactive"));
-}
-
-void MonitorControllerMaxAudioProcessor::onUIUpdate()
-{
-    // 通知UI更新按钮状态
-    // 使用MessageManager确保在主线程中执行UI更新
-    juce::MessageManager::callAsync([this]() {
-        // 安全检查：确保编辑器存在且有效
-        if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
-            editor->updateChannelButtonStates();
-        } else {
-            VST3_DBG("UI update skipped: No active editor found");
-        }
-    });
-    
-    VST3_DBG("UI update request sent");
-}
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
@@ -369,10 +273,6 @@ juce::AudioProcessorEditor* MonitorControllerMaxAudioProcessor::createEditor()
 //==============================================================================
 void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // 保存插件状态时，同时保存状态机的记忆状态
-    if (stateManager) {
-        stateManager->saveMuteMemoryNow();
-    }
     // 使用APVTS内建的状态保存功能
     auto state = apvts.copyState();
     
@@ -397,11 +297,6 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
             apvts.replaceState(state);
             
             // 新的强大状态机会自动从文件系统恢复Mute记忆
-            // 状态机的持久化记忆系统完全独立于APVTS状态
-            if (stateManager) {
-                stateManager->restoreMuteMemoryNow();
-                DBG("State restoration completed - StateManager memory restored");
-            }
         }
     }
     
@@ -661,13 +556,6 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
         linkageEngine->handleParameterChange(parameterID, newValue);
     }
     
-    // 2. Legacy StateManager processing (transitional)
-    static bool processingParameter = false;
-    if (!processingParameter && stateManager && (parameterID.startsWith("MUTE_") || parameterID.startsWith("SOLO_"))) {
-        processingParameter = true;
-        stateManager->handleParameterChange(parameterID, newValue);
-        processingParameter = false;
-    }
     
     // 主从通信（仅master角色） - 保持现有逻辑
     if (getRole() == Role::master)
@@ -742,3 +630,14 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
 {
     return linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
 }
+
+void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
+{
+    // This will be implemented based on UI needs
+    // For now, just ensure the channel index is valid
+    if (channelIndex >= 0 && channelIndex < 26) {
+        VST3_DBG("Channel click: " << channelIndex);
+        // Implementation to be added based on UI requirements
+    }
+}
+

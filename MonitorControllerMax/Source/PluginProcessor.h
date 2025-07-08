@@ -15,7 +15,6 @@
 #include <map>
 #include <set>
 #include "ConfigManager.h"
-#include "StateManager.h"
 #include "ParameterLinkageEngine.h"
 
 class InterPluginCommunicator;
@@ -69,17 +68,11 @@ public:
     // Set UI update callback
     void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
     
-    // StateManager interface (legacy)
-    StateManager& getStateManager();
-    void initializeStateManager();
-    
-    // StateManager callback interface (legacy)
-    void onParameterUpdate(int channelIndex, float value);
-    void onUIUpdate();
     
     // New unified parameter linkage interface
     void handleSoloButtonClick();
     void handleMuteButtonClick();
+    void handleChannelClick(int channelIndex);
     bool hasAnySoloActive() const;
     bool hasAnyMuteActive() const;
 
@@ -141,14 +134,11 @@ private:
     std::array<std::atomic<float>*, 26> soloParams{};
     std::array<std::atomic<float>*, 26> gainParams{};
     
-    // StateManager instance (legacy, will be replaced by linkageEngine)
-    std::unique_ptr<StateManager> stateManager;
-    
     // New unified parameter linkage engine
     std::unique_ptr<ParameterLinkageEngine> linkageEngine;
     
     // Flag to prevent parameter update loops
-    std::atomic<bool> isUpdatingFromStateManager{false};
+    std::atomic<bool> isUpdatingFromParameter{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

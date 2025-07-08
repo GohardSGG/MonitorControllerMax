@@ -20,7 +20,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalMuteButton.onClick = [this]
     {
         // 新的强大状态机逻辑 - 基于6大观点设计
-        audioProcessor.getStateManager().handleMuteButtonClick();
+        audioProcessor.handleMuteButtonClick();
     };
 
     addAndMakeVisible(globalSoloButton);
@@ -29,7 +29,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalSoloButton.onClick = [this]
     {
         // 新的强大状态机逻辑 - 基于6大观点设计
-        audioProcessor.getStateManager().handleSoloButtonClick();
+        audioProcessor.handleSoloButtonClick();
     };
     
     addAndMakeVisible(dimButton);
@@ -295,7 +295,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
             button->onClick = [this, channelIndex = chanInfo.channelIndex]
             {
                 // 统一通过状态机处理所有通道点击
-                audioProcessor.getStateManager().handleChannelClick(channelIndex);
+                audioProcessor.handleChannelClick(channelIndex);
             };
         }
         
@@ -396,7 +396,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
             button->onClick = [this, channelIndex = chanInfo.channelIndex]
             {
                 // 统一通过状态机处理所有通道点击
-                audioProcessor.getStateManager().handleChannelClick(channelIndex);
+                audioProcessor.handleChannelClick(channelIndex);
             };
         }
         
@@ -464,6 +464,9 @@ void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 
 void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 {
+    // TODO: Reimplement with new parameter-driven architecture
+    // Temporarily disabled to allow compilation
+    /*
     // ================== 全新的强大状态机驱动的UI更新逻辑 ==================
     auto& stateManager = audioProcessor.getStateManager();
 
@@ -547,6 +550,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     VST3_DBG("UI update completed - State: " << stateManager.getStateDescription()
         << " | Solo button: " << (soloButtonShouldBeActive ? "Active" : "Inactive")
         << " | Mute button: " << (muteButtonShouldBeActive ? "Active" : "Inactive"));
+    */
 }
 
 // 旧的handleSoloButtonClick函数已被新的状态机逻辑替代
