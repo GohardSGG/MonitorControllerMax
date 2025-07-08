@@ -542,9 +542,15 @@ void MonitorControllerMaxAudioProcessor::setLayoutChangeCallback(std::function<v
 void MonitorControllerMaxAudioProcessor::setManualMuteState(const juce::String& paramId, bool isManuallyMuted)
 {
     if (isManuallyMuted)
+    {
         manualMuteStates.insert(paramId);
+        DBG("手动Mute标记: " << paramId << " -> 激活");
+    }
     else
+    {
         manualMuteStates.erase(paramId);
+        DBG("手动Mute标记: " << paramId << " -> 清除");
+    }
 }
 
 bool MonitorControllerMaxAudioProcessor::isManuallyMuted(const juce::String& paramId) const
@@ -555,9 +561,15 @@ bool MonitorControllerMaxAudioProcessor::isManuallyMuted(const juce::String& par
 void MonitorControllerMaxAudioProcessor::setSoloInducedMuteState(const juce::String& paramId, bool isSoloInduced)
 {
     if (isSoloInduced)
+    {
         soloInducedMuteStates.insert(paramId);
+        DBG("Solo联动Mute标记: " << paramId << " -> 激活");
+    }
     else
+    {
         soloInducedMuteStates.erase(paramId);
+        DBG("Solo联动Mute标记: " << paramId << " -> 清除");
+    }
 }
 
 bool MonitorControllerMaxAudioProcessor::isSoloInducedMute(const juce::String& paramId) const
@@ -598,6 +610,7 @@ void MonitorControllerMaxAudioProcessor::savePreSoloSnapshot()
 
 void MonitorControllerMaxAudioProcessor::restorePreSoloSnapshot()
 {
+    // 注意：此函数保留用于向后兼容，但新的checkSoloStateChange()中已包含智能恢复逻辑
     // 恢复到Solo前的完整状态
     for (auto it = preSoloSnapshot.begin(); it != preSoloSnapshot.end(); ++it)
     {
@@ -621,10 +634,10 @@ bool MonitorControllerMaxAudioProcessor::hasPreSoloSnapshot() const
     return !preSoloSnapshot.empty();
 }
 
-// JS-style Solo state management - Simple and Correct
+// JS-style Solo state management - 修复版本，正确追踪状态分类
 void MonitorControllerMaxAudioProcessor::checkSoloStateChange()
 {
-    // Check if ANY Solo is currently active
+    // 检查是否有任何Solo当前激活
     bool currentSoloActive = false;
     for (int i = 0; i < 26; ++i)
     {
@@ -636,12 +649,12 @@ void MonitorControllerMaxAudioProcessor::checkSoloStateChange()
         }
     }
     
-    // Only act when Solo state CHANGES (like the JSFX code)
+    // 只在Solo状态变化时采取行动（如JSFX代码）
     if (currentSoloActive != previousSoloActive)
     {
         if (currentSoloActive)
         {
-            // Entering Solo mode: Save current user Mute states
+            // 进入Solo模式：保存当前用户手动Mute状态到快照
             preSoloSnapshot.clear();
             for (int i = 0; i < 26; ++i)
             {
@@ -652,42 +665,156 @@ void MonitorControllerMaxAudioProcessor::checkSoloStateChange()
                     preSoloSnapshot[muteParamId] = muteParam->load() > 0.5f;
                 }
             }
+            // 进入Solo时清除之前的Solo联动状态
+            soloInducedMuteStates.clear();
         }
         else
         {
-            // Exiting Solo mode: Restore user Mute states
-            for (auto it = preSoloSnapshot.begin(); it != preSoloSnapshot.end(); ++it)
+            // 退出Solo模式：智能恢复状态 - 只清除Solo联动的Mute，保留手动Mute
+            for (const auto& paramId : soloInducedMuteStates)
             {
-                auto* muteParam = apvts.getParameter(it->first);
-                if (muteParam)
+                // 检查这个通道是否在进入Solo前就是手动Mute的
+                bool wasManuallyMuted = preSoloSnapshot.find(paramId) != preSoloSnapshot.end() && 
+                                       preSoloSnapshot[paramId];
+                
+                if (!wasManuallyMuted)
                 {
-                    muteParam->setValueNotifyingHost(it->second ? 1.0f : 0.0f);
+                    // 只有不是手动Mute的才清除
+                    auto* muteParam = apvts.getParameter(paramId);
+                    if (muteParam)
+                    {
+                        muteParam->setValueNotifyingHost(0.0f);
+                    }
                 }
             }
+            
+            // 恢复进入Solo前的手动Mute状态
+            for (auto it = preSoloSnapshot.begin(); it != preSoloSnapshot.end(); ++it)
+            {
+                if (it->second) // 如果在快照中是Mute的，恢复它
+                {
+                    auto* muteParam = apvts.getParameter(it->first);
+                    if (muteParam)
+                    {
+                        muteParam->setValueNotifyingHost(1.0f);
+                        // 标记为手动Mute
+                        setManualMuteState(it->first, true);
+                    }
+                }
+            }
+            
             preSoloSnapshot.clear();
+            soloInducedMuteStates.clear();
         }
         
         previousSoloActive = currentSoloActive;
     }
     
-    // Apply Solo logic when Solo is active (like lines 204-238 in JSFX)
+    // 当Solo激活时应用Solo逻辑（如JSFX第204-238行）
     if (currentSoloActive)
     {
         for (int i = 0; i < 26; ++i)
         {
+            auto muteParamId = "MUTE_" + juce::String(i + 1);
             auto* soloParam = apvts.getRawParameterValue("SOLO_" + juce::String(i + 1));
-            auto* muteParam = apvts.getParameter("MUTE_" + juce::String(i + 1));
+            auto* muteParam = apvts.getParameter(muteParamId);
             
             if (soloParam && muteParam)
             {
-                // If this channel is Solo'd: unmute it. If not: mute it.
+                // 如果这个通道是Solo的：取消静音。如果不是：静音它
                 bool shouldBeMuted = soloParam->load() <= 0.5f;
-                muteParam->setValueNotifyingHost(shouldBeMuted ? 1.0f : 0.0f);
+                bool currentlyMuted = muteParam->getValue() > 0.5f;
+                
+                if (shouldBeMuted && !currentlyMuted)
+                {
+                    // 需要静音且当前未静音 - 这是Solo联动的Mute
+                    muteParam->setValueNotifyingHost(1.0f);
+                    setSoloInducedMuteState(muteParamId, true);
+                }
+                else if (!shouldBeMuted && currentlyMuted)
+                {
+                    // 需要取消静音 - 检查是否是Solo联动的Mute
+                    if (isSoloInducedMute(muteParamId))
+                    {
+                        muteParam->setValueNotifyingHost(0.0f);
+                        setSoloInducedMuteState(muteParamId, false);
+                    }
+                    // 如果是手动Mute，保持不变
+                }
             }
         }
     }
 }
 
+// 六大原则支持函数实现
+bool MonitorControllerMaxAudioProcessor::hasAnySoloActive() const
+{
+    for (int i = 0; i < 26; ++i)
+    {
+        auto* soloParam = apvts.getRawParameterValue("SOLO_" + juce::String(i + 1));
+        if (soloParam && soloParam->load() > 0.5f)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
+{
+    for (int i = 0; i < 26; ++i)
+    {
+        auto* muteParam = apvts.getRawParameterValue("MUTE_" + juce::String(i + 1));
+        if (muteParam && muteParam->load() > 0.5f)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MonitorControllerMaxAudioProcessor::clearAllSolos()
+{
+    for (int i = 0; i < 26; ++i)
+    {
+        auto soloParamId = "SOLO_" + juce::String(i + 1);
+        auto* soloParam = apvts.getParameter(soloParamId);
+        if (soloParam && soloParam->getValue() > 0.5f)
+        {
+            soloParam->setValueNotifyingHost(0.0f);
+        }
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::clearAllMutes()
+{
+    for (int i = 0; i < 26; ++i)
+    {
+        auto muteParamId = "MUTE_" + juce::String(i + 1);
+        auto* muteParam = apvts.getParameter(muteParamId);
+        if (muteParam && muteParam->getValue() > 0.5f)
+        {
+            muteParam->setValueNotifyingHost(0.0f);
+        }
+    }
+    // 清除所有状态标记
+    manualMuteStates.clear();
+    soloInducedMuteStates.clear();
+}
+
+void MonitorControllerMaxAudioProcessor::clearAllAutoMutes()
+{
+    // 只清除Solo联动的Mute状态，保留手动Mute
+    for (const auto& paramId : soloInducedMuteStates)
+    {
+        auto* muteParam = apvts.getParameter(paramId);
+        if (muteParam && muteParam->getValue() > 0.5f)
+        {
+            muteParam->setValueNotifyingHost(0.0f);
+        }
+    }
+    soloInducedMuteStates.clear();
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioProcessor::createParameterLayout()
 {

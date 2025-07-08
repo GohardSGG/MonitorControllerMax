@@ -81,6 +81,13 @@ public:
     
     // JS-style Solo state management (inspired by the working JSFX code)
     void checkSoloStateChange();
+    
+    // 六大原则支持函数
+    bool hasAnySoloActive() const;
+    bool hasAnyMuteActive() const;
+    void clearAllSolos();
+    void clearAllMutes();
+    void clearAllAutoMutes();
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;

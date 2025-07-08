@@ -116,32 +116,40 @@ MonitorControllerMax/
     *   确保生产版本的质量和稳定性
     *   避免在开发过程中的构建复杂度
 
-**开发优先级：**
-- ✅ 快速Debug独立程序编译（用于功能验证）
-- ✅ 自动错误检测和修复
-- ✅ 代码质量保证
-- ⚠️ 避免不必要的Release构建
+**开发优先级 (v2.5 更新)：**
+- ✅ **一键开发**：编译并自动启动程序（最高优先级）
+- ✅ **快速迭代**：直接在启动的程序中测试功能
+- ✅ **智能启动**：自动路径转换和程序启动
+- ✅ **自动错误检测**：详细的编译错误分析和建议
+- ✅ **代码质量保证**：完整的状态验证和日志管理
+- ⚠️ **避免不必要的Release构建**
 
-### 🛠️ Claude Code 统一自动化工具套件 (现代 PowerShell 版本)
+### 🛠️ Claude Code 统一自动化工具套件 (v2.5 现代化版本)
 
-**⚡ 首要规则：使用现代化的 PowerShell 集成工具套件**
+**⚡ 首要规则：使用现代化的一键开发工具套件**
 
-Claude Code 必须使用位于 `/Debug/` 目录的统一自动化工具套件，现已升级为 PowerShell 集成版本，提供更好的 Windows 环境兼容性：
+Claude Code 必须使用位于 `/Debug/` 目录的统一自动化工具套件，现已升级为 v2.5 版本，提供完美的一键开发体验：
 
-#### 核心命令
+#### 🚀 核心命令 (推荐使用顺序)
 
 ```bash
 # 进入工具目录
 cd "/mnt/c/REAPER/Effects/Masking Effects/Debug"
 
-# 日常开发 - 快速Debug编译 (必须首选)
+# 🚀 一键开发 - 编译并运行 (最常用，强烈推荐)
+./claude_auto_build.sh run
+
+# 快速启动 - 仅运行已有程序 (快速测试)
+./claude_auto_build.sh start
+
+# 状态检查 - 随时查看构建状态
+./claude_auto_build.sh status
+
+# 日常编译 - 仅编译验证 (传统模式)
 ./claude_auto_build.sh quick
 
 # 问题排查 - 完整Debug编译
 ./claude_auto_build.sh full
-
-# 状态检查 - 随时查看构建状态
-./claude_auto_build.sh status
 
 # 发布准备 - Release编译 (最终阶段)
 ./claude_auto_build.sh release
@@ -150,60 +158,116 @@ cd "/mnt/c/REAPER/Effects/Masking Effects/Debug"
 ./claude_auto_build.sh clean
 ```
 
-#### PowerShell 直接调用 (可选)
+#### 🎯 Claude Code 现代化开发流程 (v2.5)
 
-如果在 Windows 环境中，也可以直接使用 PowerShell 版本：
-
-```powershell
-# 直接使用 PowerShell 工具套件
-powershell.exe -ExecutionPolicy Bypass -File "claude_toolkit_en.ps1" -QuickDebug
-powershell.exe -ExecutionPolicy Bypass -File "claude_toolkit_en.ps1" -Status
-powershell.exe -ExecutionPolicy Bypass -File "claude_toolkit_en.ps1" -Clean
+**最简单的一键开发流程 (强烈推荐)：**
+```
+1. 修改代码 (Visual Studio)
+2. ./claude_auto_build.sh run  (一键编译并运行)
+3. 直接测试功能
+4. Git 提交稳定状态
+5. 重复循环
 ```
 
-#### 标准开发循环
+**Windows PowerShell 用户：**
+```powershell
+cd "C:\REAPER\Effects\Masking Effects\Debug"
 
+# 一键开发
+wsl ./claude_auto_build.sh run
+
+# 查看状态
+wsl ./claude_auto_build.sh status
+```
+
+#### 🔄 现代化开发循环 (v2.5 一键流程)
+
+**新的一键开发循环 (推荐)：**
 ```
 1. 修改代码
    ↓
-2. ./claude_auto_build.sh quick  (自动编译验证)
+2. ./claude_auto_build.sh run  (一键编译并运行)
    ↓
-3. 检查编译结果 (立即修复错误)
+3. 直接在启动的程序中测试功能
    ↓
-4. 功能验证 (可选测试)
+4. Git提交稳定状态
    ↓
-5. Git提交稳定状态
-   ↓
-6. 重复循环
+5. 重复循环
 ```
 
-#### 工具套件特性 (PowerShell 增强版)
+**传统分步开发循环 (备选)：**
+```
+1. 修改代码
+   ↓
+2. ./claude_auto_build.sh quick  (仅编译验证)
+   ↓
+3. ./claude_auto_build.sh start  (启动程序测试)
+   ↓
+4. Git提交稳定状态
+   ↓
+5. 重复循环
+```
 
-- ✅ **PowerShell 集成**: 现代化 PowerShell 核心，提供更好的 Windows 兼容性
+#### 🚀 工具套件特性 (v2.5 现代化版本)
+
+**新增核心功能：**
+- ✅ **一键开发**: `run` 命令实现编译+启动一体化
+- ✅ **智能启动**: 自动路径转换和程序启动
+- ✅ **后台运行**: 程序启动后命令行依然可用
+- ✅ **测试建议**: 自动显示功能测试要点
+
+**传统功能增强：**
+- ✅ **直接MSBuild**: 避免PowerShell编码问题，更可靠
 - ✅ **智能编译**: 根据场景自动选择最佳编译策略
 - ✅ **错误检测**: 自动分析编译错误并提供建议
 - ✅ **状态验证**: 验证构建产物的正确性
 - ✅ **彩色输出**: 清晰的状态指示 (成功/警告/错误)
 - ✅ **日志管理**: 自动保存和分析编译日志
-- ✅ **编码兼容**: 解决了 bat 脚本的字符编码问题
-- ✅ **跨环境**: 支持 WSL 调用 Windows PowerShell 的混合环境
+- ✅ **跨环境**: 支持 WSL 和 Windows PowerShell
 
-#### Claude Code 使用约定
+#### 🎯 Claude Code 使用约定 (v2.5)
 
-1. **永远优先使用 `quick` 模式** - 最快的日常开发验证
-2. **编译失败时使用 `full` 模式** - 完整清理重建解决问题
-3. **定期检查 `status`** - 了解当前构建状态
-4. **遵循小步快跑** - 每个稳定状态及时Git提交
-5. **避免手动编译** - 统一使用自动化工具确保一致性
+**优先级顺序 (按使用频率)：**
+1. **永远优先使用 `run` 模式** - 一键编译并运行，最高效的开发方式
+2. **快速测试使用 `start` 模式** - 仅启动程序，无需重新编译
+3. **状态检查使用 `status` 模式** - 了解当前构建状态和文件信息
+4. **编译验证使用 `quick` 模式** - 仅编译不启动，传统验证方式
+5. **编译失败时使用 `full` 模式** - 完整清理重建解决问题
+6. **遵循小步快跑** - 每个稳定状态及时Git提交
+7. **避免手动编译** - 统一使用自动化工具确保一致性
 
-这套工具位于 `/Debug/` 目录，包含：
-- `claude_auto_build.sh` - Claude Code专用自动化脚本 (WSL 入口，PowerShell 集成)
-- `claude_toolkit_en.ps1` - 现代化 PowerShell 工具套件核心 (英文版，避免编码问题)
-- `claude_dev_toolkit.ps1` - PowerShell 交互式工具 (中文版，用户友好)
-- `run_toolkit.bat` - Windows 快速启动脚本
-- `README.md` - 详细使用说明
+**典型的Claude Code工作流：**
+```bash
+# 开始开发会话
+./claude_auto_build.sh status  # 了解当前状态
 
-**此工具套件是Claude Code开发的核心，必须严格遵循使用。现在基于现代化 PowerShell 实现，提供更好的稳定性和兼容性。**
+# 主要开发循环 (重复多次)
+./claude_auto_build.sh run     # 编译并运行，测试功能
+
+# 问题排查 (如果需要)
+./claude_auto_build.sh full    # 完整重建
+
+# 最终验证
+./claude_auto_build.sh release # Release编译确认
+```
+
+#### 📁 工具套件文件清单 (v2.5)
+
+这套工具位于 `/Debug/` 目录，现已简化为最核心的文件：
+
+**核心文件 (仅2个)：**
+- `claude_auto_build.sh` - Claude Code自动化编译脚本 (核心工具)
+  - 直接调用MSBuild，避免编码问题
+  - 支持编译、运行、状态检查等完整功能
+  - 一键开发体验，编译并自动启动程序
+- `README.md` - 完整使用说明和故障排除指南
+
+**技术架构：**
+```
+WSL/Bash → claude_auto_build.sh → MSBuild → 独立程序自动启动
+```
+
+**此工具套件是Claude Code开发的核心，必须严格遵循使用。v2.5版本实现了最简洁、最可靠的架构。**
 
 ### 🔄 Git版本控制和渐进式开发流程
 

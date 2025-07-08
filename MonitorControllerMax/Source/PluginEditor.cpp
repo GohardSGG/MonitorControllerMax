@@ -18,37 +18,31 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalMuteButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalMuteButton.onClick = [this]
     {
-        // 检查是否有任何Mute激活
-        bool anyMuteActive = false;
-        for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-        {
-            if (audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-            {
-                anyMuteActive = true;
-                break;
-            }
-        }
+        // 原则4：Mute按钮检查所有通道的Mute状态
+        bool anyMuteActive = audioProcessor.hasAnyMuteActive();
 
         if (anyMuteActive)
         {
             // 如果有任何Mute激活，执行"一键取消"操作
-            for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-            {
-                audioProcessor.apvts.getParameter("MUTE_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
-            }
+            audioProcessor.clearAllMutes();
             currentUIMode = UIMode::Normal;
         }
         else if (currentUIMode == UIMode::AssignMute)
         {
-            // 如果没有激活通道但在选择模式，退出模式
+            // 如果没有激活通道但在分配模式，退出模式
             currentUIMode = UIMode::Normal;
         }
         else
         {
-            // 既没有激活通道也不在选择模式，进入Mute分配模式
+            // 既没有激活通道也不在分配模式，进入Mute分配模式
             currentUIMode = UIMode::AssignMute;
-            // 取消Solo分配模式 (不触发Solo按钮的onClick)
-            globalSoloButton.setToggleState(false, juce::dontSendNotification);
+            // 原则5：按钮互斥退出分配模式
+            if (currentUIMode == UIMode::AssignSolo)
+            {
+                currentUIMode = UIMode::Normal;
+                globalSoloButton.setToggleState(false, juce::dontSendNotification);
+            }
+            currentUIMode = UIMode::AssignMute;
         }
         updateChannelButtonStates();
     };
@@ -58,50 +52,34 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalSoloButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalSoloButton.onClick = [this]
     {
-        // 检查当前是否有任何Solo通道激活
-        bool anySoloActive = false;
-        for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-        {
-            if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-            {
-                anySoloActive = true;
-                break;
-            }
-        }
+        // 原则3：Solo按钮优先清除自身通道的Solo状态
+        bool anySoloActive = audioProcessor.hasAnySoloActive();
 
         if (anySoloActive)
         {
             // 如果有Solo激活，执行"一键取消"操作
-            // 首先清除所有Solo状态
-            for (const auto& chanInfo : audioProcessor.getCurrentLayout().channels)
-            {
-                audioProcessor.apvts.getParameter("SOLO_" + juce::String(chanInfo.channelIndex + 1))->setValueNotifyingHost(0.0f);
-            }
-            
-            // 然后恢复到Solo前的状态快照（如果有的话）
-            if (audioProcessor.hasPreSoloSnapshot())
-            {
-                audioProcessor.restorePreSoloSnapshot();
-            }
-            else
-            {
-                // 如果没有快照，就清除Solo联动Mute
-                audioProcessor.clearAllSoloInducedMutes();
-            }
+            audioProcessor.clearAllSolos();
+            // 原则2：清除所有auto-mute（Solo联动的Mute）
+            audioProcessor.clearAllAutoMutes();
             
             currentUIMode = UIMode::Normal;
         }
         else if (currentUIMode == UIMode::AssignSolo)
         {
-            // 如果没有激活通道但在选择模式，退出模式
+            // 如果没有激活通道但在分配模式，退出模式
             currentUIMode = UIMode::Normal;
         }
         else
         {
-            // 既没有激活通道也不在选择模式，进入Solo分配模式
+            // 既没有激活通道也不在分配模式，进入Solo分配模式
             currentUIMode = UIMode::AssignSolo;
-            // 取消Mute分配模式 (不触发Mute按钮的onClick)
-            globalMuteButton.setToggleState(false, juce::dontSendNotification);
+            // 原则5：按钮互斥退出分配模式
+            if (currentUIMode == UIMode::AssignMute)
+            {
+                currentUIMode = UIMode::Normal;
+                globalMuteButton.setToggleState(false, juce::dontSendNotification);
+            }
+            currentUIMode = UIMode::AssignSolo;
         }
         
         // 立即更新UI状态显示

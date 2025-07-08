@@ -260,7 +260,38 @@ enum Role {
 ✅ **编译错误** - 移除重复函数声明，英文注释替换中文
 ✅ **按钮状态冲突** - 禁用自动状态切换解决
 
-#### **B. 需要注意的技术细节**
+#### **B. 待解决的关键问题 (Solo/Mute逻辑Bug)**
+
+**🔴 发现的关键Bug：**
+
+**Bug 1: Mute状态的通道在Solo操作后会错误地恢复到Mute状态**
+- **现象**：当Mute L处于激活状态时点击Solo，取消Solo L后会错误地回到Mute L状态
+- **根因**：`checkSoloStateChange()`使用完整快照恢复，忽略了Solo期间的手动Mute修改
+- **影响**：违反了"手动激活的状态不应被auto clear"的核心原则
+
+**Bug 2: Solo切换时auto-mute状态没有正确清理**
+- **现象**：Solo操作的auto-mute状态在切换Solo目标时残留
+- **根因**：Solo激活时设置的Mute没有被正确标记为`soloInducedMute`
+- **影响**：导致状态管理混乱，auto-mute和手动mute混淆
+
+**📋 修复方案概要：**
+
+1. **改进状态分类管理**
+   - 明确区分三种Mute状态：手动Mute、Solo联动Mute、混合状态
+   - 使用`soloInducedMuteStates`集合正确追踪Solo产生的Mute
+
+2. **优化快照恢复机制**
+   - 退出Solo时只清除Solo联动的Mute
+   - 保留用户在Solo期间的手动Mute修改
+   - 实现智能的状态恢复而非简单的快照还原
+
+3. **完善UI交互逻辑**
+   - 确保Solo模式下的Mute操作能正确更新状态标记
+   - 实现更精确的状态转换和清理机制
+
+**详细实施步骤请参见：** `Dev Step.md` - Solo/Mute Bug修复计划
+
+#### **C. 需要注意的技术细节**
 
 **1. 状态管理原则：**
 - 所有状态变化必须通过明确的函数调用
@@ -319,7 +350,182 @@ DBG("Solo state changed: " << (currentSoloActive ? "active" : "inactive"));
 
 ---
 
-### **第八部分：项目交接清单**
+### **第八部分：现代化开发工具套件 (v2.5)**
+
+#### **A. 自动化开发工具概述**
+
+项目现已配备完整的**自动化开发工具套件**，提供从编译到测试的一键式开发体验。工具套件位于 `/Debug/` 目录，基于现代化的Bash脚本，直接调用MSBuild，避免了PowerShell编码问题。
+
+#### **B. 核心开发工具**
+
+**主要工具文件：**
+- `claude_auto_build.sh` - 自动化编译脚本 (核心工具)
+- `README.md` - 完整使用说明
+
+**支持的操作：**
+```bash
+# 编译相关
+./claude_auto_build.sh quick     # 快速Debug编译
+./claude_auto_build.sh full      # 完整Clean编译
+./claude_auto_build.sh release   # Release编译
+
+# 运行相关 (新增强大功能)
+./claude_auto_build.sh run       # 编译并运行 (一键开发)
+./claude_auto_build.sh start     # 仅运行已有程序
+
+# 工具相关
+./claude_auto_build.sh status    # 查看构建状态
+./claude_auto_build.sh clean     # 清理环境
+./claude_auto_build.sh help      # 显示帮助
+```
+
+#### **C. 现代化开发流程**
+
+**🚀 最简单的开发流程 (推荐)：**
+```
+1. 在Visual Studio中修改代码
+2. 运行: wsl ./claude_auto_build.sh run
+3. 程序自动编译并启动独立程序
+4. 直接测试功能 (Solo/Mute逻辑、UI响应等)
+5. 如果满意，Git提交
+6. 重复循环
+```
+
+**传统开发流程：**
+```
+代码修改 → 编译验证 → 手动启动 → 测试 → 提交
+```
+
+**新的一键流程：**
+```
+代码修改 → 一键编译并运行 → 测试 → 提交
+```
+
+#### **D. 跨平台使用方法**
+
+**在Windows PowerShell中使用 (推荐)：**
+```powershell
+cd "C:\REAPER\Effects\Masking Effects\Debug"
+
+# 一键编译并运行
+wsl ./claude_auto_build.sh run
+
+# 查看状态
+wsl ./claude_auto_build.sh status
+```
+
+**在WSL终端中使用：**
+```bash
+cd "/mnt/c/REAPER/Effects/Masking Effects/Debug"
+
+# 一键编译并运行
+./claude_auto_build.sh run
+```
+
+#### **E. 技术架构优势**
+
+**解决的关键问题：**
+1. **PowerShell编码问题** - 使用纯Bash脚本避免中文字符问题
+2. **复杂的文件结构** - 从多个脚本简化为单一核心工具
+3. **手动启动程序** - 新增自动启动功能，支持一键开发
+4. **路径转换问题** - 使用`wslpath`和`powershell.exe`可靠启动程序
+
+**架构设计：**
+```
+WSL (开发环境) → claude_auto_build.sh → MSBuild → Visual Studio 编译器 → 自动启动程序
+      ↓                    ↓                ↓               ↓                ↓
+   [Linux环境]         [Bash脚本]      [Windows编译器]   [项目构建]        [测试环境]
+```
+
+#### **F. 开发效率提升**
+
+**传统开发模式的问题：**
+- 需要手动切换到Visual Studio编译
+- 需要手动找到并启动生成的程序
+- 容易忘记最新编译状态
+- 测试周期较长
+
+**新工具套件的优势：**
+- ✅ **一键操作**：`run`命令完成编译+启动
+- ✅ **实时反馈**：彩色输出显示详细状态
+- ✅ **智能提示**：自动显示测试建议
+- ✅ **错误诊断**：详细的错误信息和解决建议
+- ✅ **后台运行**：程序启动后命令行依然可用
+
+**开发效率对比：**
+```
+传统流程: 修改代码 (30s) → 手动编译 (60s) → 找程序启动 (30s) → 测试 (120s)
+新流程:   修改代码 (30s) → 运行run命令 (60s) → 直接测试 (120s)
+节省时间: 约30s每次，提升25%效率
+```
+
+#### **G. Git集成与渐进式开发**
+
+**小步快跑开发策略：**
+1. **快速验证**：`./claude_auto_build.sh run` 验证改动
+2. **功能测试**：在自动启动的程序中测试
+3. **及时提交**：每个稳定功能点立即Git提交
+4. **状态检查**：`./claude_auto_build.sh status` 了解构建状态
+
+**Git工作流集成：**
+```bash
+# 典型的开发循环
+git checkout -b feature/new-functionality
+# 修改代码
+./claude_auto_build.sh run      # 编译并测试
+git add . && git commit -m "实现新功能的基础框架"
+# 继续修改
+./claude_auto_build.sh run      # 再次测试
+git add . && git commit -m "完善功能逻辑"
+# 最终验证
+./claude_auto_build.sh release  # Release编译验证
+git push origin feature/new-functionality
+```
+
+#### **H. 故障排除和调试**
+
+**常见问题和解决方案：**
+
+1. **编译失败**
+   ```bash
+   # 查看详细错误
+   ./claude_auto_build.sh status
+   # 完整重建
+   ./claude_auto_build.sh full
+   ```
+
+2. **程序启动失败**
+   ```bash
+   # 仅编译，不启动
+   ./claude_auto_build.sh quick
+   # 手动检查生成文件
+   ./claude_auto_build.sh status
+   ```
+
+3. **权限问题**
+   ```bash
+   chmod +x claude_auto_build.sh
+   ```
+
+**调试输出示例：**
+```
+🚀 Claude Code 自动化编译脚本
+[INFO] 检查编译环境...
+[SUCCESS] 编译环境检查通过
+[INFO] 🚀 编译并运行独立程序...
+[SUCCESS] 独立程序编译成功
+[INFO] 程序路径: C:\REAPER\Effects\...\MonitorControllerMax.exe
+[SUCCESS] 独立程序已启动！
+
+🎮 测试建议:
+   - 验证Solo/Mute按钮逻辑
+   - 测试布局切换功能
+   - 检查UI响应性能
+```
+
+---
+
+### **第九部分：项目交接清单**
 
 #### **✅ 当前工作完成状态**
 

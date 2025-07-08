@@ -179,6 +179,188 @@ void setCurrentLayout(const String& speaker, const String& sub) {
 
 ---
 
+## 🚨 **紧急修复：Solo/Mute逻辑Bug修复计划**
+
+### **问题诊断和修复步骤**
+
+#### **Step 1: 状态管理系统重构** (预计2小时)
+
+**目标：** 修复状态分类和追踪机制
+
+**具体修改：**
+1. **修改 `PluginProcessor.cpp` - `checkSoloStateChange()` 函数**
+   ```cpp
+   // 当前问题代码：
+   if (currentSoloActive) {
+       getParameterByID(muteId)->setValueNotifyingHost(1.0f);
+       // 问题：没有记录这是Solo导致的Mute
+   }
+   
+   // 修复后：
+   if (currentSoloActive) {
+       getParameterByID(muteId)->setValueNotifyingHost(1.0f);
+       soloInducedMuteStates.insert(channelId);  // 标记为Solo联动Mute
+   }
+   ```
+
+2. **修改状态恢复逻辑**
+   ```cpp
+   // 退出Solo时的处理
+   else {  // Solo刚刚退出
+       // 只清除Solo联动的Mute，保留手动Mute
+       for (const auto& channelId : soloInducedMuteStates) {
+           if (manualMuteStates.find(channelId) == manualMuteStates.end()) {
+               // 只有不是手动Mute的才清除
+               getParameterByID(muteId)->setValueNotifyingHost(0.0f);
+           }
+       }
+       soloInducedMuteStates.clear();
+   }
+   ```
+
+#### **Step 2: 用户六大原则实现** (预计3小时)
+
+**原则实现清单：**
+
+1. **原则1：手动激活的Mute不应被清除**
+   - 在`handleMuteButtonClick()`中正确维护`manualMuteStates`集合
+   - Solo期间的Mute操作也要更新集合
+
+2. **原则2：Auto-mute全部清除**
+   - 实现`clearAllAutoMutes()`函数
+   - 在Solo退出时调用
+
+3. **原则3：Solo按钮优先清除自身通道**
+   ```cpp
+   void handleGlobalSoloClick() {
+       // 检查是否有任何Solo激活
+       if (hasAnySoloActive()) {
+           // 清除所有Solo状态
+           clearAllSolos();
+           // 清除所有auto-mute
+           clearAllAutoMutes();
+       } else {
+           // 进入Solo分配模式
+           currentUIMode = UIMode::AssignSolo;
+       }
+   }
+   ```
+
+4. **原则4：Mute按钮检查所有通道**
+   - 类似Solo的逻辑实现
+
+5. **原则5：按钮互斥退出分配模式**
+   ```cpp
+   void handleSoloButtonClick() {
+       if (currentUIMode == UIMode::AssignMute) {
+           currentUIMode = UIMode::Normal;  // 退出Mute模式
+       }
+       // ... Solo逻辑
+   }
+   ```
+
+6. **原则6：通道按钮响应当前模式**
+   - 已实现，需验证
+
+#### **Step 3: 测试用例实施** (预计1小时)
+
+**测试场景：**
+
+1. **Bug 1修复测试**
+   ```
+   测试步骤：
+   1. 手动激活Mute L
+   2. 点击Solo按钮进入分配模式
+   3. 激活Solo L（其他通道应auto-mute）
+   4. 点击Solo L取消
+   预期：L保持静音（手动mute），其他通道恢复声音
+   ```
+
+2. **Bug 2修复测试**
+   ```
+   测试步骤：
+   1. Solo L（其他通道auto-mute）
+   2. Solo R（L应该恢复，其他通道auto-mute）
+   3. 取消Solo R
+   预期：所有通道恢复声音，无残留mute
+   ```
+
+3. **综合测试矩阵**
+   - 手动Mute + Solo组合
+   - 快速切换Solo目标
+   - Solo期间修改Mute
+   - 分配模式切换
+
+#### **Step 4: 代码优化和清理** (预计1小时)
+
+1. **删除过时的快照机制**
+   - 移除`preSoloSnapshot`相关代码
+   - 使用新的状态分类系统
+
+2. **优化状态检查函数**
+   ```cpp
+   bool isManualMute(const String& channelId) {
+       return manualMuteStates.find(channelId) != manualMuteStates.end();
+   }
+   
+   bool isAutoMute(const String& channelId) {
+       return soloInducedMuteStates.find(channelId) != soloInducedMuteStates.end();
+   }
+   ```
+
+3. **添加调试日志**
+   ```cpp
+   DBG("Mute state change - Channel: " << channelId 
+       << " Manual: " << isManualMute(channelId)
+       << " Auto: " << isAutoMute(channelId));
+   ```
+
+### **实施计划时间表**
+
+| 步骤 | 任务 | 预计时间 | 优先级 |
+|------|------|----------|--------|
+| 1 | 状态管理系统重构 | 2小时 | 🔴 最高 |
+| 2 | 六大原则实现 | 3小时 | 🔴 最高 |
+| 3 | 测试用例验证 | 1小时 | 🟡 高 |
+| 4 | 代码优化清理 | 1小时 | 🟢 中 |
+
+**总计：** 约7小时的开发工作
+
+### **关键文件修改清单**
+
+1. **PluginProcessor.cpp**
+   - `checkSoloStateChange()` - 核心状态管理逻辑
+   - `savePreSoloSnapshot()` - 可能删除或重写
+   - `restorePreSoloSnapshot()` - 改为智能恢复
+
+2. **PluginProcessor.h**
+   - 添加/修改状态集合定义
+   - 添加新的辅助函数声明
+
+3. **PluginEditor.cpp**
+   - `handleSoloButtonClick()` - 实现新的优先级逻辑
+   - `handleMuteButtonClick()` - 实现新的优先级逻辑
+   - `channelButtonClicked()` - 确保正确更新状态集合
+
+### **验收标准**
+
+✅ **功能验收：**
+- 所有测试用例通过
+- 六大原则全部实现
+- 无状态管理混乱
+
+✅ **代码质量：**
+- 清晰的状态分类
+- 完整的注释说明
+- 无编译警告
+
+✅ **用户体验：**
+- 操作符合直觉
+- 状态转换流畅
+- 无意外行为
+
+---
+
 ## 🎯 **Stage 2 开发计划**
 
 ### **核心目标：主从模式实现**
