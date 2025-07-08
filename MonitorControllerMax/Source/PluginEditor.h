@@ -90,6 +90,9 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+    
+    // Public UI update methods
+    void updateChannelButtonStates();
 
 private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -101,7 +104,6 @@ private:
         AssignMute
     };
 
-    void updateChannelButtonStates();
     void updateLayout();
     void updateLayoutWithoutSelectorOverride(); // Layout update without forcing selector choice
     void setUIMode(UIMode newMode);
@@ -135,7 +137,6 @@ private:
     int lastKnownChannelCount = 0;
 
     // 添加私有函数声明
-    void handleSoloButtonClick(int channelIndex, const juce::String& channelName);
     void updatePluginConfiguration(); // 立即更新插件配置并通知宿主
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)

@@ -18,33 +18,8 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalMuteButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalMuteButton.onClick = [this]
     {
-        // 原则4：Mute按钮检查所有通道的Mute状态
-        bool anyMuteActive = audioProcessor.hasAnyMuteActive();
-
-        if (anyMuteActive)
-        {
-            // 如果有任何Mute激活，执行"一键取消"操作
-            audioProcessor.clearAllMutes();
-            currentUIMode = UIMode::Normal;
-        }
-        else if (currentUIMode == UIMode::AssignMute)
-        {
-            // 如果没有激活通道但在分配模式，退出模式
-            currentUIMode = UIMode::Normal;
-        }
-        else
-        {
-            // 既没有激活通道也不在分配模式，进入Mute分配模式
-            currentUIMode = UIMode::AssignMute;
-            // 原则5：按钮互斥退出分配模式
-            if (currentUIMode == UIMode::AssignSolo)
-            {
-                currentUIMode = UIMode::Normal;
-                globalSoloButton.setToggleState(false, juce::dontSendNotification);
-            }
-            currentUIMode = UIMode::AssignMute;
-        }
-        updateChannelButtonStates();
+        // 新的强大状态机逻辑 - 基于6大观点设计
+        audioProcessor.getStateManager().handleMuteButtonClick();
     };
 
     addAndMakeVisible(globalSoloButton);
@@ -52,38 +27,8 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalSoloButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalSoloButton.onClick = [this]
     {
-        // 原则3：Solo按钮优先清除自身通道的Solo状态
-        bool anySoloActive = audioProcessor.hasAnySoloActive();
-
-        if (anySoloActive)
-        {
-            // 如果有Solo激活，执行"一键取消"操作
-            audioProcessor.clearAllSolos();
-            // 原则2：清除所有auto-mute（Solo联动的Mute）
-            audioProcessor.clearAllAutoMutes();
-            
-            currentUIMode = UIMode::Normal;
-        }
-        else if (currentUIMode == UIMode::AssignSolo)
-        {
-            // 如果没有激活通道但在分配模式，退出模式
-            currentUIMode = UIMode::Normal;
-        }
-        else
-        {
-            // 既没有激活通道也不在分配模式，进入Solo分配模式
-            currentUIMode = UIMode::AssignSolo;
-            // 原则5：按钮互斥退出分配模式
-            if (currentUIMode == UIMode::AssignMute)
-            {
-                currentUIMode = UIMode::Normal;
-                globalMuteButton.setToggleState(false, juce::dontSendNotification);
-            }
-            currentUIMode = UIMode::AssignSolo;
-        }
-        
-        // 立即更新UI状态显示
-        updateChannelButtonStates();
+        // 新的强大状态机逻辑 - 基于6大观点设计
+        audioProcessor.getStateManager().handleSoloButtonClick();
     };
     
     addAndMakeVisible(dimButton);
@@ -345,34 +290,11 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
             auto* button = channelButtons[chanInfo.channelIndex].get();
             button->setClickingTogglesState(false); // 手动管理状态
 
-            // ================== 新的事务性 onClick 逻辑 ==================
-            button->onClick = [this, channelIndex = chanInfo.channelIndex, channelName = chanInfo.name]
+            // ================== 全新强大状态机逻辑 ==================
+            button->onClick = [this, channelIndex = chanInfo.channelIndex]
             {
-                if (currentUIMode == UIMode::AssignSolo)
-                {
-                    handleSoloButtonClick(channelIndex, channelName);
-                }
-                else if (currentUIMode == UIMode::AssignMute)
-                {
-                    // Mute逻辑：纯粹的Mute操作，完全独立于Solo状态
-                    auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
-                    auto* muteParam = audioProcessor.apvts.getParameter(muteParamId);
-                    bool newMuteState = muteParam->getValue() < 0.5f;
-                    muteParam->setValueNotifyingHost(newMuteState ? 1.0f : 0.0f);
-                    
-                    // 记录这个Mute是手动激活的
-                    audioProcessor.setManualMuteState(muteParamId, newMuteState);
-                    
-                    // 如果当前有Solo状态，需要移除Solo联动标记（因为现在是手动控制）
-                    if (newMuteState && audioProcessor.isSoloInducedMute(muteParamId))
-                    {
-                        audioProcessor.setSoloInducedMuteState(muteParamId, false);
-                    }
-                    
-                    // 立即更新UI状态显示
-                    updateChannelButtonStates();
-                }
-                // 非分配模式下点击无效
+                // 统一通过状态机处理所有通道点击
+                audioProcessor.getStateManager().handleChannelClick(channelIndex);
             };
         }
         
@@ -469,34 +391,11 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
             auto* button = channelButtons[chanInfo.channelIndex].get();
             button->setClickingTogglesState(false); // 手动管理状态
 
-            // 复用相同的onClick逻辑
-            button->onClick = [this, channelIndex = chanInfo.channelIndex, channelName = chanInfo.name]
+            // ================== 全新强大状态机逻辑 ==================
+            button->onClick = [this, channelIndex = chanInfo.channelIndex]
             {
-                if (currentUIMode == UIMode::AssignSolo)
-                {
-                    handleSoloButtonClick(channelIndex, channelName);
-                }
-                else if (currentUIMode == UIMode::AssignMute)
-                {
-                    // Mute逻辑：纯粹的Mute操作，完全独立于Solo状态
-                    auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
-                    auto* muteParam = audioProcessor.apvts.getParameter(muteParamId);
-                    bool newMuteState = muteParam->getValue() < 0.5f;
-                    muteParam->setValueNotifyingHost(newMuteState ? 1.0f : 0.0f);
-                    
-                    // 记录这个Mute是手动激活的
-                    audioProcessor.setManualMuteState(muteParamId, newMuteState);
-                    
-                    // 如果当前有Solo状态，需要移除Solo联动标记（因为现在是手动控制）
-                    if (newMuteState && audioProcessor.isSoloInducedMute(muteParamId))
-                    {
-                        audioProcessor.setSoloInducedMuteState(muteParamId, false);
-                    }
-                    
-                    // 立即更新UI状态显示
-                    updateChannelButtonStates();
-                }
-                // 非分配模式下点击无效
+                // 统一通过状态机处理所有通道点击
+                audioProcessor.getStateManager().handleChannelClick(channelIndex);
             };
         }
         
@@ -564,101 +463,74 @@ void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 
 void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 {
-    // ================== 全新的、最终的状态显示逻辑 ==================
-    const auto& layout = audioProcessor.getCurrentLayout();
-    if (layout.channels.empty() && layout.totalChannelCount == 0) return;
+    // ================== 全新的强大状态机驱动的UI更新逻辑 ==================
+    auto& stateManager = audioProcessor.getStateManager();
 
-    // 1. 计算真实的聚合状态
-    bool anySoloEngaged = false;
-    bool anyMuteEngaged = false;
-    for (const auto& chanInfo : layout.channels)
-    {
-        if (audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-            anySoloEngaged = true;
-        if (audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f)
-            anyMuteEngaged = true;
-    }
-
-    // 2. 更新每个通道按钮的状态
+    // 1. 更新每个通道按钮的状态和外观
     for (auto const& [index, button] : channelButtons)
     {
         if (!button->isVisible() || index < 0) continue;
 
-        const bool isSoloed = audioProcessor.apvts.getRawParameterValue("SOLO_" + juce::String(index + 1))->load() > 0.5f;
-        const bool isMuted = audioProcessor.apvts.getRawParameterValue("MUTE_" + juce::String(index + 1))->load() > 0.5f;
-
-        // 优化：只在状态真正改变时才更新颜色和切换状态
-        bool newToggleState = isSoloed || isMuted;
-        juce::Colour newColour;
+        // 从状态机获取通道状态
+        bool shouldBeActive = stateManager.shouldChannelBeActive(index);
+        juce::Colour channelColour = stateManager.getChannelColour(index);
         
-        if (isSoloed)
+        // 只在状态真正改变时才更新，避免频繁重绘
+        if (button->getToggleState() != shouldBeActive)
         {
-            newColour = customLookAndFeel.getSoloColour();
+            button->setToggleState(shouldBeActive, juce::dontSendNotification);
         }
-        else if (isMuted)
+        
+        if (button->findColour(juce::TextButton::buttonOnColourId) != channelColour)
         {
-            newColour = customLookAndFeel.getMuteColour();
+            button->setColour(juce::TextButton::buttonOnColourId, channelColour);
+        }
+    }
+    
+    // 2. 更新主控制按钮的外观 - 基于观点1：按钮激活 = 选择状态
+    bool soloButtonShouldBeActive = stateManager.shouldSoloButtonBeActive();
+    bool muteButtonShouldBeActive = stateManager.shouldMuteButtonBeActive();
+    
+    // Solo主按钮更新
+    if (globalSoloButton.getToggleState() != soloButtonShouldBeActive)
+    {
+        globalSoloButton.setToggleState(soloButtonShouldBeActive, juce::dontSendNotification);
+        
+        if (soloButtonShouldBeActive)
+        {
+            globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
         }
         else
         {
-            newColour = getLookAndFeel().findColour(juce::TextButton::buttonColourId); // 默认未激活颜色
-        }
-        
-        // 只在状态或颜色真正改变时才更新，避免频繁重绘
-        if (button->getToggleState() != newToggleState)
-        {
-            button->setToggleState(newToggleState, juce::dontSendNotification);
-        }
-        
-        if (button->findColour(juce::TextButton::buttonOnColourId) != newColour)
-        {
-            button->setColour(juce::TextButton::buttonOnColourId, newColour);
+            globalSoloButton.setColour(juce::TextButton::buttonOnColourId, 
+                                      getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         }
     }
     
-    // 3. 更新主控制按钮的外观，使其反映真实的聚合状态
-    // Mute主按钮状态逻辑：有激活通道 OR 处于分配模式时都应该亮起
-    if (anyMuteEngaged || currentUIMode == UIMode::AssignMute)
+    // Mute主按钮更新
+    if (globalMuteButton.getToggleState() != muteButtonShouldBeActive)
     {
-        // 当有Mute通道激活或处于Mute分配模式时，主按钮显示为激活状态
-        globalMuteButton.setToggleState(true, juce::dontSendNotification);
+        globalMuteButton.setToggleState(muteButtonShouldBeActive, juce::dontSendNotification);
+        
+        if (muteButtonShouldBeActive)
+        {
+            globalMuteButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getMuteColour());
+        }
+        else
+        {
+            globalMuteButton.setColour(juce::TextButton::buttonOnColourId, 
+                                      getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        }
     }
-    else
-    {
-        // 既没有通道被mute，也不在分配模式，显示为未激活状态
-        globalMuteButton.setToggleState(false, juce::dontSendNotification);
-    }
-
-    // Solo主按钮状态逻辑：有激活通道 OR 处于分配模式时都应该亮起
-    if (anySoloEngaged || currentUIMode == UIMode::AssignSolo)
-    {
-        // 当有Solo通道激活或处于Solo分配模式时，主按钮显示为激活状态（绿色）
-        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
-        globalSoloButton.setToggleState(true, juce::dontSendNotification);
-    }
-    else
-    {
-        // 既没有通道被solo，也不在分配模式，恢复默认颜色
-        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        globalSoloButton.setToggleState(false, juce::dontSendNotification);
-    }
+    
+    // 3. 调试信息
+    DBG("UI update completed - State: " << stateManager.getStateDescription()
+        << " | Solo button: " << (soloButtonShouldBeActive ? "Active" : "Inactive")
+        << " | Mute button: " << (muteButtonShouldBeActive ? "Active" : "Inactive"));
 }
 
-void MonitorControllerMaxAudioProcessorEditor::handleSoloButtonClick(int channelIndex, const juce::String& channelName)
-{
-    // ================== 简洁的JS风格Solo逻辑 ==================
-    
-    // 步骤1: 简单切换被点击按钮的Solo状态
-    auto* targetSoloParam = audioProcessor.apvts.getParameter("SOLO_" + juce::String(channelIndex + 1));
-    bool isCurrentlySoloed = targetSoloParam->getValue() > 0.5f;
-    targetSoloParam->setValueNotifyingHost(!isCurrentlySoloed);
-    
-    // 步骤2: 让处理器检查Solo状态变化并处理（像JS代码那样）
-    audioProcessor.checkSoloStateChange();
-    
-    // 步骤3: 更新UI显示
-    updateChannelButtonStates();
-}
+// 旧的handleSoloButtonClick函数已被新的状态机逻辑替代
+// 现在所有逻辑都通过StateManager.handleChannelClick()统一处理
 
 // 立即更新插件配置并通知宿主刷新I/O针脚名
 void MonitorControllerMaxAudioProcessorEditor::updatePluginConfiguration()
