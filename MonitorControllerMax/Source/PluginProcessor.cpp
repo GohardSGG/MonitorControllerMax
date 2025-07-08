@@ -633,11 +633,44 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
 
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
 {
-    // This will be implemented based on UI needs
-    // For now, just ensure the channel index is valid
-    if (channelIndex >= 0 && channelIndex < 26) {
-        VST3_DBG("Channel click: " << channelIndex);
-        // Implementation to be added based on UI requirements
+    // Validate channel index
+    if (channelIndex < 0 || channelIndex >= 26) {
+        VST3_DBG("Invalid channel index: " << channelIndex);
+        return;
+    }
+    
+    VST3_DBG("Channel click: " << channelIndex);
+    
+    // Get parameter IDs for this channel
+    auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
+    auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
+    
+    // Get current parameter values
+    auto* muteParam = apvts.getParameter(muteParamId);
+    auto* soloParam = apvts.getParameter(soloParamId);
+    
+    if (!muteParam || !soloParam) {
+        VST3_DBG("Parameter not found for channel: " << channelIndex);
+        return;
+    }
+    
+    float currentMute = muteParam->getValue();
+    float currentSolo = soloParam->getValue();
+    
+    // Channel click logic: toggle between Normal -> Solo -> Mute -> Normal
+    if (currentSolo > 0.5f) {
+        // Currently Solo -> change to Mute
+        VST3_DBG("Channel " << channelIndex << ": Solo -> Mute");
+        soloParam->setValueNotifyingHost(0.0f);
+        muteParam->setValueNotifyingHost(1.0f);
+    } else if (currentMute > 0.5f) {
+        // Currently Mute -> change to Normal
+        VST3_DBG("Channel " << channelIndex << ": Mute -> Normal");
+        muteParam->setValueNotifyingHost(0.0f);
+    } else {
+        // Currently Normal -> change to Solo
+        VST3_DBG("Channel " << channelIndex << ": Normal -> Solo");
+        soloParam->setValueNotifyingHost(1.0f);
     }
 }
 
