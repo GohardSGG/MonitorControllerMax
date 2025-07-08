@@ -168,8 +168,11 @@ WSL (Claude Code) → claude_auto_build.sh → MSBuild → Visual Studio 编译�
 ### 输出检查
 
 - 独立程序：`x64\Debug\Standalone Plugin\MonitorControllerMax.exe`
-- VST3插件：`x64\Debug\VST3\MonitorControllerMax.vst3`
+- VST3插件包：`x64\Debug\VST3\MonitorControllerMax.vst3\` (JUCE VST3 Bundle)
+- VST3核心文件：`x64\Debug\VST3\MonitorControllerMax.vst3\Contents\x86_64-win\MonitorControllerMax.vst3`
 - 编译日志：`debug_build.log`, `release_build.log`
+
+**注意**: VST3是一个包（bundle）结构，不是单个文件。脚本会正确检测包结构和内部DLL文件。
 
 ## 📋 故障排除
 

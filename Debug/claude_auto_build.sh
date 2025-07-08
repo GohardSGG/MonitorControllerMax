@@ -129,7 +129,8 @@ release_build() {
 check_build_outputs() {
     local config=$1
     local standalone_path="$BUILD_DIR/x64/$config/Standalone Plugin/MonitorControllerMax.exe"
-    local vst3_path="$BUILD_DIR/x64/$config/VST3/MonitorControllerMax.vst3"
+    local vst3_bundle_path="$BUILD_DIR/x64/$config/VST3/MonitorControllerMax.vst3"
+    local vst3_dll_path="$BUILD_DIR/x64/$config/VST3/MonitorControllerMax.vst3/Contents/x86_64-win/MonitorControllerMax.vst3"
     
     if [ -f "$standalone_path" ]; then
         local size=$(stat -c%s "$standalone_path" 2>/dev/null || echo "unknown")
@@ -138,8 +139,10 @@ check_build_outputs() {
         log_warning "独立程序: 未生成"
     fi
     
-    if [ -f "$vst3_path" ]; then
-        log_success "VST3插件: 已生成"
+    # VST3是一个包（bundle），检查包目录和其中的DLL文件
+    if [ -d "$vst3_bundle_path" ] && [ -f "$vst3_dll_path" ]; then
+        local vst3_size=$(stat -c%s "$vst3_dll_path" 2>/dev/null || echo "unknown")
+        log_success "VST3插件: 已生成 (${vst3_size} bytes)"
     else
         log_warning "VST3插件: 未生成"
     fi
@@ -256,8 +259,11 @@ show_build_status() {
     echo ""
     
     local debug_exe="$BUILD_DIR/x64/Debug/Standalone Plugin/MonitorControllerMax.exe"
-    local debug_vst3="$BUILD_DIR/x64/Debug/VST3/MonitorControllerMax.vst3"
+    local debug_vst3_bundle="$BUILD_DIR/x64/Debug/VST3/MonitorControllerMax.vst3"
+    local debug_vst3_dll="$BUILD_DIR/x64/Debug/VST3/MonitorControllerMax.vst3/Contents/x86_64-win/MonitorControllerMax.vst3"
     local release_exe="$BUILD_DIR/x64/Release/Standalone Plugin/MonitorControllerMax.exe"
+    local release_vst3_bundle="$BUILD_DIR/x64/Release/VST3/MonitorControllerMax.vst3"
+    local release_vst3_dll="$BUILD_DIR/x64/Release/VST3/MonitorControllerMax.vst3/Contents/x86_64-win/MonitorControllerMax.vst3"
     
     echo "Debug版本:"
     if [ -f "$debug_exe" ]; then
@@ -269,7 +275,7 @@ show_build_status() {
         echo "  ❌ 独立程序: 未构建"
     fi
     
-    if [ -f "$debug_vst3" ]; then
+    if [ -d "$debug_vst3_bundle" ] && [ -f "$debug_vst3_dll" ]; then
         echo "  ✅ VST3插件: 已构建"
     else
         echo "  ❌ VST3插件: 未构建"
@@ -281,6 +287,12 @@ show_build_status() {
         echo "  ✅ 独立程序: 已构建"
     else
         echo "  ⚪ 独立程序: 未构建"
+    fi
+    
+    if [ -d "$release_vst3_bundle" ] && [ -f "$release_vst3_dll" ]; then
+        echo "  ✅ VST3插件: 已构建"
+    else
+        echo "  ⚪ VST3插件: 未构建"
     fi
     
     echo ""
