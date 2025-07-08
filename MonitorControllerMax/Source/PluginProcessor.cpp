@@ -655,36 +655,32 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     
     VST3_DBG("Channel click: " << channelIndex);
     
-    // Get parameter IDs for this channel
-    auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
-    auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
+    // CORRECT LOGIC: Channel buttons only work when main buttons are active
+    // Check if Solo main button is active
+    bool soloMainActive = hasAnySoloActive();
+    bool muteMainActive = hasAnyMuteActive();
     
-    // Get current parameter values
-    auto* muteParam = apvts.getParameter(muteParamId);
-    auto* soloParam = apvts.getParameter(soloParamId);
-    
-    if (!muteParam || !soloParam) {
-        VST3_DBG("Parameter not found for channel: " << channelIndex);
-        return;
-    }
-    
-    float currentMute = muteParam->getValue();
-    float currentSolo = soloParam->getValue();
-    
-    // Channel click logic: toggle between Normal -> Solo -> Mute -> Normal
-    if (currentSolo > 0.5f) {
-        // Currently Solo -> change to Mute
-        VST3_DBG("Channel " << channelIndex << ": Solo -> Mute");
-        soloParam->setValueNotifyingHost(0.0f);
-        muteParam->setValueNotifyingHost(1.0f);
-    } else if (currentMute > 0.5f) {
-        // Currently Mute -> change to Normal
-        VST3_DBG("Channel " << channelIndex << ": Mute -> Normal");
-        muteParam->setValueNotifyingHost(0.0f);
+    if (soloMainActive) {
+        // Solo main button is active -> toggle Solo for this channel
+        auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
+        if (auto* soloParam = apvts.getParameter(soloParamId)) {
+            float currentSolo = soloParam->getValue();
+            float newSolo = (currentSolo > 0.5f) ? 0.0f : 1.0f;
+            soloParam->setValueNotifyingHost(newSolo);
+            VST3_DBG("Channel " << channelIndex << " Solo toggled: " << newSolo);
+        }
+    } else if (muteMainActive) {
+        // Mute main button is active -> toggle Mute for this channel
+        auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
+        if (auto* muteParam = apvts.getParameter(muteParamId)) {
+            float currentMute = muteParam->getValue();
+            float newMute = (currentMute > 0.5f) ? 0.0f : 1.0f;
+            muteParam->setValueNotifyingHost(newMute);
+            VST3_DBG("Channel " << channelIndex << " Mute toggled: " << newMute);
+        }
     } else {
-        // Currently Normal -> change to Solo
-        VST3_DBG("Channel " << channelIndex << ": Normal -> Solo");
-        soloParam->setValueNotifyingHost(1.0f);
+        // Neither main button is active -> channel click has no effect
+        VST3_DBG("Channel " << channelIndex << " clicked but no main button active - no effect");
     }
 }
 
