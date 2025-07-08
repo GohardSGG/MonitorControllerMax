@@ -260,36 +260,81 @@ enum Role {
 ✅ **编译错误** - 移除重复函数声明，英文注释替换中文
 ✅ **按钮状态冲突** - 禁用自动状态切换解决
 
-#### **B. 待解决的关键问题 (Solo/Mute逻辑Bug)**
+#### **B. 架构重大革新：全新状态机设计方案**
 
-**🔴 发现的关键Bug：**
+**🔥 问题根源分析：**
+当前架构的根本缺陷在于**弱小的逻辑方案** - 缺乏统一的状态机管理，导致状态混乱和不可预测的行为。
 
-**Bug 1: Mute状态的通道在Solo操作后会错误地恢复到Mute状态**
-- **现象**：当Mute L处于激活状态时点击Solo，取消Solo L后会错误地回到Mute L状态
-- **根因**：`checkSoloStateChange()`使用完整快照恢复，忽略了Solo期间的手动Mute修改
-- **影响**：违反了"手动激活的状态不应被auto clear"的核心原则
+**💡 全新设计理念：基于6大核心观点的强大状态机**
 
-**Bug 2: Solo切换时auto-mute状态没有正确清理**
-- **现象**：Solo操作的auto-mute状态在切换Solo目标时残留
-- **根因**：Solo激活时设置的Mute没有被正确标记为`soloInducedMute`
-- **影响**：导致状态管理混乱，auto-mute和手动mute混淆
+**核心观点1：按钮激活 = 选择状态**
+- Solo/Mute按钮激活 → 自动进入通道选择状态
+- Solo/Mute按钮灰掉 → 退出选择状态
 
-**📋 修复方案概要：**
+**核心观点2：Solo优先级高于Mute**
+- Solo激活时自动mute其他通道，Mute按钮也会激活
+- 在Solo+Mute双激活状态下，通道操作执行Solo而非Mute
+- Solo状态控制全局行为
 
-1. **改进状态分类管理**
-   - 明确区分三种Mute状态：手动Mute、Solo联动Mute、混合状态
-   - 使用`soloInducedMuteStates`集合正确追踪Solo产生的Mute
+**核心观点3：主按钮点击 = 全清除+退出选择**
+- 点击主按钮清除所有通道激活状态
+- 同时取消自身选择状态
+- **例外**：Solo+Mute双激活时，点击Mute按钮无效（Solo优先）
 
-2. **优化快照恢复机制**
-   - 退出Solo时只清除Solo联动的Mute
-   - 保留用户在Solo期间的手动Mute修改
-   - 实现智能的状态恢复而非简单的快照还原
+**核心观点4：通道取消 = 回到选择状态**
+- Solo状态下取消某通道 → 回到Solo选择状态，不退出Solo模式
+- Mute状态下取消某通道 → 回到Mute选择状态，不退出Mute模式
 
-3. **完善UI交互逻辑**
-   - 确保Solo模式下的Mute操作能正确更新状态标记
-   - 实现更精确的状态转换和清理机制
+**核心观点5：同观点4**
+- 强化了通道操作不会直接退出选择模式的原则
 
-**详细实施步骤请参见：** `Dev Step.md` - Solo/Mute Bug修复计划
+**核心观点6：Mute记忆机制**
+- Mute状态下点击Solo → Mute状态进入持久记忆
+- Solo操作完成后自动恢复Mute记忆状态
+- 记忆具有持久性（重开窗口、重载插件后仍保持）
+
+**🏗️ 新状态机架构设计：**
+
+```cpp
+enum class SystemState {
+    Normal,          // 默认状态：无选择，无激活
+    SoloSelecting,   // Solo选择状态：Solo按钮亮起，等待通道选择
+    MuteSelecting,   // Mute选择状态：Mute按钮亮起，等待通道选择
+    SoloActive,      // Solo激活状态：有通道被Solo，其他auto-mute
+    MuteActive,      // Mute激活状态：有通道被手动Mute
+    SoloMuteActive   // 双激活状态：Solo激活+auto-mute，Solo优先
+};
+
+enum class ChannelState {
+    Normal,          // 正常状态
+    ManualMute,      // 手动Mute
+    AutoMute,        // Solo导致的auto-mute
+    Solo             // Solo激活
+};
+```
+
+**🎯 状态转换逻辑：**
+
+1. **Normal → SoloSelecting**: 点击Solo主按钮
+2. **Normal → MuteSelecting**: 点击Mute主按钮
+3. **SoloSelecting → SoloActive**: 选择通道进行Solo
+4. **MuteSelecting → MuteActive**: 选择通道进行Mute
+5. **SoloActive → SoloMuteActive**: Solo自动mute其他通道
+6. **SoloMuteActive → MuteActive**: Solo取消，恢复Mute记忆
+7. **Any → Normal**: 主按钮全清除操作
+
+**🔄 交互行为矩阵：**
+
+| 当前状态 | Solo按钮 | Mute按钮 | 通道按钮 | 结果状态 |
+|----------|----------|----------|----------|----------|
+| Normal | 进入选择 | 进入选择 | 无效 | SoloSelecting/MuteSelecting |
+| SoloSelecting | 退出选择 | 进入Mute选择 | 执行Solo | Normal/MuteSelecting/SoloActive |
+| MuteSelecting | 进入Solo选择 | 退出选择 | 执行Mute | SoloSelecting/Normal/MuteActive |
+| SoloActive | 全清除 | 保存记忆+Solo优先 | Solo操作 | Normal/SoloSelecting |
+| MuteActive | 保存记忆+Solo | 全清除 | Mute操作 | SoloSelecting/Normal |
+| SoloMuteActive | 全清除 | 无效(Solo优先) | Solo操作 | Normal/SoloSelecting |
+
+**详细实施步骤请参见：** `Dev Step.md` - 全新状态机架构实现
 
 #### **C. 需要注意的技术细节**
 

@@ -179,185 +179,390 @@ void setCurrentLayout(const String& speaker, const String& sub) {
 
 ---
 
-## 🚨 **紧急修复：Solo/Mute逻辑Bug修复计划**
+## 🚨 **架构革新：全新状态机重建计划**
 
-### **问题诊断和修复步骤**
+### **🔥 当前问题诊断**
 
-#### **Step 1: 状态管理系统重构** (预计2小时)
+**根本问题：** 当前的Solo/Mute逻辑基于**弱小的架构方案**，缺乏统一的状态机管理：
 
-**目标：** 修复状态分类和追踪机制
+1. **状态管理混乱**: 多个地方修改状态，缺乏中央控制
+2. **优先级不明确**: Solo和Mute交互时行为不一致
+3. **记忆机制缺失**: 无法实现持久化的Mute记忆
+4. **选择模式错误**: 按钮状态与实际选择模式不匹配
 
-**具体修改：**
-1. **修改 `PluginProcessor.cpp` - `checkSoloStateChange()` 函数**
-   ```cpp
-   // 当前问题代码：
-   if (currentSoloActive) {
-       getParameterByID(muteId)->setValueNotifyingHost(1.0f);
-       // 问题：没有记录这是Solo导致的Mute
-   }
-   
-   // 修复后：
-   if (currentSoloActive) {
-       getParameterByID(muteId)->setValueNotifyingHost(1.0f);
-       soloInducedMuteStates.insert(channelId);  // 标记为Solo联动Mute
-   }
-   ```
+**测试发现的Bug:**
+- Solo R通道后再点击R按钮，概率性残留auto-mute
+- 手动点击Mute按钮可临时修复，说明状态管理不一致
 
-2. **修改状态恢复逻辑**
-   ```cpp
-   // 退出Solo时的处理
-   else {  // Solo刚刚退出
-       // 只清除Solo联动的Mute，保留手动Mute
-       for (const auto& channelId : soloInducedMuteStates) {
-           if (manualMuteStates.find(channelId) == manualMuteStates.end()) {
-               // 只有不是手动Mute的才清除
-               getParameterByID(muteId)->setValueNotifyingHost(0.0f);
-           }
-       }
-       soloInducedMuteStates.clear();
-   }
-   ```
+### **💡 全新架构设计：强大的统一状态机**
 
-#### **Step 2: 用户六大原则实现** (预计3小时)
+#### **🏗️ 核心设计理念**
 
-**原则实现清单：**
+**基于用户6大核心观点的状态机：**
 
-1. **原则1：手动激活的Mute不应被清除**
-   - 在`handleMuteButtonClick()`中正确维护`manualMuteStates`集合
-   - Solo期间的Mute操作也要更新集合
+1. **按钮激活 = 选择状态** - 按钮外观直接反映选择模式
+2. **Solo优先级高于Mute** - 双激活状态下Solo控制行为
+3. **主按钮 = 全清除+退出** - 一键重置到Normal状态
+4. **通道取消 = 回到选择** - 保持选择模式不退出
+5. **强化选择模式** - 通道操作不会意外退出选择
+6. **Mute持久记忆** - 跨会话的状态保存机制
 
-2. **原则2：Auto-mute全部清除**
-   - 实现`clearAllAutoMutes()`函数
-   - 在Solo退出时调用
+### **🔧 实施步骤详解**
 
-3. **原则3：Solo按钮优先清除自身通道**
-   ```cpp
-   void handleGlobalSoloClick() {
-       // 检查是否有任何Solo激活
-       if (hasAnySoloActive()) {
-           // 清除所有Solo状态
-           clearAllSolos();
-           // 清除所有auto-mute
-           clearAllAutoMutes();
-       } else {
-           // 进入Solo分配模式
-           currentUIMode = UIMode::AssignSolo;
-       }
-   }
-   ```
+#### **Step 1: 全新状态机基础架构** (预计4小时)
 
-4. **原则4：Mute按钮检查所有通道**
-   - 类似Solo的逻辑实现
+**目标：** 彻底重建状态管理系统，实现统一的状态机控制
 
-5. **原则5：按钮互斥退出分配模式**
-   ```cpp
-   void handleSoloButtonClick() {
-       if (currentUIMode == UIMode::AssignMute) {
-           currentUIMode = UIMode::Normal;  // 退出Mute模式
-       }
-       // ... Solo逻辑
-   }
-   ```
+**1.1 定义新状态机枚举**
+```cpp
+// PluginProcessor.h - 添加强大的状态机定义
+enum class SystemState {
+    Normal,          // 默认状态：无选择，无激活
+    SoloSelecting,   // Solo选择状态：Solo按钮亮起，等待通道选择  
+    MuteSelecting,   // Mute选择状态：Mute按钮亮起，等待通道选择
+    SoloActive,      // Solo激活状态：有通道被Solo，其他auto-mute
+    MuteActive,      // Mute激活状态：有通道被手动Mute
+    SoloMuteActive   // 双激活状态：Solo激活+auto-mute，Solo优先
+};
 
-6. **原则6：通道按钮响应当前模式**
-   - 已实现，需验证
+enum class ChannelState {
+    Normal,          // 正常状态
+    ManualMute,      // 手动Mute
+    AutoMute,        // Solo导致的auto-mute
+    Solo             // Solo激活
+};
+```
 
-#### **Step 3: 测试用例实施** (预计1小时)
+**1.2 创建状态机管理器**
+```cpp
+class StateManager {
+private:
+    SystemState currentState = SystemState::Normal;
+    std::map<int, ChannelState> channelStates;
+    std::map<int, bool> muteMemory;  // 持久化Mute记忆
+    
+public:
+    // 状态转换函数
+    void transitionTo(SystemState newState);
+    void handleSoloButtonClick();
+    void handleMuteButtonClick();
+    void handleChannelClick(int channelIndex);
+    
+    // 状态查询函数
+    SystemState getCurrentState() const;
+    bool shouldSoloButtonBeActive() const;
+    bool shouldMuteButtonBeActive() const;
+    bool shouldChannelResponseToSolo() const;
+};
+```
 
-**测试场景：**
+**1.3 移除旧的弱小逻辑**
+- 删除 `checkSoloStateChange()` 函数
+- 删除 `preSoloSnapshot` 机制
+- 删除分散的状态管理代码
 
-1. **Bug 1修复测试**
-   ```
-   测试步骤：
-   1. 手动激活Mute L
-   2. 点击Solo按钮进入分配模式
-   3. 激活Solo L（其他通道应auto-mute）
-   4. 点击Solo L取消
-   预期：L保持静音（手动mute），其他通道恢复声音
-   ```
+#### **Step 2: 状态机交互逻辑实现** (预计5小时)
 
-2. **Bug 2修复测试**
-   ```
-   测试步骤：
-   1. Solo L（其他通道auto-mute）
-   2. Solo R（L应该恢复，其他通道auto-mute）
-   3. 取消Solo R
-   预期：所有通道恢复声音，无残留mute
-   ```
+**2.1 主按钮交互逻辑（核心观点1,3）**
+```cpp
+void StateManager::handleSoloButtonClick() {
+    switch (currentState) {
+        case SystemState::Normal:
+            transitionTo(SystemState::SoloSelecting);
+            break;
+            
+        case SystemState::SoloSelecting:
+            transitionTo(SystemState::Normal);  // 退出选择
+            break;
+            
+        case SystemState::MuteSelecting:
+            transitionTo(SystemState::SoloSelecting);  // 切换选择模式
+            break;
+            
+        case SystemState::SoloActive:
+        case SystemState::SoloMuteActive:
+            // 全清除：清除所有Solo状态，恢复到Normal
+            clearAllSoloStates();
+            restoreMuteMemoryIfExists();
+            transitionTo(SystemState::Normal);
+            break;
+            
+        case SystemState::MuteActive:
+            // 保存当前Mute为记忆，进入Solo选择
+            saveMuteMemory();
+            transitionTo(SystemState::SoloSelecting);
+            break;
+    }
+}
 
-3. **综合测试矩阵**
-   - 手动Mute + Solo组合
-   - 快速切换Solo目标
-   - Solo期间修改Mute
-   - 分配模式切换
+void StateManager::handleMuteButtonClick() {
+    switch (currentState) {
+        case SystemState::SoloMuteActive:
+            // Solo优先：Mute按钮无效（核心观点2）
+            return; 
+            
+        case SystemState::SoloActive:
+            // Solo优先：保存记忆，但不执行Mute操作
+            return;
+            
+        case SystemState::Normal:
+            transitionTo(SystemState::MuteSelecting);
+            break;
+            
+        case SystemState::MuteSelecting:
+            transitionTo(SystemState::Normal);
+            break;
+            
+        case SystemState::SoloSelecting:
+            transitionTo(SystemState::MuteSelecting);
+            break;
+            
+        case SystemState::MuteActive:
+            // 全清除所有Mute状态
+            clearAllMuteStates();
+            transitionTo(SystemState::Normal);
+            break;
+    }
+}
+```
 
-#### **Step 4: 代码优化和清理** (预计1小时)
+**2.2 通道按钮交互逻辑（核心观点4,5）**
+```cpp
+void StateManager::handleChannelClick(int channelIndex) {
+    switch (currentState) {
+        case SystemState::Normal:
+            // 无选择状态下通道点击无效
+            return;
+            
+        case SystemState::SoloSelecting:
+            // 执行Solo操作
+            setChannelState(channelIndex, ChannelState::Solo);
+            applyAutoMuteToOthers(channelIndex);
+            transitionTo(SystemState::SoloMuteActive);
+            break;
+            
+        case SystemState::MuteSelecting:
+            // 执行Mute操作
+            toggleChannelMute(channelIndex);
+            updateSystemStateBasedOnMutes();
+            break;
+            
+        case SystemState::SoloActive:
+        case SystemState::SoloMuteActive:
+            // Solo状态下的通道操作：添加/移除Solo
+            if (isChannelSolo(channelIndex)) {
+                removeChannelSolo(channelIndex);
+                // 核心观点4：如果还有其他Solo通道，保持SoloActive
+                // 如果没有Solo通道了，回到SoloSelecting
+                if (hasAnySoloChannels()) {
+                    // 保持当前状态，重新计算auto-mute
+                    recalculateAutoMutes();
+                } else {
+                    transitionTo(SystemState::SoloSelecting);
+                }
+            } else {
+                addChannelSolo(channelIndex);
+                recalculateAutoMutes();
+            }
+            break;
+            
+        case SystemState::MuteActive:
+            // Mute状态下的通道操作
+            toggleChannelMute(channelIndex);
+            if (!hasAnyMuteChannels()) {
+                transitionTo(SystemState::MuteSelecting);
+            }
+            break;
+    }
+}
+```
 
-1. **删除过时的快照机制**
-   - 移除`preSoloSnapshot`相关代码
-   - 使用新的状态分类系统
+#### **Step 3: 持久化记忆机制（核心观点6）** (预计3小时)
 
-2. **优化状态检查函数**
-   ```cpp
-   bool isManualMute(const String& channelId) {
-       return manualMuteStates.find(channelId) != manualMuteStates.end();
-   }
-   
-   bool isAutoMute(const String& channelId) {
-       return soloInducedMuteStates.find(channelId) != soloInducedMuteStates.end();
-   }
-   ```
+**3.1 Mute记忆存储**
+```cpp
+class MuteMemoryManager {
+private:
+    std::map<int, bool> persistentMuteMemory;
+    juce::File memoryFile;
+    
+public:
+    void saveMuteMemory(const std::map<int, ChannelState>& currentStates);
+    void restoreMuteMemory(std::map<int, ChannelState>& channelStates);
+    void clearMuteMemory();
+    
+    // 持久化到文件（跨会话保存）
+    void saveToFile();
+    void loadFromFile();
+};
+```
 
-3. **添加调试日志**
-   ```cpp
-   DBG("Mute state change - Channel: " << channelId 
-       << " Manual: " << isManualMute(channelId)
-       << " Auto: " << isAutoMute(channelId));
-   ```
+**3.2 状态转换记忆逻辑**
+- MuteActive → SoloSelecting: 保存Mute记忆
+- SoloMuteActive → Normal: 恢复Mute记忆
+- 跨插件重载的记忆保持
 
-### **实施计划时间表**
+#### **Step 4: UI同步和显示逻辑** (预计2小时)
 
-| 步骤 | 任务 | 预计时间 | 优先级 |
-|------|------|----------|--------|
-| 1 | 状态管理系统重构 | 2小时 | 🔴 最高 |
-| 2 | 六大原则实现 | 3小时 | 🔴 最高 |
-| 3 | 测试用例验证 | 1小时 | 🟡 高 |
-| 4 | 代码优化清理 | 1小时 | 🟢 中 |
+**4.1 按钮外观状态映射**
+```cpp
+// UI更新逻辑：直接映射状态机状态到按钮外观
+void updateButtonAppearance() {
+    bool soloButtonActive = (currentState == SystemState::SoloSelecting || 
+                            currentState == SystemState::SoloActive ||
+                            currentState == SystemState::SoloMuteActive);
+                            
+    bool muteButtonActive = (currentState == SystemState::MuteSelecting ||
+                            currentState == SystemState::MuteActive ||
+                            currentState == SystemState::SoloMuteActive);
+                            
+    globalSoloButton.setToggleState(soloButtonActive, dontSendNotification);
+    globalMuteButton.setToggleState(muteButtonActive, dontSendNotification);
+}
+```
 
-**总计：** 约7小时的开发工作
+**4.2 通道按钮显示**
+- Solo通道：绿色激活
+- 手动Mute通道：红色激活
+- Auto-Mute通道：暗红色激活
+- 正常通道：默认颜色
 
-### **关键文件修改清单**
+#### **Step 5: 集成测试和验证** (预计2小时)
 
-1. **PluginProcessor.cpp**
-   - `checkSoloStateChange()` - 核心状态管理逻辑
-   - `savePreSoloSnapshot()` - 可能删除或重写
-   - `restorePreSoloSnapshot()` - 改为智能恢复
+**5.1 核心观点验证测试**
 
-2. **PluginProcessor.h**
-   - 添加/修改状态集合定义
-   - 添加新的辅助函数声明
+**测试1：按钮激活 = 选择状态（观点1）**
+```
+操作：点击Solo按钮
+预期：Solo按钮亮起，进入SoloSelecting状态
+验证：按钮外观与内部状态完全一致
+```
 
-3. **PluginEditor.cpp**
-   - `handleSoloButtonClick()` - 实现新的优先级逻辑
-   - `handleMuteButtonClick()` - 实现新的优先级逻辑
-   - `channelButtonClicked()` - 确保正确更新状态集合
+**测试2：Solo优先级（观点2）**
+```
+操作：Solo R → 其他通道auto-mute → 此时Solo和Mute按钮都亮
+操作：点击任意通道
+预期：执行Solo操作而非Mute操作
+验证：Solo优先级正确工作
+```
 
-### **验收标准**
+**测试3：主按钮全清除（观点3）**
+```
+操作：在任何激活状态下点击主按钮
+预期：清除所有状态，回到Normal
+验证：一键重置功能正确
+```
 
-✅ **功能验收：**
-- 所有测试用例通过
-- 六大原则全部实现
-- 无状态管理混乱
+**测试4-5：通道取消回到选择（观点4,5）**
+```
+操作：Solo R → 再次点击R通道
+预期：取消R的Solo，回到SoloSelecting状态（不退出Solo模式）
+验证：保持选择模式不意外退出
+```
 
-✅ **代码质量：**
-- 清晰的状态分类
-- 完整的注释说明
-- 无编译警告
+**测试6：Mute持久记忆（观点6）**
+```
+操作：Mute L → 点击Solo按钮 → Solo R → 取消所有Solo
+预期：自动恢复到Mute L状态
+验证：记忆机制跨操作保持
+```
 
-✅ **用户体验：**
-- 操作符合直觉
-- 状态转换流畅
-- 无意外行为
+**5.2 边界情况测试**
+- 快速连续点击
+- 所有状态转换组合
+- 插件重载后记忆保持
+- 多通道复杂组合操作
+
+### **🎯 实施计划时间表**
+
+| 步骤 | 任务 | 预计时间 | 优先级 | 关键成果 |
+|------|------|----------|--------|----------|
+| 1 | 全新状态机基础架构 | 4小时 | 🔴 最高 | StateManager类完成 |
+| 2 | 状态机交互逻辑实现 | 5小时 | 🔴 最高 | 6大观点完整实现 |
+| 3 | 持久化记忆机制 | 3小时 | 🟡 高 | Mute记忆功能 |
+| 4 | UI同步和显示逻辑 | 2小时 | 🟡 高 | 按钮状态完全同步 |
+| 5 | 集成测试和验证 | 2小时 | 🟢 中 | 全面功能验证 |
+
+**总计：** 约16小时的重构工作
+
+### **🏗️ 架构优势对比**
+
+**旧架构（弱小方案）：**
+- ❌ 分散的状态管理
+- ❌ 不一致的优先级逻辑
+- ❌ 缺乏统一的状态转换
+- ❌ 概率性bug和状态混乱
+- ❌ 无记忆机制
+
+**新架构（强大状态机）：**
+- ✅ 统一的状态机控制
+- ✅ 明确的优先级体系
+- ✅ 完整的状态转换逻辑
+- ✅ 可预测的行为模式
+- ✅ 持久化记忆机制
+- ✅ 完美的按钮状态同步
+
+### **🚀 关键成功因素**
+
+**1. 彻底抛弃旧逻辑**
+- 完全删除当前的弱小状态管理代码
+- 不进行渐进式修改，而是彻底重建
+
+**2. 严格遵循6大观点**
+- 每个观点都有对应的代码实现
+- 状态转换逻辑完全基于观点设计
+
+**3. 统一的状态管理**
+- 所有状态变化都通过StateManager
+- 杜绝分散的状态修改
+
+**4. 完善的测试验证**
+- 每个观点都有专门的测试用例
+- 覆盖所有状态转换路径
+
+### **🗂️ 关键文件修改清单**
+
+**完全重写的文件:**
+1. **PluginProcessor.h** - 添加StateManager类和新枚举
+2. **PluginProcessor.cpp** - 删除旧逻辑，实现StateManager
+3. **PluginEditor.cpp** - 重写所有按钮onClick逻辑
+
+**新增文件:**
+4. **StateManager.h** - 状态机类定义
+5. **StateManager.cpp** - 状态机核心逻辑实现
+6. **MuteMemoryManager.h** - 记忆管理类
+
+**删除的旧代码:**
+- `checkSoloStateChange()` 函数
+- `preSoloSnapshot` 机制
+- 所有分散的状态管理代码
+- `UIMode` 枚举（替换为SystemState）
+
+### **🎯 验收标准**
+
+**✅ 核心观点验收：**
+- 观点1: 按钮外观100%反映选择状态
+- 观点2: Solo+Mute双激活时Solo优先级确认
+- 观点3: 主按钮一键全清除功能
+- 观点4-5: 通道取消正确回到选择状态
+- 观点6: Mute记忆跨操作保持
+
+**✅ Bug消除验收：**
+- Solo R → 点击R → 无残留auto-mute
+- 所有概率性bug完全消失
+- 状态转换100%可预测
+
+**✅ 架构质量验收：**
+- 统一的状态机控制所有状态变化
+- 零分散状态管理代码
+- 完整的状态转换覆盖
+- 清晰的代码结构和注释
+
+**✅ 用户体验验收：**
+- 按钮行为完全符合直觉
+- 快速操作无状态混乱
+- 持久记忆功能可靠工作
+- 跨插件重载状态保持
 
 ---
 
