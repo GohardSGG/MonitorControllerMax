@@ -11,6 +11,7 @@
 */
 
 #include "StateManager.h"
+#include "DebugLogger.h"
 
 // =============================================================================
 // MuteMemoryManager 实现
@@ -37,7 +38,7 @@ void MuteMemoryManager::saveMuteMemory(const std::map<int, ChannelState>& curren
         }
     }
     
-    DBG("Mute memory saved: " << persistentMuteMemory.size() << " channels");
+    VST3_DBG("Mute memory saved: " << persistentMuteMemory.size() << " channels");
     saveToFile();
 }
 
@@ -45,7 +46,7 @@ void MuteMemoryManager::restoreMuteMemory(std::map<int, ChannelState>& channelSt
     for (const auto& pair : persistentMuteMemory) {
         if (pair.second) {
             channelStates[pair.first] = ChannelState::ManualMute;
-            DBG("Restoring Mute memory: Channel " << pair.first);
+            VST3_DBG("Restoring Mute memory: Channel " << pair.first);
         }
     }
 }
@@ -53,7 +54,7 @@ void MuteMemoryManager::restoreMuteMemory(std::map<int, ChannelState>& channelSt
 void MuteMemoryManager::clearMuteMemory() {
     persistentMuteMemory.clear();
     saveToFile();
-    DBG("Mute memory cleared");
+    VST3_DBG("Mute memory cleared");
 }
 
 bool MuteMemoryManager::hasMemory() const {
@@ -87,7 +88,7 @@ void MuteMemoryManager::loadFromFile() {
                 persistentMuteMemory[channelIndex] = true;
             }
         }
-        DBG("Loaded Mute memory from file: " << persistentMuteMemory.size() << " channels");
+        VST3_DBG("Loaded Mute memory from file: " << persistentMuteMemory.size() << " channels");
     }
 }
 
@@ -101,7 +102,7 @@ StateManager::StateManager() {
     // 注意：延迟记忆恢复到回调函数设置完成后
     // 这避免了在回调未设置时触发setChannelState()调用
     
-    DBG("StateManager basic initialization completed - Current state: " << getStateDescription());
+    VST3_DBG("StateManager basic initialization completed - Current state: " << getStateDescription());
 }
 
 StateManager::~StateManager() {
@@ -126,7 +127,7 @@ void StateManager::completeInitialization() {
         if (hasAnyMuteChannels()) {
             currentState = SystemState::MuteActive;
         }
-        DBG("StateManager memory restoration completed - Restored channels: " << channelStates.size());
+        VST3_DBG("StateManager memory restoration completed - Restored channels: " << channelStates.size());
     }
 }
 
@@ -143,7 +144,7 @@ void StateManager::handleSoloButtonClick() {
             // 在进入Solo选择模式前，保存当前任何Mute状态为记忆
             if (hasAnyMuteChannels()) {
                 muteMemory->saveMuteMemory(channelStates);
-                DBG("Saved existing Mute states as memory before Solo selection");
+                VST3_DBG("Saved existing Mute states as memory before Solo selection");
             }
             transitionTo(SystemState::SoloSelecting);
             break;
@@ -155,7 +156,7 @@ void StateManager::handleSoloButtonClick() {
                 muteMemory->restoreMuteMemory(channelStates);
                 if (hasAnyMuteChannels()) {
                     transitionTo(SystemState::MuteActive);
-                    DBG("Restored Mute memory when exiting SoloSelecting");
+                    VST3_DBG("Restored Mute memory when exiting SoloSelecting");
                 } else {
                     muteMemory->clearMuteMemory();  // 清空无效记忆
                     transitionTo(SystemState::Normal);
@@ -169,7 +170,7 @@ void StateManager::handleSoloButtonClick() {
             // 切换选择模式 - 保存当前Mute状态为记忆
             if (hasAnyMuteChannels()) {
                 muteMemory->saveMuteMemory(channelStates);
-                DBG("Saved Mute states as memory when switching to Solo selection");
+                VST3_DBG("Saved Mute states as memory when switching to Solo selection");
             }
             transitionTo(SystemState::SoloSelecting);
             break;
@@ -212,7 +213,7 @@ void StateManager::handleMuteButtonClick() {
             // 这样可以让用户在Solo状态下控制Mute记忆
             if (muteMemory->hasMemory()) {
                 muteMemory->clearMuteMemory();
-                DBG("Mute memory cleared in SoloMuteActive state");
+                VST3_DBG("Mute memory cleared in SoloMuteActive state");
                 // 手动触发UI更新以反映Mute按钮状态变化
                 if (uiUpdateCallback) {
                     uiUpdateCallback();
@@ -222,7 +223,7 @@ void StateManager::handleMuteButtonClick() {
             
         case SystemState::SoloActive:
             // 纯Solo状态下Mute按钮无效
-            DBG("Solo priority: Mute button click ignored in SoloActive");
+            VST3_DBG("Solo priority: Mute button click ignored in SoloActive");
             return;
             
         case SystemState::Normal:
@@ -255,7 +256,7 @@ void StateManager::handleChannelClick(int channelIndex) {
     switch (currentState) {
         case SystemState::Normal:
             // 观点6：无选择状态下通道点击无效
-            DBG("Channel click invalid in Normal state");
+            VST3_DBG("Channel click invalid in Normal state");
             return;
             
         case SystemState::SoloSelecting:
@@ -351,7 +352,7 @@ void StateManager::transitionTo(SystemState newState) {
     auto oldState = currentState;
     currentState = newState;
     
-    DBG("State transition: " << (int)oldState << " -> " << (int)newState 
+    VST3_DBG("State transition: " << (int)oldState << " -> " << (int)newState 
         << " (" << getStateDescription() << ")");
     
     // 触发UI更新
@@ -496,7 +497,7 @@ void StateManager::setChannelState(int channelIndex, ChannelState newState) {
         }
     }
     
-    DBG("Channel state update: " << channelIndex << " -> " << (int)newState);
+    VST3_DBG("Channel state update: " << channelIndex << " -> " << (int)newState);
 }
 
 bool StateManager::isChannelSolo(int channelIndex) const {
@@ -562,7 +563,7 @@ bool StateManager::shouldChannelBeActive(int channelIndex) const {
     
     // 详细调试信息
     if (state == ChannelState::Solo) {
-        DBG("UI Query: Channel " << channelIndex << " should be ACTIVE (Solo state)");
+        VST3_DBG("UI Query: Channel " << channelIndex << " should be ACTIVE (Solo state)");
     }
     
     return shouldBeActive;
@@ -615,7 +616,7 @@ juce::String StateManager::getStateDescription() const {
 }
 
 void StateManager::logStateChange(const juce::String& operation) const {
-    DBG("StateManager: " << operation << " | Current state: " << getStateDescription() 
+    VST3_DBG("StateManager: " << operation << " | Current state: " << getStateDescription() 
         << " | Solo channels: " << (hasAnySoloChannels() ? "Yes" : "No")
         << " | Mute channels: " << (hasAnyMuteChannels() ? "Yes" : "No"));
 }

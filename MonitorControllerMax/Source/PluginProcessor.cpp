@@ -9,6 +9,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "InterPluginCommunicator.h"
+#include "DebugLogger.h"
 
 //==============================================================================
 MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
@@ -25,6 +26,10 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
       currentRole(standalone)
 #endif
 {
+    // 初始化VST3调试日志系统
+    DebugLogger::getInstance().initialize("MonitorControllerMax");
+    VST3_DBG("=== MonitorControllerMax Plugin Constructor ===");
+    
     communicator.reset(new InterPluginCommunicator(*this));
     
     // 初始化强大的新状态机
@@ -47,7 +52,7 @@ void MonitorControllerMaxAudioProcessor::initializeStateManager()
     // 然后完成初始化（包括内存恢复）
     stateManager->completeInitialization();
     
-    DBG("StateManager initialization completed");
+    VST3_DBG("StateManager initialization completed");
 }
 
 StateManager& MonitorControllerMaxAudioProcessor::getStateManager()
@@ -62,13 +67,13 @@ void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, flo
     
     // 安全检查：确保StateManager有效
     if (!stateManager) {
-        DBG("Warning: onParameterUpdate called but StateManager is null");
+        VST3_DBG("Warning: onParameterUpdate called but StateManager is null");
         return;
     }
     
     // 验证通道索引范围
     if (channelIndex < 0 || channelIndex >= 26) {
-        DBG("Warning: Invalid channel index: " << channelIndex);
+        VST3_DBG("Warning: Invalid channel index: " << channelIndex);
         return;
     }
     
@@ -85,7 +90,7 @@ void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, flo
         float soloValue = (channelState == ChannelState::Solo) ? 1.0f : 0.0f;
         soloParam->setValueNotifyingHost(soloValue);
     } else {
-        DBG("Warning: Solo parameter not found: " << soloParamId);
+        VST3_DBG("Warning: Solo parameter not found: " << soloParamId);
     }
     
     // 更新Mute参数 - 基于当前通道状态
@@ -95,10 +100,10 @@ void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, flo
                           channelState == ChannelState::AutoMute) ? 1.0f : 0.0f;
         muteParam->setValueNotifyingHost(muteValue);
     } else {
-        DBG("Warning: Mute parameter not found: " << muteParamId);
+        VST3_DBG("Warning: Mute parameter not found: " << muteParamId);
     }
     
-    DBG("Parameter sync update: Channel " << channelIndex << " | Solo=" << 
+    VST3_DBG("Parameter sync update: Channel " << channelIndex << " | Solo=" << 
         (channelState == ChannelState::Solo ? "Active" : "Inactive") << 
         " | Mute=" << ((channelState == ChannelState::ManualMute || 
                       channelState == ChannelState::AutoMute) ? "Active" : "Inactive"));
@@ -113,11 +118,11 @@ void MonitorControllerMaxAudioProcessor::onUIUpdate()
         if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
             editor->updateChannelButtonStates();
         } else {
-            DBG("UI update skipped: No active editor found");
+            VST3_DBG("UI update skipped: No active editor found");
         }
     });
     
-    DBG("UI update request sent");
+    VST3_DBG("UI update request sent");
 }
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()

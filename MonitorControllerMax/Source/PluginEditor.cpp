@@ -8,6 +8,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "DebugLogger.h"
 
 //==============================================================================
 MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEditor (MonitorControllerMaxAudioProcessor& p)
@@ -479,7 +480,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
         if (button->getToggleState() != shouldBeActive)
         {
             button->setToggleState(shouldBeActive, juce::dontSendNotification);
-            DBG("UI Update: Channel " << index << " button state changed to " << 
+            VST3_DBG("UI Update: Channel " << index << " button state changed to " << 
                 (shouldBeActive ? "ACTIVE" : "INACTIVE"));
         }
         
@@ -526,7 +527,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     }
     
     // 3. 调试信息
-    DBG("UI update completed - State: " << stateManager.getStateDescription()
+    VST3_DBG("UI update completed - State: " << stateManager.getStateDescription()
         << " | Solo button: " << (soloButtonShouldBeActive ? "Active" : "Inactive")
         << " | Mute button: " << (muteButtonShouldBeActive ? "Active" : "Inactive"));
 }
