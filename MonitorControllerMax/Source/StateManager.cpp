@@ -140,16 +140,37 @@ void StateManager::handleSoloButtonClick() {
     switch (currentState) {
         case SystemState::Normal:
             // 观点1：按钮激活 = 选择状态
+            // 在进入Solo选择模式前，保存当前任何Mute状态为记忆
+            if (hasAnyMuteChannels()) {
+                muteMemory->saveMuteMemory(channelStates);
+                DBG("Saved existing Mute states as memory before Solo selection");
+            }
             transitionTo(SystemState::SoloSelecting);
             break;
             
         case SystemState::SoloSelecting:
             // 观点3：主按钮点击 = 全清除+退出选择
-            transitionTo(SystemState::Normal);
+            // 退出Solo选择模式时，需要恢复Mute记忆（如果存在）
+            if (muteMemory->hasMemory()) {
+                muteMemory->restoreMuteMemory(channelStates);
+                if (hasAnyMuteChannels()) {
+                    transitionTo(SystemState::MuteActive);
+                    DBG("Restored Mute memory when exiting SoloSelecting");
+                } else {
+                    muteMemory->clearMuteMemory();  // 清空无效记忆
+                    transitionTo(SystemState::Normal);
+                }
+            } else {
+                transitionTo(SystemState::Normal);
+            }
             break;
             
         case SystemState::MuteSelecting:
-            // 切换选择模式
+            // 切换选择模式 - 保存当前Mute状态为记忆
+            if (hasAnyMuteChannels()) {
+                muteMemory->saveMuteMemory(channelStates);
+                DBG("Saved Mute states as memory when switching to Solo selection");
+            }
             transitionTo(SystemState::SoloSelecting);
             break;
             
@@ -165,6 +186,7 @@ void StateManager::handleSoloButtonClick() {
                 if (hasAnyMuteChannels()) {
                     transitionTo(SystemState::MuteActive);
                 } else {
+                    muteMemory->clearMuteMemory();  // 清空无效记忆
                     transitionTo(SystemState::Normal);
                 }
             } else {
@@ -173,8 +195,9 @@ void StateManager::handleSoloButtonClick() {
             break;
             
         case SystemState::MuteActive:
-            // 观点6：保存当前Mute为记忆，进入Solo选择
+            // 观点6：保存当前Mute为记忆，但清除当前显示状态
             muteMemory->saveMuteMemory(channelStates);
+            clearAllMuteStates();  // 清除当前Mute显示，但保留记忆
             transitionTo(SystemState::SoloSelecting);
             break;
     }
@@ -185,9 +208,21 @@ void StateManager::handleMuteButtonClick() {
     
     switch (currentState) {
         case SystemState::SoloMuteActive:
+            // 在SoloMuteActive状态下，Mute按钮表示清除记忆
+            // 这样可以让用户在Solo状态下控制Mute记忆
+            if (muteMemory->hasMemory()) {
+                muteMemory->clearMuteMemory();
+                DBG("Mute memory cleared in SoloMuteActive state");
+                // 手动触发UI更新以反映Mute按钮状态变化
+                if (uiUpdateCallback) {
+                    uiUpdateCallback();
+                }
+            }
+            break;
+            
         case SystemState::SoloActive:
-            // 观点2：Solo优先级高于Mute - Mute按钮无效
-            DBG("Solo priority: Mute button click ignored");
+            // 纯Solo状态下Mute按钮无效
+            DBG("Solo priority: Mute button click ignored in SoloActive");
             return;
             
         case SystemState::Normal:
@@ -224,7 +259,13 @@ void StateManager::handleChannelClick(int channelIndex) {
             return;
             
         case SystemState::SoloSelecting:
-            // 执行Solo操作
+            // 注意：记忆在MuteActive->SoloSelecting转换时已经保存了
+            // 这里只需要清除当前Mute显示状态，不需要重新保存记忆
+            
+            // 清除所有手动Mute状态（Solo会接管控制）
+            clearAllMuteStates();
+            
+            // 设置Solo状态
             setChannelState(channelIndex, ChannelState::Solo);
             applyAutoMuteToOthers(channelIndex);
             transitionTo(SystemState::SoloMuteActive);
@@ -261,6 +302,14 @@ void StateManager::handleChannelClick(int channelIndex) {
                 }
             } else {
                 // 多声道Solo支持：添加新Solo通道
+                // 如果这个通道之前是ManualMute，需要从记忆中移除
+                if (getChannelState(channelIndex) == ChannelState::ManualMute) {
+                    // 从Mute记忆中移除这个通道，因为Solo会覆盖Mute
+                    auto currentMemory = channelStates;
+                    currentMemory.erase(channelIndex);  // 临时移除以更新记忆
+                    muteMemory->saveMuteMemory(currentMemory);
+                }
+                
                 setChannelState(channelIndex, ChannelState::Solo);
                 // 重新计算AutoMute：所有非Solo通道设为AutoMute
                 recalculateAutoMutes();
@@ -499,9 +548,10 @@ bool StateManager::shouldSoloButtonBeActive() const {
 }
 
 bool StateManager::shouldMuteButtonBeActive() const {
+    // Mute按钮激活条件：正在选择Mute或有手动Mute的通道
     return (currentState == SystemState::MuteSelecting ||
             currentState == SystemState::MuteActive ||
-            currentState == SystemState::SoloMuteActive);
+            (currentState == SystemState::SoloMuteActive && muteMemory->hasMemory()));
 }
 
 bool StateManager::shouldChannelBeActive(int channelIndex) const {
@@ -522,11 +572,10 @@ juce::Colour StateManager::getChannelColour(int channelIndex) const {
     auto state = getChannelState(channelIndex);
     switch (state) {
         case ChannelState::Solo:
-            return juce::Colours::green;
+            return juce::Colours::green;  // 纯绿色 - Solo状态
         case ChannelState::ManualMute:
-            return juce::Colours::red;
         case ChannelState::AutoMute:
-            return juce::Colours::darkred;
+            return juce::Colours::red;    // 统一纯红色 - 所有Mute状态
         case ChannelState::Normal:
         default:
             return juce::Colours::grey;

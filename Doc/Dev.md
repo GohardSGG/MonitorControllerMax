@@ -259,6 +259,49 @@ enum Role {
 ✅ **UI状态更新延迟** - 通过手动状态管理解决
 ✅ **编译错误** - 移除重复函数声明，英文注释替换中文
 ✅ **按钮状态冲突** - 禁用自动状态切换解决
+✅ **Mute记忆机制失效** - 修复记忆保存时机，确保状态正确恢复
+✅ **颜色逻辑混乱** - 统一颜色标准，消除视觉混淆
+✅ **双向同步问题** - 主按钮状态与通道状态完全一致
+
+#### **A1. v2.1 关键修复详解**
+
+**🚨 Mute记忆机制修复**
+- **问题根源**：Solo选择时错误地保存了空状态，覆盖了有效记忆
+- **修复方案**：
+  ```cpp
+  // 错误的原始逻辑
+  clearAllMuteStates();  // 先清空
+  muteMemory->saveMuteMemory(channelStates);  // 再保存空状态！
+  
+  // 修复后的逻辑
+  // 在进入Solo选择模式时就保存记忆
+  if (hasAnyMuteChannels()) {
+      muteMemory->saveMuteMemory(channelStates);
+  }
+  // 然后才清空显示状态
+  ```
+
+**🎨 颜色统一修复**
+- **问题**：AutoMute使用darkred，ManualMute使用red，造成视觉混乱
+- **修复**：所有Mute状态统一使用纯红色`juce::Colours::red`
+
+**🔄 双向同步修复**
+- **问题**：Mute按钮状态判断不考虑记忆，导致按钮与实际状态不符
+- **修复**：`shouldMuteButtonBeActive()`现在正确考虑记忆状态
+
+**🔀 状态转换逻辑补全**
+- **问题**：SoloSelecting状态退出时不恢复记忆，导致复杂场景下记忆丢失
+- **场景**：Mute → Solo → 取消部分Solo通道 → 退出Solo模式 → 记忆消失
+- **修复**：SoloSelecting退出时检查并恢复Mute记忆
+  ```cpp
+  case SystemState::SoloSelecting:
+      if (muteMemory->hasMemory()) {
+          muteMemory->restoreMuteMemory(channelStates);
+          transitionTo(SystemState::MuteActive);
+      } else {
+          transitionTo(SystemState::Normal);
+      }
+  ```
 
 #### **B. 架构重大革新：全新状态机设计方案**
 
@@ -298,6 +341,9 @@ enum Role {
 - **多Mute支持**：支持同时Mute多个通道（如多个独奏通道组合）
 - **继承式操作**：在Solo/Mute激活状态下，点击新通道会添加到激活列表而非替换
 - **智能取消**：点击已激活通道可单独取消该通道，其他激活通道保持不变
+- **可靠记忆机制**：Mute状态在Solo操作期间完全保持，退出Solo后精确恢复
+- **双向状态同步**：主按钮状态与通道状态始终保持一致
+- **统一视觉标准**：Solo纯绿色，所有Mute纯红色，无混合状态
 
 **🏗️ 新状态机架构设计：**
 
@@ -329,16 +375,21 @@ enum class ChannelState {
 6. **SoloMuteActive → MuteActive**: Solo取消，恢复Mute记忆
 7. **Any → Normal**: 主按钮全清除操作
 
-**🔄 交互行为矩阵：**
+**🔄 交互行为矩阵（v2.1修复版）：**
 
-| 当前状态 | Solo按钮 | Mute按钮 | 通道按钮 | 结果状态 |
-|----------|----------|----------|----------|----------|
-| Normal | 进入选择 | 进入选择 | 无效 | SoloSelecting/MuteSelecting |
-| SoloSelecting | 退出选择 | 进入Mute选择 | 执行Solo | Normal/MuteSelecting/SoloActive |
-| MuteSelecting | 进入Solo选择 | 退出选择 | 执行Mute | SoloSelecting/Normal/MuteActive |
-| SoloActive | 全清除 | 保存记忆+Solo优先 | Solo操作 | Normal/SoloSelecting |
-| MuteActive | 保存记忆+Solo | 全清除 | Mute操作 | SoloSelecting/Normal |
-| SoloMuteActive | 全清除 | 无效(Solo优先) | Solo操作 | Normal/SoloSelecting |
+| 当前状态 | Solo按钮 | Mute按钮 | 通道按钮 | 结果状态 | 记忆处理 |
+|----------|----------|----------|----------|----------|----------|
+| Normal | 保存记忆→选择 | 进入选择 | 无效 | SoloSelecting/MuteSelecting | 保存现有Mute |
+| SoloSelecting | **恢复记忆→退出** | 进入Mute选择 | 执行Solo | **MuteActive**/MuteSelecting/SoloMuteActive | **恢复记忆** |
+| MuteSelecting | 保存记忆→Solo | 退出选择 | 执行Mute | SoloSelecting/Normal/MuteActive | 保存Mute |
+| SoloActive | 恢复记忆→退出 | Solo优先 | Solo操作 | MuteActive/Normal/SoloSelecting | 恢复记忆 |
+| MuteActive | 保存记忆→Solo | 全清除 | Mute操作 | SoloSelecting/Normal | 保存记忆 |
+| SoloMuteActive | 恢复记忆→退出 | 清除记忆 | Solo操作 | MuteActive/Normal/SoloSelecting | 恢复/清除 |
+
+**🔧 v2.1关键修复：**
+- **SoloSelecting退出**：现在正确恢复记忆，而不是直接转Normal
+- **记忆一致性**：所有退出Solo模式的路径都确保记忆恢复
+- **复杂场景支持**：多步骤操作（Mute→Solo→部分取消→完全退出）正确工作
 
 **详细实施步骤请参见：** `Dev Step.md` - 全新状态机架构实现
 
@@ -407,49 +458,55 @@ DBG("Solo state changed: " << (currentSoloActive ? "active" : "inactive"));
 
 项目现已配备完整的**自动化开发工具套件**，提供从编译到测试的一键式开发体验。工具套件位于 `/Debug/` 目录，基于现代化的Bash脚本，直接调用MSBuild，避免了PowerShell编码问题。
 
-#### **B. 核心开发工具**
+#### **B. 核心开发工具 (v3.0 强制清理版)**
 
 **主要工具文件：**
 - `claude_auto_build.sh` - 自动化编译脚本 (核心工具)
 - `README.md` - 完整使用说明
 
-**支持的操作：**
+**🔧 v3.0 重大改进 - 强制清理编译：**
 ```bash
-# 编译相关
-./claude_auto_build.sh quick     # 快速Debug编译
-./claude_auto_build.sh full      # 完整Clean编译
-./claude_auto_build.sh release   # Release编译
+# 编译命令 (所有编译都强制清理，确保最新代码)
+./claude_auto_build.sh debug     # Debug编译 (默认, 强制清理)
+./claude_auto_build.sh release   # Release编译 (强制清理)
 
-# 运行相关 (新增强大功能)
+# 运行命令
 ./claude_auto_build.sh run       # 编译并运行 (一键开发)
 ./claude_auto_build.sh start     # 仅运行已有程序
 
-# 工具相关
+# 工具命令
 ./claude_auto_build.sh status    # 查看构建状态
 ./claude_auto_build.sh clean     # 清理环境
 ./claude_auto_build.sh help      # 显示帮助
 ```
 
+**⚡ 关键特性：**
+- **强制清理**: 每次编译都清理旧构建，确保使用最新代码
+- **避免增量编译问题**: 杜绝因旧编译缓存导致的代码更新遗漏
+- **简化命令**: 移除了容易混淆的`quick`/`full`模式区分
+- **一致性保证**: Debug和Release都使用相同的清理策略
+
 #### **C. 现代化开发流程**
 
-**🚀 最简单的开发流程 (推荐)：**
+**🚀 最简单的开发流程 (v3.0 强制清理版)：**
 ```
 1. 在Visual Studio中修改代码
 2. 运行: wsl ./claude_auto_build.sh run
-3. 程序自动编译并启动独立程序
-4. 直接测试功能 (Solo/Mute逻辑、UI响应等)
-5. 如果满意，Git提交
+3. 程序自动强制清理→编译→启动独立程序
+4. 直接测试功能 (确保代码变更已生效)
+5. Git提交稳定版本
 6. 重复循环
 ```
 
-**传统开发流程：**
-```
-代码修改 → 编译验证 → 手动启动 → 测试 → 提交
-```
+**⚡ v3.0 关键改进：**
+- **强制清理编译**: 每次都使用最新代码，无增量编译遗漏风险
+- **代码更新保证**: 100%确保编译的程序包含最新修改
+- **简化命令结构**: 统一的清理策略，无需选择编译模式
 
-**新的一键流程：**
+**开发流程对比：**
 ```
-代码修改 → 一键编译并运行 → 测试 → 提交
+传统增量编译: 代码修改 → 增量编译 → 可能使用旧代码 → 测试结果不准确
+v3.0强制清理: 代码修改 → 强制清理+完整编译 → 确保最新代码 → 测试结果可靠
 ```
 
 #### **D. 跨平台使用方法**
