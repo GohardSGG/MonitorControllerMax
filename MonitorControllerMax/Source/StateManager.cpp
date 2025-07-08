@@ -640,16 +640,66 @@ void StateManager::handleSoloParameterChange(int channelIndex, bool enabled) {
     VST3_DBG("StateManager handling Solo parameter change: Channel " << channelIndex << " = " << (enabled ? "true" : "false"));
     
     if (enabled) {
-        // 激活Solo：模拟UI操作流程
-        if (getCurrentState() == SystemState::Normal || getCurrentState() == SystemState::MuteActive) {
-            handleSoloButtonClick();  // 进入Solo模式
+        // 直接设置通道为Solo状态，无需模拟UI操作
+        channelStates[channelIndex] = ChannelState::Solo;
+        
+        // 进入Solo模式时，自动保存Mute记忆并静音所有非Solo通道
+        if (currentState == SystemState::Normal || currentState == SystemState::MuteActive) {
+            // 保存当前Mute状态
+            if (muteMemory) {
+                muteMemory->saveMuteMemory(channelStates);
+            }
+            
+            // 将所有非Solo通道设为AutoMute
+            for (int i = 0; i < 26; ++i) {
+                if (i != channelIndex && channelStates[i] != ChannelState::Solo) {
+                    channelStates[i] = ChannelState::AutoMute;
+                }
+            }
+            
+            currentState = SystemState::SoloActive;
         }
-        handleChannelClick(channelIndex);  // 激活该通道Solo
+        
+        VST3_DBG("Direct state update: Channel " << channelIndex << " set to Solo, System state: " << getStateDescription());
     } else {
-        // 取消Solo该通道
-        if (getChannelState(channelIndex) == ChannelState::Solo) {
-            handleChannelClick(channelIndex);  // 取消该通道Solo
+        // 直接取消该通道的Solo状态
+        if (channelStates[channelIndex] == ChannelState::Solo) {
+            channelStates[channelIndex] = ChannelState::Normal;
+            
+            // 检查是否还有其他Solo通道
+            bool hasAnySoloChannels = false;
+            for (int i = 0; i < 26; ++i) {
+                if (channelStates[i] == ChannelState::Solo) {
+                    hasAnySoloChannels = true;
+                    break;
+                }
+            }
+            
+            // 如果没有Solo通道了，恢复Mute记忆
+            if (!hasAnySoloChannels && currentState == SystemState::SoloActive) {
+                if (muteMemory) {
+                    muteMemory->restoreMuteMemory(channelStates);
+                }
+                
+                // 检查是否有ManualMute通道决定系统状态
+                bool hasAnyMuteChannels = false;
+                for (int i = 0; i < 26; ++i) {
+                    if (channelStates[i] == ChannelState::ManualMute) {
+                        hasAnyMuteChannels = true;
+                        break;
+                    }
+                }
+                
+                currentState = hasAnyMuteChannels ? SystemState::MuteActive : SystemState::Normal;
+            }
+            
+            VST3_DBG("Direct state update: Channel " << channelIndex << " Solo removed, System state: " << getStateDescription());
         }
+    }
+    
+    // 通知UI更新
+    if (uiUpdateCallback) {
+        uiUpdateCallback();
     }
 }
 
@@ -663,16 +713,49 @@ void StateManager::handleMuteParameterChange(int channelIndex, bool enabled) {
     }
     
     if (enabled) {
-        // 激活Mute：模拟UI操作流程
-        if (getCurrentState() == SystemState::Normal) {
-            handleMuteButtonClick();  // 进入Mute模式
+        // 直接设置通道为Mute状态，无需模拟UI操作
+        channelStates[channelIndex] = ChannelState::ManualMute;
+        
+        // 如果没有其他Mute通道，切换到MuteActive状态
+        bool hasOtherMuteChannels = false;
+        for (int i = 0; i < 26; ++i) {
+            if (i != channelIndex && channelStates[i] == ChannelState::ManualMute) {
+                hasOtherMuteChannels = true;
+                break;
+            }
         }
-        handleChannelClick(channelIndex);  // 激活该通道Mute
+        
+        if (currentState == SystemState::Normal || !hasOtherMuteChannels) {
+            currentState = SystemState::MuteActive;
+        }
+        
+        VST3_DBG("Direct state update: Channel " << channelIndex << " set to ManualMute, System state: " << getStateDescription());
     } else {
-        // 取消Mute该通道
-        if (getChannelState(channelIndex) == ChannelState::ManualMute) {
-            handleChannelClick(channelIndex);  // 取消该通道Mute
+        // 直接取消该通道的Mute状态
+        if (channelStates[channelIndex] == ChannelState::ManualMute) {
+            channelStates[channelIndex] = ChannelState::Normal;
+            
+            // 检查是否还有其他Mute通道
+            bool hasAnyMuteChannels = false;
+            for (int i = 0; i < 26; ++i) {
+                if (channelStates[i] == ChannelState::ManualMute) {
+                    hasAnyMuteChannels = true;
+                    break;
+                }
+            }
+            
+            // 如果没有Mute通道了，返回Normal状态
+            if (!hasAnyMuteChannels && currentState == SystemState::MuteActive) {
+                currentState = SystemState::Normal;
+            }
+            
+            VST3_DBG("Direct state update: Channel " << channelIndex << " set to Normal, System state: " << getStateDescription());
         }
+    }
+    
+    // 通知UI更新
+    if (uiUpdateCallback) {
+        uiUpdateCallback();
     }
 }
 

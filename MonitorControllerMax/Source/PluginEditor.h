@@ -61,7 +61,7 @@ public:
         }
         else
         {
-            // 为所有其他按钮绘制强制的正方形
+            // 
             auto side = juce::jmin(originalBounds.getWidth(), originalBounds.getHeight());
             auto squareBounds = originalBounds.toFloat().withSizeKeepingCentre(side, side);
             g.fillRoundedRectangle(squareBounds, cornerSize);
