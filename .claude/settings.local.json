@@ -24,7 +24,8 @@
       "Bash(rm:*)",
       "Bash(MSBuild.exe:*)",
       "Bash(cmake:*)",
-      "Bash(./build_debug.bat)"
+      "Bash(./build_debug.bat)",
+      "Bash(./MonitorControllerMax.exe --help)"
     ],
     "deny": []
   }

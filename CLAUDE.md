@@ -1,66 +1,68 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+该文件为 Claude Code (claude.ai/code) 在此代码库中工作时提供指导。
 
-## Project Overview
+## 项目概述
 
-This repository contains audio effects for REAPER (Digital Audio Workstation), primarily focused on **monitor controller plugins**. The project consists of two main parts:
+该代码库包含用于 REAPER（数字音频工作站）的音频效果，主要专注于 **监听控制器插件**。项目包括两个主要部分：
 
-1. **JSFX Effects** - Native REAPER audio effects written in EEL2 scripting language
-2. **JUCE Audio Plugin** - Cross-platform VST3/Standalone monitor controller built with JUCE framework
+1.  **JSFX 效果** - 使用 EEL2 脚本语言编写的 REAPER 原生音频效果
+2.  **JUCE 音频插件** - 使用 JUCE 框架构建的跨平台 VST3/独立运行的监听控制器
 
-## Build Commands
+## 构建命令
 
-### JUCE Plugin (MonitorControllerMax)
+### JUCE 插件 (MonitorControllerMax)
+
 ```bash
-# Build using Visual Studio (Windows)
+# 使用 Visual Studio (Windows) 构建
 cd "MonitorControllerMax/Builds/VisualStudio2022"
-# Open MonitorControllerMax.sln in Visual Studio
-# Or build from command line:
+# 在 Visual Studio 中打开 MonitorControllerMax.sln
+# 或从命令行构建：
 msbuild MonitorControllerMax.sln /p:Configuration=Release /p:Platform=x64
 
-# Build Debug version
+# 构建 Debug 版本
 msbuild MonitorControllerMax.sln /p:Configuration=Debug /p:Platform=x64
 ```
 
-### JSFX Effects
-JSFX files (`.jsfx`) are script-based and don't require compilation. They can be directly loaded into REAPER:
-- `Monitor Controllor 7.1.4.jsfx` - Main monitor controller
-- `Monitor Controllor SUB.jsfx` - Subwoofer controller  
-- `Monitor Controllor 7.1.4 AiYue_V1.jsfx` - Extended version
+### JSFX 效果
 
-## Architecture Overview
+JSFX 文件 (`.jsfx`) 是基于脚本的，无需编译。它们可以直接加载到 REAPER 中：
+- `Monitor Controllor 7.1.4.jsfx` -主监听控制器
+- `Monitor Controllor SUB.jsfx` - 超低音控制器
+- `Monitor Controllor 7.1.4 AiYue_V1.jsfx` - 扩展版本
 
-### JUCE Plugin Architecture (MonitorControllerMax)
+## 架构概述
 
-The JUCE plugin implements a sophisticated **master-slave communication system** for professional monitor control:
+### JUCE 插件架构 (MonitorControllerMax)
 
-**Core Components:**
-- `PluginProcessor` - Main audio processing engine that manages up to 26 channels
-- `PluginEditor` - Dynamic UI that adapts to speaker configurations
-- `ConfigManager` - Parses speaker layout configurations from JSON
-- `InterPluginCommunicator` - Handles inter-plugin communication for master-slave setup
+该 JUCE 插件为专业监听控制实现了一个复杂的 **主从通信系统**：
 
-**Key Design Patterns:**
-- **Role-based Processing**: Plugins can operate as standalone, master, or slave instances
-- **Dynamic Parameter Management**: Parameters are generated based on loaded speaker configurations
-- **State Synchronization**: Master instance controls slave instances via IPC
-- **UI-driven Logic**: Complex state changes are handled in UI callbacks, not parameter change events
+**核心组件:**
+- `PluginProcessor` - 管理多达26个通道的主音频处理引擎
+- `PluginEditor` - 能够适应不同扬声器配置的动态用户界面
+- `ConfigManager` - 从 JSON 文件中解析扬声器布局配置
+- `InterPluginCommunicator` - 处理主从设置的插件间通信
 
-**Audio Processing Flow:**
-1. **Slave Plugin** (pre-calibration): Applies mute/solo filtering to raw audio
-2. **External Calibration Software**: Processes the filtered audio
-3. **Master Plugin** (post-calibration): Applies final mute/solo/gain processing
+**关键设计模式:**
+- **基于角色的处理**: 插件可以作为独立、主或从实例运行
+- **动态参数管理**: 参数根据加载的扬声器配置动态生成
+- **状态同步**: 主实例通过 IPC 控制从实例
+- **UI驱动逻辑**: 复杂的状态变更在 UI 回调中处理，而非参数变更事件
 
-### Speaker Configuration System
+**音频处理流程:**
+1.  **从插件** (校准前): 对原始音频应用静音/独奏滤波
+2.  **外部校准软件**: 处理滤波后的音频
+3.  **主插件** (校准后): 应用最终的静音/独奏/增益处理
 
-The plugin uses `Source/Config/Speaker_Config.json` to define:
-- Speaker layouts (2.0, 2.1, 5.1, 7.1.4, etc.)
-- Sub layouts (Single Sub, Dual Sub, etc.)  
-- Channel mapping to audio interface outputs
-- Grid positions for UI layout
+### 扬声器配置系统
 
-**Layout Structure:**
+该插件使用 `Source/Config/Speaker_Config.json` 来定义：
+- 扬声器布局 (2.0, 2.1, 5.1, 7.1.4, 等)
+- 超低音布局 (单超低音, 双超低音, 等)
+- 声道到音频接口输出的映射
+- 用于 UI 布局的网格位置
+
+**布局结构:**
 ```json
 {
   "Speaker": {
@@ -77,42 +79,42 @@ The plugin uses `Source/Config/Speaker_Config.json` to define:
 }
 ```
 
-### File Organization
+### 文件组织
 
 ```
 MonitorControllerMax/
 ├── Source/
-│   ├── PluginProcessor.h/cpp     # Main audio processor
-│   ├── PluginEditor.h/cpp        # Dynamic UI implementation  
-│   ├── ConfigManager.h/cpp       # Configuration parsing
-│   ├── ConfigModels.h            # Data structures
-│   ├── InterPluginCommunicator.h/cpp  # IPC system
+│   ├── PluginProcessor.h/cpp     # 主音频处理器
+│   ├── PluginEditor.h/cpp        # 动态UI实现
+│   ├── ConfigManager.h/cpp       # 配置解析
+│   ├── ConfigModels.h            # 数据结构
+│   ├── InterPluginCommunicator.h/cpp  # IPC 系统
 │   └── Config/
-│       └── Speaker_Config.json   # Speaker layout definitions
-├── Builds/VisualStudio2022/      # Visual Studio project files
-└── JuceLibraryCode/              # Auto-generated JUCE code
+│       └── Speaker_Config.json   # 扬声器布局定义
+├── Builds/VisualStudio2022/      # Visual Studio 项目文件
+└── JuceLibraryCode/              # 自动生成的 JUCE 代码
 ```
 
-## Development Workflow
+## 开发工作流
 
 ### 🚀 Claude Code 自动开发标准流程
 
 **重要说明：大部分情况下，Claude Code应该遵循以下开发流程：**
 
-1. **主要开发模式：快速Debug独立程序编译**
-   - 使用Debug独立程序进行日常开发和功能验证
-   - 避免在开发过程中进行完整的Release构建
-   - 专注于快速迭代和功能实现
+1.  **主要开发模式：快速Debug独立程序编译**
+    *   使用Debug独立程序进行日常开发和功能验证
+    *   避免在开发过程中进行完整的Release构建
+    *   专注于快速迭代和功能实现
 
-2. **自动化错误处理**
-   - 实时监控编译日志，立即修复编译错误
-   - 确保代码在快速Debug编译中不报错
-   - 维护代码质量，避免引入潜在问题
+2.  **自动化错误处理**
+    *   实时监控编译日志，立即修复编译错误
+    *   确保代码在快速Debug编译中不报错
+    *   维护代码质量，避免引入潜在问题
 
-3. **最终构建策略**
-   - 开发完成后，由人工进行最终的完整编译
-   - 确保生产版本的质量和稳定性
-   - 避免在开发过程中的构建复杂度
+3.  **最终构建策略**
+    *   开发完成后，由人工进行最终的完整编译
+    *   确保生产版本的质量和稳定性
+    *   避免在开发过程中的构建复杂度
 
 **开发优先级：**
 - ✅ 快速Debug独立程序编译（用于功能验证）
@@ -218,118 +220,118 @@ const String MonitorControllerMaxAudioProcessor::getInputChannelName(int channel
 - **重构代码：** 说明重构的目的和改进点
 - **删除代码：** 保留必要的注释说明删除原因
 
-### Working with Speaker Configurations
-1. Edit `Speaker_Config.json` to add new layouts
-2. Layouts are automatically loaded and UI adapts dynamically
-3. Channel indices in JSON correspond to audio interface outputs
+### 使用扬声器配置
+1. 编辑 `Speaker_Config.json` 来添加新的布局
+2. 布局会自动加载，UI会动态适应
+3. JSON 中的通道索引对应于音频接口的输出
 
-### Adding New Features
-1. **Audio Processing**: Modify `PluginProcessor::processBlock()`
-2. **UI Components**: Update `PluginEditor::updateLayout()` 
-3. **Parameters**: Extend `createParameterLayout()` if needed
-4. **Communication**: Modify `InterPluginCommunicator` for cross-instance features
+### 添加新功能
+1. **音频处理**: 修改 `PluginProcessor::processBlock()`
+2. **UI 组件**: 更新 `PluginEditor::updateLayout()` 
+3. **参数**: 如果需要，扩展 `createParameterLayout()`
+4. **通信**: 修改 `InterPluginCommunicator` 以实现跨实例功能
 
-### Testing Master-Slave Setup
-1. Load two plugin instances in DAW
-2. Click "Link" button on desired master instance  
-3. Slave instance UI becomes read-only and mirrors master state
-4. Place slave before calibration software, master after
+### 测试主从设置
+1. 在 DAW 中加载两个插件实例
+2. 在期望的主实例上点击 "Link" 按钮
+3. 从实例的 UI 变为只读，并镜像主实例的状态
+4. 将从实例放置在校准软件之前，主实例放置在之后
 
-## Key Implementation Details
+## 关键实现细节
 
-### Parameter Management
-- Parameters are created dynamically based on maximum channel count
-- Channel mapping happens at runtime based on active layout
-- Unused parameters are automatically bypassed
+### 参数管理
+- 参数根据最大通道数动态创建
+- 通道映射在运行时根据活动布局进行
+- 未使用的参数会自动绕过
 
-### State Synchronization  
-- Only mute/solo states are synchronized between instances
-- Gain/volume parameters remain local to each instance
-- Communication uses `juce::InterprocessConnection` for low latency
+### 状态同步
+- 只有静音/独奏状态在实例之间同步
+- 增益/音量参数保持在每个实例本地
+- 通信使用 `juce::InterprocessConnection` 实现低延迟
 
-### UI Behavior
-- **Normal Mode**: All controls active
-- **Master Mode**: Full control, sends state to slave
-- **Slave Mode**: UI locked, displays master state only
-- **Solo Logic**: Automatically mutes non-soloed channels with state caching
+### UI 行为
+- **普通模式**: 所有控件均可操作
+- **主模式**: 完全控制，向从实例发送状态
+- **从模式**: UI 锁定，仅显示主实例状态
+- **独奏逻辑**: 自动静音非独奏通道，并缓存状态
 
-### Dynamic Host Integration
-- `getParameterName()`: Returns layout-aware parameter names ("Mute LFE" vs "Mute 4")
-- `getInputChannelName()`/`getOutputChannelName()`: Returns channel-specific names
-- `updateHostDisplay()`: Notifies DAW of parameter name changes
+### 动态主机集成
+- `getParameterName()`: 返回与布局相关的参数名称 (例如 "Mute LFE" vs "Mute 4")
+- `getInputChannelName()`/`getOutputChannelName()`: 返回特定于通道的名称
+- `updateHostDisplay()`: 通知 DAW 参数名称的更改
 
-## Documentation Resources
+## 文档资源
 
-### JUCE Framework Deep Dive
-The project includes comprehensive JUCE documentation in `Doc/JUCE Wiki/`:
+### JUCE 框架深度解析
+项目在 `Doc/JUCE Wiki/` 中包含了全面的 JUCE 文档：
 
-**Core Architecture Understanding:**
-- `JUCE-Framework-Overview.md` - Complete framework module relationships and architecture diagrams
-- `Audio-Framework.md` - AudioProcessor, AudioDeviceManager, and plugin system details
-- `Audio-Plugin-System.md` - VST/AU/AAX plugin format implementations and hosting
-- `Component-System.md` - GUI component hierarchy and event handling
-- `GUI-Framework.md` - LookAndFeel customization and graphics rendering
+**核心架构理解:**
+- `JUCE-Framework-Overview.md` - 完整的框架模块关系和架构图
+- `Audio-Framework.md` - `AudioProcessor`、`AudioDeviceManager` 和插件系统的详细信息
+- `Audio-Plugin-System.md` - VST/AU/AAX 插件格式的实现和宿主
+- `Component-System.md` - GUI 组件层次结构和事件处理
+- `GUI-Framework.md` - `LookAndFeel` 定制和图形渲染
 
-**Development Workflow:**
-- `CMake-Build-System.md` - Modern build configuration (preferred over Projucer)
-- `Projucer.md` - Legacy project management tool
-- `Development-Tools.md` - Complete toolchain overview
-- `Standalone-Plugin-Applications.md` - Standalone app development
+**开发工作流:**
+- `CMake-Build-System.md` - 现代构建配置 (优于 Projucer)
+- `Projucer.md` - 旧版项目管理工具
+- `Development-Tools.md` - 完整的工具链概述
+- `Standalone-Plugin-Applications.md` - 独立应用程序开发
 
-**Advanced Topics:**
-- `Core-Systems.md` - Memory management, threading, and data structures
-- `String,-ValueTree,-and-File.md` - Data persistence and serialization
-- `OpenGL-Integration.md` - Hardware-accelerated graphics
-- `Mathematics-and-Geometry.md` - DSP and geometric utilities
+**高级主题:**
+- `Core-Systems.md` - 内存管理、线程和数据结构
+- `String,-ValueTree,-and-File.md` - 数据持久化和序列化
+- `OpenGL-Integration.md` - 硬件加速图形
+- `Mathematics-and-Geometry.md` - DSP 和几何工具
 
-### JSFX/EEL2 Scripting Reference
-Complete REAPER JSFX programming documentation in `Doc/ReaScript/`:
+### JSFX/EEL2 脚本参考
+在 `Doc/ReaScript/` 中有完整的 REAPER JSFX 编程文档：
 
-**Language Fundamentals:**
-- `Introduction.txt` - JSFX file structure and basic syntax
-- `Basic code reference.txt` - EEL2 language essentials, operators, and memory management
-- `Special Variables.txt` - Built-in variables for audio processing
+**语言基础:**
+- `Introduction.txt` - JSFX 文件结构和基本语法
+- `Basic code reference.txt` - EEL2 语言要点、运算符和内存管理
+- `Special Variables.txt` - 用于音频处理的内置变量
 
-**Audio & MIDI:**
-- `MIDI.txt` - MIDI message handling and bus support
-- `Memory Slider FFT MDCT Functions.txt` - DSP algorithms and audio buffer operations
-- `Graphics.txt` - Custom UI drawing and visualization
+**音频 & MIDI:**
+- `MIDI.txt` - MIDI 消息处理和总线支持
+- `Memory Slider FFT MDCT Functions.txt` - DSP 算法和音频缓冲区操作
+- `Graphics.txt` - 自定义 UI 绘制和可视化
 
-**Integration:**
-- `ReaScript API.txt` - REAPER automation and host interaction
-- `File IO and Serialization.txt` - Data persistence in JSFX
-- `Strings.txt` - Text processing and manipulation
+**集成:**
+- `ReaScript API.txt` - REAPER 自动化和宿主交互
+- `File IO and Serialization.txt` - JSFX 中的数据持久化
+- `Strings.txt` - 文本处理和操作
 
-### Project-Specific Documentation
-- `Dev.md` - Comprehensive monitor controller architecture and implementation guide
-- `Dev Step.md` - Current development roadmap and next implementation steps
-- `Juce插件开发详细指南_.md` - Detailed JUCE plugin development guide in Chinese
+### 项目特定文档
+- `Dev.md` - 综合的监听控制器架构和实现指南
+- `Dev Step.md` - 当前的开发路线图和下一步实现步骤
+- `Juce插件开发详细指南_.md` - 详细的中文 JUCE 插件开发指南
 
-## Technical Notes
+## 技术说明
 
-### JUCE Best Practices (From Documentation Analysis)
-- **Modern Workflow**: Use CMake build system over Projucer for professional development
-- **Audio Safety**: Follow real-time audio constraints in `processBlock()`
-- **Parameter Management**: Use AudioProcessorValueTreeState for thread-safe parameter handling
-- **Cross-Platform**: Abstract platform-specific code behind JUCE interfaces
-- **Memory Management**: Prefer RAII and smart pointers for resource management
+### JUCE 最佳实践 (来自文档分析)
+- **现代工作流**: 使用 CMake 构建系统而非 Projucer 进行专业开发
+- **音频安全**: 在 `processBlock()` 中遵循实时音频约束
+- **参数管理**: 使用 `AudioProcessorValueTreeState` 进行线程安全的参数处理
+- **跨平台**: 在 JUCE 接口后面抽象平台特定的代码
+- **内存管理**: 优先使用 RAII 和智能指针进行资源管理
 
-### JSFX Development
-- **Language**: EEL2 scripting with C-like syntax but dynamic typing
-- **Integration**: Direct REAPER integration, no compilation needed
-- **Features**: Real-time audio processing, MIDI handling, custom graphics
-- **Memory**: ~8M local + ~1M global shared memory space
-- **UI**: Vector-based custom drawing with immediate-mode graphics
+### JSFX 开发
+- **语言**: EEL2 脚本，具有类似 C 的语法但为动态类型
+- **集成**: 直接与 REAPER 集成，无需编译
+- **特性**: 实时音频处理、MIDI 处理、自定义图形
+- **内存**: 约 8M 本地 + 约 1M 全局共享内存空间
+- **UI**: 基于向量的自定义绘图，使用立即模式图形
 
-### Performance Considerations
-- **Audio Thread Safety**: Never allocate/deallocate in `processBlock()`
-- **Channel Mapping**: Physical channel iteration with logical channel mapping
-- **State Synchronization**: Minimize communication overhead between instances
-- **UI Updates**: Timer-based to avoid blocking audio processing
-- **Memory Access**: Use proper alignment for SIMD operations
+### 性能考量
+- **音频线程安全**: 绝不在 `processBlock()` 中分配/释放内存
+- **通道映射**: 物理通道迭代与逻辑通道映射
+- **状态同步**: 最小化实例之间的通信开销
+- **UI 更新**: 基于计时器以避免阻塞音频处理
+- **内存访问**: 为 SIMD 操作使用正确的对齐
 
-### Platform Support
-- **Primary**: Windows with Visual Studio 2022 project
-- **Cross-Platform**: JUCE codebase supports macOS/Linux via CMake
-- **JSFX**: REAPER-specific (Windows/macOS/Linux)
-- **Plugin Formats**: VST3, AU, AAX, Standalone
+### 平台支持
+- **主要**: Windows 与 Visual Studio 2022 项目
+- **跨平台**: JUCE 代码库通过 CMake 支持 macOS/Linux
+- **JSFX**: REAPER 特定 (Windows/macOS/Linux)
+- **插件格式**: VST3, AU, AAX, 独立运行
