@@ -130,6 +130,48 @@ MonitorControllerMax/
 
 Claude Code 必须使用位于 `/Debug/` 目录的统一自动化工具套件，现已升级为 v2.5 版本，提供完美的一键开发体验：
 
+### 🔧 VST3调试解决方案 (v3.0新增)
+
+**解决VST3插件调试输出问题的完整方案：**
+
+#### 核心问题
+- **Standalone版本**：有调试输出但音频设备通道限制
+- **VST3版本**：音频功能完整但无法查看调试输出
+
+#### 解决方案 - VST3调试日志系统
+项目已实现完整的VST3调试日志系统，位于 `Source/DebugLogger.h`：
+
+**关键特性：**
+- ✅ **双重输出**：所有`VST3_DBG()`同时输出到控制台和文件
+- ✅ **实时日志**：VST3插件运行时自动记录到文件
+- ✅ **时间戳**：精确的毫秒级时间戳便于调试
+- ✅ **自动初始化**：插件加载时自动创建日志系统
+
+**日志文件位置：**
+```
+%TEMP%\MonitorControllerMax_Debug.log
+实际路径：C:\Users\[用户名]\AppData\Local\Temp\MonitorControllerMax_Debug.log
+```
+
+**快速查看调试日志：**
+1. 按 `Win + R` 输入 `%TEMP%`
+2. 找到 `MonitorControllerMax_Debug.log`
+3. 用记事本打开即可实时查看VST3调试输出
+
+**开发工作流：**
+```
+1. 在REAPER中加载VST3插件
+2. 执行需要调试的操作
+3. 打开日志文件查看详细调试信息
+4. 基于日志信息进行代码调整
+5. 重新编译并重复测试
+```
+
+**代码实现：**
+- 所有关键模块已更新使用`VST3_DBG()`替代`DBG()`
+- StateManager、PluginProcessor、PluginEditor全面支持
+- 自动记录状态转换、UI更新、参数变化等关键事件
+
 #### 🚀 核心命令 (推荐使用顺序)
 
 ```bash
