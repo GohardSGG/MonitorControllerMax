@@ -29,17 +29,26 @@ MuteMemoryManager::MuteMemoryManager() {
 }
 
 void MuteMemoryManager::saveMuteMemory(const std::map<int, ChannelState>& currentStates) {
-    persistentMuteMemory.clear();
-    
-    // 保存所有手动Mute的通道
+    // 计算要保存的手动Mute通道数量
+    std::map<int, bool> newMemory;
     for (const auto& pair : currentStates) {
         if (pair.second == ChannelState::ManualMute) {
-            persistentMuteMemory[pair.first] = true;
+            newMemory[pair.first] = true;
         }
     }
     
-    VST3_DBG("Mute memory saved: " << persistentMuteMemory.size() << " channels");
-    saveToFile();
+    // 防止用空记忆覆盖有效记忆
+    // 只有在以下情况才真正保存：
+    // 1. 新记忆不为空，或者
+    // 2. 当前没有任何记忆（首次保存）
+    if (!newMemory.empty() || persistentMuteMemory.empty()) {
+        persistentMuteMemory = newMemory;
+        VST3_DBG("Mute memory saved: " << persistentMuteMemory.size() << " channels");
+        saveToFile();
+    } else {
+        VST3_DBG("Mute memory save skipped: would overwrite " << persistentMuteMemory.size() 
+                 << " existing channels with 0 channels");
+    }
 }
 
 void MuteMemoryManager::restoreMuteMemory(std::map<int, ChannelState>& channelStates) {
