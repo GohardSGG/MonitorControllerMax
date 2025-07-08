@@ -557,13 +557,20 @@ bool StateManager::shouldMuteButtonBeActive() const {
 
 bool StateManager::shouldChannelBeActive(int channelIndex) const {
     auto state = getChannelState(channelIndex);
+    // 修复Solo模式UI显示错误：AutoMute通道不应该显示为激活按钮
+    // 只有Solo和ManualMute通道才应该显示为激活状态
     bool shouldBeActive = (state == ChannelState::Solo || 
-                          state == ChannelState::ManualMute || 
-                          state == ChannelState::AutoMute);
+                          state == ChannelState::ManualMute);
     
     // 详细调试信息
     if (state == ChannelState::Solo) {
         VST3_DBG("UI Query: Channel " << channelIndex << " should be ACTIVE (Solo state)");
+    } else if (state == ChannelState::ManualMute) {
+        VST3_DBG("UI Query: Channel " << channelIndex << " should be ACTIVE (ManualMute state)");
+    } else if (state == ChannelState::AutoMute) {
+        VST3_DBG("UI Query: Channel " << channelIndex << " should be INACTIVE (AutoMute state - visually normal but functionally muted)");
+    } else {
+        VST3_DBG("UI Query: Channel " << channelIndex << " should be INACTIVE (Normal state)");
     }
     
     return shouldBeActive;
