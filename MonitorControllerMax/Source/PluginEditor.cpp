@@ -479,6 +479,8 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
         if (button->getToggleState() != shouldBeActive)
         {
             button->setToggleState(shouldBeActive, juce::dontSendNotification);
+            DBG("UI Update: Channel " << index << " button state changed to " << 
+                (shouldBeActive ? "ACTIVE" : "INACTIVE"));
         }
         
         if (button->findColour(juce::TextButton::buttonOnColourId) != channelColour)

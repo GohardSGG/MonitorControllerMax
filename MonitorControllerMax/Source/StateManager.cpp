@@ -246,8 +246,16 @@ void StateManager::handleChannelClick(int channelIndex) {
                 recalculateAutoMutes();
                 if (hasAnySoloChannels()) {
                     // 保持当前状态或转换为SoloActive
-                    transitionTo(hasAnyAutoMuteChannels() ? 
-                                SystemState::SoloMuteActive : SystemState::SoloActive);
+                    auto newState = hasAnyAutoMuteChannels() ? 
+                                   SystemState::SoloMuteActive : SystemState::SoloActive;
+                    if (currentState == newState) {
+                        // 状态不变，手动触发UI更新
+                        if (uiUpdateCallback) {
+                            uiUpdateCallback();
+                        }
+                    } else {
+                        transitionTo(newState);
+                    }
                 } else {
                     transitionTo(SystemState::SoloSelecting);
                 }
@@ -256,7 +264,10 @@ void StateManager::handleChannelClick(int channelIndex) {
                 setChannelState(channelIndex, ChannelState::Solo);
                 // 重新计算AutoMute：所有非Solo通道设为AutoMute
                 recalculateAutoMutes();
-                transitionTo(SystemState::SoloMuteActive);
+                // 状态不变，但需要手动触发UI更新
+                if (uiUpdateCallback) {
+                    uiUpdateCallback();
+                }
             }
             break;
             
@@ -272,7 +283,10 @@ void StateManager::handleChannelClick(int channelIndex) {
             } else {
                 // 如果不是Mute，则添加到Mute列表（多声道支持）
                 setChannelState(channelIndex, ChannelState::ManualMute);
-                // 保持在MuteActive状态，支持继续添加更多Mute通道
+                // 保持在MuteActive状态，但需要手动触发UI更新
+                if (uiUpdateCallback) {
+                    uiUpdateCallback();
+                }
             }
             break;
     }
@@ -492,9 +506,16 @@ bool StateManager::shouldMuteButtonBeActive() const {
 
 bool StateManager::shouldChannelBeActive(int channelIndex) const {
     auto state = getChannelState(channelIndex);
-    return (state == ChannelState::Solo || 
-            state == ChannelState::ManualMute || 
-            state == ChannelState::AutoMute);
+    bool shouldBeActive = (state == ChannelState::Solo || 
+                          state == ChannelState::ManualMute || 
+                          state == ChannelState::AutoMute);
+    
+    // 详细调试信息
+    if (state == ChannelState::Solo) {
+        DBG("UI Query: Channel " << channelIndex << " should be ACTIVE (Solo state)");
+    }
+    
+    return shouldBeActive;
 }
 
 juce::Colour StateManager::getChannelColour(int channelIndex) const {
