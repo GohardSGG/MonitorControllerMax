@@ -452,8 +452,9 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
         updateLayout();
     }
     
-    // 只有在布局变化时才强制更新按钮状态，否则按钮状态通过参数监听自动更新
-    // updateChannelButtonStates(); // 移除过度的定时器更新
+    // Update button states to reflect current parameter values
+    // This is essential since parameter listener mechanism isn't working properly
+    updateChannelButtonStates();
 }
 
 void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
@@ -490,13 +491,13 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
         juce::Colour buttonColor = getLookAndFeel().findColour(juce::TextButton::buttonColourId);
         
         if (soloValue > 0.5f) {
-            // Solo active - yellow and active
+            // Solo active - use proper Solo color and active state
             shouldBeActive = true;
-            buttonColor = juce::Colours::yellow;
+            buttonColor = customLookAndFeel.getSoloColour();
         } else if (muteValue > 0.5f) {
-            // Mute active - red and inactive (showing muted state)
+            // Mute active - use proper Mute color and inactive state (showing muted)
             shouldBeActive = false;
-            buttonColor = juce::Colours::red;
+            buttonColor = customLookAndFeel.getMuteColour();
         } else {
             // Normal state - default color and inactive
             shouldBeActive = false;

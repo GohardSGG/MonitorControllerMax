@@ -597,9 +597,13 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
             VST3_DBG("Clearing all Solo parameters");
             linkageEngine->clearAllSoloParameters();
         } else {
-            // No Solo active -> could enter Solo selection mode
-            VST3_DBG("No Solo active - entering Solo selection mode");
-            // UI can handle visual feedback for selection mode
+            // No Solo active -> Solo the first visible channel
+            VST3_DBG("No Solo active - Soloing first visible channel");
+            
+            auto soloParamId = "SOLO_1";  // Solo channel 1 (L channel in stereo)
+            if (auto* soloParam = apvts.getParameter(soloParamId)) {
+                soloParam->setValueNotifyingHost(1.0f);
+            }
         }
     }
 }
@@ -614,9 +618,19 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
             VST3_DBG("Clearing all Mute parameters");
             linkageEngine->clearAllMuteParameters();
         } else {
-            // No Mute active -> could enter Mute selection mode
-            VST3_DBG("No Mute active - entering Mute selection mode");
-            // UI can handle visual feedback for selection mode
+            // No Mute active -> Mute all visible channels
+            VST3_DBG("No Mute active - Muting all visible channels");
+            
+            // Get current channel count to only mute visible channels
+            int currentChannelCount = getTotalNumInputChannels();
+            int channelsToMute = juce::jmin(currentChannelCount, 26);
+            
+            for (int i = 0; i < channelsToMute; ++i) {
+                auto muteParamId = "MUTE_" + juce::String(i + 1);
+                if (auto* muteParam = apvts.getParameter(muteParamId)) {
+                    muteParam->setValueNotifyingHost(1.0f);
+                }
+            }
         }
     }
 }

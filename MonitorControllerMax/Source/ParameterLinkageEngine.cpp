@@ -139,8 +139,7 @@ void ParameterLinkageEngine::clearAllMuteParameters() {
 void ParameterLinkageEngine::resetToCleanState() {
     VST3_DBG("Resetting to clean state - clearing all Solo and Mute parameters");
     
-    ScopedLinkageGuard guard(isApplyingLinkage);
-    
+    // DO NOT use ScopedLinkageGuard here - we want parameter changes to trigger UI updates
     // Clear all Solo parameters first
     for (int i = 0; i < 26; ++i) {
         setParameterValue(getSoloParameterID(i), 0.0f);
@@ -155,7 +154,7 @@ void ParameterLinkageEngine::resetToCleanState() {
     muteMemory.clear();
     previousSoloActive = false;
     
-    VST3_DBG("Clean state reset completed");
+    VST3_DBG("Clean state reset completed - UI should update automatically");
 }
 
 void ParameterLinkageEngine::clearMuteMemory() {
