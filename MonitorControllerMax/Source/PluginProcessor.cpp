@@ -99,10 +99,11 @@ void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, flo
         VST3_DBG("Warning: Solo parameter not found: " << soloParamId);
     }
     
-    // 更新Mute参数 - 基于当前通道状态
+    // 更新Mute参数 - 基于当前通道状态 (包含ManualMute和AutoMute)
     auto* muteParam = apvts.getParameter(muteParamId);
     if (muteParam) {
-        float muteValue = (channelState == ChannelState::ManualMute) ? 1.0f : 0.0f;
+        float muteValue = (channelState == ChannelState::ManualMute || 
+                          channelState == ChannelState::AutoMute) ? 1.0f : 0.0f;
         muteParam->setValueNotifyingHost(muteValue);
     } else {
         VST3_DBG("Warning: Mute parameter not found: " << muteParamId);

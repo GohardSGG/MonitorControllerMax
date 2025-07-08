@@ -712,6 +712,12 @@ void StateManager::handleMuteParameterChange(int channelIndex, bool enabled) {
         return;
     }
     
+    // 检查AutoMute保护：如果通道处于AutoMute状态，不允许用户直接取消
+    if (!enabled && getChannelState(channelIndex) == ChannelState::AutoMute) {
+        VST3_DBG("Cannot unmute AutoMute channel through parameter: " << channelIndex << " (controlled by Solo)");
+        return;
+    }
+    
     if (enabled) {
         // 直接设置通道为Mute状态，无需模拟UI操作
         channelStates[channelIndex] = ChannelState::ManualMute;
