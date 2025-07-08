@@ -484,9 +484,26 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
                 (shouldBeActive ? "ACTIVE" : "INACTIVE"));
         }
         
+        // 设置按钮颜色 - 需要同时设置激活和非激活状态的颜色
+        // 因为AutoMute通道是inactive状态但需要显示红色
         if (button->findColour(juce::TextButton::buttonOnColourId) != channelColour)
         {
             button->setColour(juce::TextButton::buttonOnColourId, channelColour);
+        }
+        
+        // 为inactive但需要显示颜色的状态（如AutoMute）设置非激活颜色
+        auto state = stateManager.getChannelState(index);
+        if (state == ChannelState::AutoMute && !shouldBeActive)
+        {
+            // AutoMute通道：inactive状态但显示红色背景
+            button->setColour(juce::TextButton::buttonColourId, channelColour);
+            VST3_DBG("UI Update: Channel " << index << " AutoMute color applied (inactive red)");
+        }
+        else if (state == ChannelState::Normal)
+        {
+            // Normal通道：恢复默认颜色
+            button->setColour(juce::TextButton::buttonColourId, 
+                            getLookAndFeel().findColour(juce::TextButton::buttonColourId));
         }
     }
     

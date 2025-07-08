@@ -39,7 +39,8 @@
       "Bash(powershell.exe:*)",
       "Bash(cmd.exe:*)",
       "Bash(./run_toolkit.bat -Status)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }
