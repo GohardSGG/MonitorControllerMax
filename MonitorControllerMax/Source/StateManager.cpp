@@ -252,18 +252,27 @@ void StateManager::handleChannelClick(int channelIndex) {
                     transitionTo(SystemState::SoloSelecting);
                 }
             } else {
-                addChannelSolo(channelIndex);
+                // 多声道Solo支持：添加新Solo通道
+                setChannelState(channelIndex, ChannelState::Solo);
+                // 重新计算AutoMute：所有非Solo通道设为AutoMute
                 recalculateAutoMutes();
                 transitionTo(SystemState::SoloMuteActive);
             }
             break;
             
         case SystemState::MuteActive:
-            // Mute状态下的通道操作
-            toggleChannelMute(channelIndex);
-            if (!hasAnyMuteChannels()) {
-                // 观点4-5：回到选择状态，不直接退出
-                transitionTo(SystemState::MuteSelecting);
+            // Mute状态下的通道操作：多声道控制器支持多个Mute
+            if (getChannelState(channelIndex) == ChannelState::ManualMute) {
+                // 如果已经是Mute，则取消Mute
+                setChannelState(channelIndex, ChannelState::Normal);
+                if (!hasAnyMuteChannels()) {
+                    // 观点4-5：回到选择状态，不直接退出
+                    transitionTo(SystemState::MuteSelecting);
+                }
+            } else {
+                // 如果不是Mute，则添加到Mute列表（多声道支持）
+                setChannelState(channelIndex, ChannelState::ManualMute);
+                // 保持在MuteActive状态，支持继续添加更多Mute通道
             }
             break;
     }
