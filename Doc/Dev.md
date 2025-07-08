@@ -166,15 +166,60 @@ for (int i = 0; i < 26; ++i) {
 }
 ```
 
-#### 4.3 主按钮状态推导
+#### 4.3 主按钮的完整交互逻辑
+
+**核心设计：主按钮 = 状态指示器 + 功能按钮**
+
 ```cpp
-// 主按钮状态完全由参数推导，无需独立状态
+// 1. 状态显示：完全由参数推导
 bool shouldSoloButtonBeActive() const {
     return hasAnySoloActive();  // 任何Solo激活 → Solo按钮激活
 }
 
 bool shouldMuteButtonBeActive() const {
     return !hasAnySoloActive() && hasAnyMuteActive();  // Solo优先级高
+}
+
+// 2. 功能操作：点击时的批量操作
+void handleSoloButtonClick() {
+    if (hasAnySoloActive()) {
+        // 有Solo激活 → 清除所有Solo参数
+        for (int i = 0; i < 26; ++i) {
+            setSoloParameter(i, 0.0f);  // 触发联动，自动恢复Mute记忆
+        }
+    } else {
+        // 无Solo → 可以实现批量Solo或进入选择模式
+        // 选择模式：UI视觉提示用户点击通道进行Solo
+    }
+}
+
+void handleMuteButtonClick() {
+    if (hasAnyMuteActive()) {
+        // 有Mute激活 → 清除所有Mute参数
+        for (int i = 0; i < 26; ++i) {
+            setMuteParameter(i, 0.0f);
+        }
+    } else {
+        // 无Mute → 进入Mute选择模式
+    }
+}
+```
+
+**完整的参数 ↔ UI双向联动：**
+```cpp
+// 参数变化 → UI更新
+void parameterChanged(const String& paramID, float value) {
+    linkageEngine->handleParameterChange(paramID, value);  // 联动计算
+    
+    // UI自动更新：主按钮状态由参数推导
+    if (editor) {
+        editor->updateFromParameters();
+    }
+}
+
+// UI点击 → 参数变化
+void onSoloButtonClick() {
+    handleSoloButtonClick();  // 修改参数 → 触发parameterChanged → UI更新
 }
 ```
 

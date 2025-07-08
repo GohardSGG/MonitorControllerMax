@@ -40,7 +40,8 @@
       "Bash(cmd.exe:*)",
       "Bash(./run_toolkit.bat -Status)",
       "Bash(touch:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(\"/c/Program Files/JUCE/Projucer.exe\" --resave MonitorControllerMax.jucer)"
     ],
     "deny": []
   }

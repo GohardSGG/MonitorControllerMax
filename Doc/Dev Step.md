@@ -214,17 +214,50 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const String& paramete
 - StateManager相关回调
 ```
 
-#### 3.3 简化主按钮处理
+#### 3.3 主按钮功能保留与简化
+**重要说明：Solo和Mute主按钮仍然是功能按钮，可以点击！**
+
 ```cpp
-// 主按钮点击只是进入选择模式，不改变参数
+// Solo主按钮：批量Solo控制
 void handleSoloButtonClick() {
-    // 如果已有Solo，清除所有Solo参数
-    if (hasAnySoloActive()) {
+    bool currentlyActive = hasAnySoloActive();
+    
+    if (currentlyActive) {
+        // 当前有Solo激活 → 清除所有Solo参数
         clearAllSoloParameters();
+    } else {
+        // 当前无Solo → 进入Solo选择模式
+        // 可以通过UI视觉提示用户现在可以点击通道进行Solo
+        // 或者实现其他Solo批量操作逻辑
     }
-    // 否则进入Solo选择模式 (UI状态处理)
+}
+
+// Mute主按钮：批量Mute控制
+void handleMuteButtonClick() {
+    bool currentlyActive = hasAnyMuteActive();
+    
+    if (currentlyActive) {
+        // 当前有Mute激活 → 清除所有Mute参数
+        clearAllMuteParameters();
+    } else {
+        // 当前无Mute → 进入Mute选择模式
+        // 可以通过UI视觉提示用户现在可以点击通道进行Mute
+    }
+}
+
+// 核心特性：主按钮状态由参数推导，但功能仍然存在
+bool shouldSoloButtonBeActive() {
+    return hasAnySoloActive();  // 参数驱动状态显示
+}
+
+bool shouldMuteButtonBeActive() {
+    return !hasAnySoloActive() && hasAnyMuteActive();  // Solo优先级高
 }
 ```
+
+**主按钮的双重特性：**
+1. **状态显示**：按钮的激活状态由参数自动推导
+2. **功能操作**：按钮仍然可以点击，执行批量操作
 
 ### Phase 4: 测试验证
 
