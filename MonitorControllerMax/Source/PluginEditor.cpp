@@ -464,93 +464,69 @@ void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 
 void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 {
-    // TODO: Reimplement with new parameter-driven architecture
-    // Temporarily disabled to allow compilation
-    /*
-    // ================== 全新的强大状态机驱动的UI更新逻辑 ==================
-    auto& stateManager = audioProcessor.getStateManager();
-
-    // 1. 更新每个通道按钮的状态和外观
+    // Parameter-driven UI update logic
+    // UI state is calculated directly from parameter values
+    
+    // 1. Update each channel button based on parameter state
     for (auto const& [index, button] : channelButtons)
     {
         if (!button->isVisible() || index < 0) continue;
-
-        // 从状态机获取通道状态
-        bool shouldBeActive = stateManager.shouldChannelBeActive(index);
-        juce::Colour channelColour = stateManager.getChannelColour(index);
         
-        // 只在状态真正改变时才更新，避免频繁重绘
-        if (button->getToggleState() != shouldBeActive)
-        {
+        // Get parameter IDs for this channel
+        auto muteParamId = "MUTE_" + juce::String(index + 1);
+        auto soloParamId = "SOLO_" + juce::String(index + 1);
+        
+        // Get current parameter values
+        auto* muteParam = audioProcessor.apvts.getRawParameterValue(muteParamId);
+        auto* soloParam = audioProcessor.apvts.getRawParameterValue(soloParamId);
+        
+        if (!muteParam || !soloParam) continue;
+        
+        float muteValue = muteParam->load();
+        float soloValue = soloParam->load();
+        
+        // Determine button state and color based on parameter values
+        bool shouldBeActive = false;
+        juce::Colour buttonColor = getLookAndFeel().findColour(juce::TextButton::buttonColourId);
+        
+        if (soloValue > 0.5f) {
+            // Solo active - yellow and active
+            shouldBeActive = true;
+            buttonColor = juce::Colours::yellow;
+        } else if (muteValue > 0.5f) {
+            // Mute active - red and inactive (showing muted state)
+            shouldBeActive = false;
+            buttonColor = juce::Colours::red;
+        } else {
+            // Normal state - default color and inactive
+            shouldBeActive = false;
+            buttonColor = getLookAndFeel().findColour(juce::TextButton::buttonColourId);
+        }
+        
+        // Update button state if changed
+        if (button->getToggleState() != shouldBeActive) {
             button->setToggleState(shouldBeActive, juce::dontSendNotification);
-            VST3_DBG("UI Update: Channel " << index << " button state changed to " << 
-                (shouldBeActive ? "ACTIVE" : "INACTIVE"));
         }
         
-        // 设置按钮颜色 - 需要同时设置激活和非激活状态的颜色
-        // 因为AutoMute通道是inactive状态但需要显示红色
-        if (button->findColour(juce::TextButton::buttonOnColourId) != channelColour)
-        {
-            button->setColour(juce::TextButton::buttonOnColourId, channelColour);
-        }
-        
-        // 为inactive但需要显示颜色的状态（如AutoMute）设置非激活颜色
-        auto state = stateManager.getChannelState(index);
-        if (state == ChannelState::AutoMute && !shouldBeActive)
-        {
-            // AutoMute通道：inactive状态但显示红色背景
-            button->setColour(juce::TextButton::buttonColourId, channelColour);
-            VST3_DBG("UI Update: Channel " << index << " AutoMute color applied (inactive red)");
-        }
-        else if (state == ChannelState::Normal)
-        {
-            // Normal通道：恢复默认颜色
-            button->setColour(juce::TextButton::buttonColourId, 
-                            getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        }
+        // Update button color
+        button->setColour(juce::TextButton::buttonColourId, buttonColor);
+        button->setColour(juce::TextButton::buttonOnColourId, buttonColor);
     }
     
-    // 2. 更新主控制按钮的外观 - 基于观点1：按钮激活 = 选择状态
-    bool soloButtonShouldBeActive = stateManager.shouldSoloButtonBeActive();
-    bool muteButtonShouldBeActive = stateManager.shouldMuteButtonBeActive();
+    // 2. Update main control buttons
+    bool hasSolo = audioProcessor.hasAnySoloActive();
+    bool hasMute = audioProcessor.hasAnyMuteActive();
     
-    // Solo主按钮更新
-    if (globalSoloButton.getToggleState() != soloButtonShouldBeActive)
-    {
-        globalSoloButton.setToggleState(soloButtonShouldBeActive, juce::dontSendNotification);
-        
-        if (soloButtonShouldBeActive)
-        {
-            globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
-        }
-        else
-        {
-            globalSoloButton.setColour(juce::TextButton::buttonOnColourId, 
-                                      getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        }
+    // Update main Solo button state
+    if (globalSoloButton.getToggleState() != hasSolo) {
+        globalSoloButton.setToggleState(hasSolo, juce::dontSendNotification);
     }
     
-    // Mute主按钮更新
-    if (globalMuteButton.getToggleState() != muteButtonShouldBeActive)
-    {
-        globalMuteButton.setToggleState(muteButtonShouldBeActive, juce::dontSendNotification);
-        
-        if (muteButtonShouldBeActive)
-        {
-            globalMuteButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getMuteColour());
-        }
-        else
-        {
-            globalMuteButton.setColour(juce::TextButton::buttonOnColourId, 
-                                      getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        }
+    // Update main Mute button state
+    if (globalMuteButton.getToggleState() != hasMute) {
+        globalMuteButton.setToggleState(hasMute, juce::dontSendNotification);
     }
-    
-    // 3. 调试信息
-    VST3_DBG("UI update completed - State: " << stateManager.getStateDescription()
-        << " | Solo button: " << (soloButtonShouldBeActive ? "Active" : "Inactive")
-        << " | Mute button: " << (muteButtonShouldBeActive ? "Active" : "Inactive"));
-    */
+
 }
 
 // 旧的handleSoloButtonClick函数已被新的状态机逻辑替代
