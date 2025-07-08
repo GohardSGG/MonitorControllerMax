@@ -107,6 +107,9 @@ public:
     void handleMuteButtonClick();
     void handleChannelClick(int channelIndex);
     
+    // Parameter-driven state changes - unified entry point for all parameter changes
+    void handleParameterChange(const juce::String& parameterID, float newValue);
+    
     // State query interfaces
     SystemState getCurrentState() const;
     ChannelState getChannelState(int channelIndex) const;
@@ -128,4 +131,9 @@ public:
     // Debug and logging
     juce::String getStateDescription() const;
     void logStateChange(const juce::String& operation) const;
+
+private:
+    // Parameter handling helpers
+    void handleSoloParameterChange(int channelIndex, bool enabled);
+    void handleMuteParameterChange(int channelIndex, bool enabled);
 };

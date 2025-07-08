@@ -68,11 +68,11 @@ public:
     // Set UI update callback
     void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
     
-    // 新的强大状态机接口
+    // StateManager interface
     StateManager& getStateManager();
     void initializeStateManager();
     
-    // 状态机回调接口
+    // StateManager callback interface
     void onParameterUpdate(int channelIndex, float value);
     void onUIUpdate();
 
@@ -134,8 +134,11 @@ private:
     std::array<std::atomic<float>*, 26> soloParams{};
     std::array<std::atomic<float>*, 26> gainParams{};
     
-    // 新的强大状态机 - 替代所有旧的弱小逻辑
+    // StateManager instance
     std::unique_ptr<StateManager> stateManager;
+    
+    // Flag to prevent parameter update loops
+    std::atomic<bool> isUpdatingFromStateManager{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

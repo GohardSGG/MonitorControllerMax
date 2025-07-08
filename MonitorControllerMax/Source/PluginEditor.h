@@ -14,28 +14,28 @@
 #include <map>
 
 //==============================================================================
-/** 一个简单的自定义 LookAndFeel 类，用于实现深色UI风格。 */
+/** A simple custom LookAndFeel class for implementing dark UI style. */
 class CustomLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     CustomLookAndFeel()
     {
-        // 设置一个深色主题
+        // Set dark theme
         setColour(juce::ResizableWindow::backgroundColourId, juce::Colour(0xff323e44));
         setColour(juce::TextButton::buttonColourId, juce::Colour(0xff4a5860));
-        setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd13a3a)); // 用于Mute激活状态的红色
+        setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffd13a3a)); // Red for Mute active state
         setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
         setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff4a5860));
         setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
         setColour(juce::ComboBox::arrowColourId, juce::Colours::lightgrey);
         setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff4a5860));
-        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xfff07800)); // 用于高亮的橙色
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xfff07800)); // Orange for highlight
 
-        // 为Solo状态定义一个独特的颜色
+        // Define unique color for Solo state
         soloColour = juce::Colour(0xff2a8c4a);
-        // 为Mute状态定义一个独特的颜色
-        muteColour = juce::Colour(0xffd13a3a); // 红色，与buttonOnColourId相同但明确
+        // Define unique color for Mute state
+        muteColour = juce::Colour(0xffd13a3a); // Red, same as buttonOnColourId but explicit
     }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
@@ -55,7 +55,7 @@ public:
 
         if (button.getButtonText().startsWith("SUB "))
         {
-            // 为SUB通道按钮绘制圆形
+            // Draw circle for SUB channel buttons
             auto diameter = (float)juce::jmin(originalBounds.getWidth(), originalBounds.getHeight());
             g.fillEllipse(originalBounds.toFloat().withSizeKeepingCentre(diameter, diameter));
         }
@@ -133,11 +133,11 @@ private:
     CustomLookAndFeel customLookAndFeel;
 
     
-    // 用于检测总线布局变化
+    // For detecting bus layout changes
     int lastKnownChannelCount = 0;
 
-    // 添加私有函数声明
-    void updatePluginConfiguration(); // 立即更新插件配置并通知宿主
+    // Private function declarations
+    void updatePluginConfiguration(); // Update plugin configuration and notify host immediately
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };

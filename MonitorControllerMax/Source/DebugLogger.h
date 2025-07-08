@@ -1,10 +1,10 @@
 /*
   ==============================================================================
     DebugLogger.h
-    VST3 Debug Logging System - 为VST3插件提供调试输出功能
+    VST3 Debug Logging System - Provides debug output for VST3 plugins
     
-    此系统解决VST3插件无法直接查看DBG()输出的问题，通过文件日志记录
-    所有调试信息，使开发者能够在VST3环境中进行有效调试。
+    This system solves the problem of VST3 plugins not being able to directly view DBG() output
+    by logging all debug information to files for effective debugging in VST3 environment.
   ==============================================================================
 */
 
@@ -31,7 +31,7 @@ public:
     {
         if (isInitialized) return;
         
-        // 创建日志文件路径：%TEMP%/[PluginName]_Debug.log
+        // Create log file path: %TEMP%/[PluginName]_Debug.log
         auto tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
         logFile = tempDir.getChildFile(pluginName + "_Debug.log");
         
@@ -124,7 +124,7 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DebugLogger)
 };
 
-// 便捷宏定义 - 同时支持标准DBG和文件日志
+// Convenience macro - supports both standard DBG and file logging
 #define VST3_DBG(message) \
     do { \
         DBG(message); \

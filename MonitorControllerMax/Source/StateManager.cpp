@@ -616,6 +616,67 @@ void StateManager::clearMuteMemoryNow() {
 }
 
 // =============================================================================
+// 参数驱动的状态变化处理
+// =============================================================================
+
+void StateManager::handleParameterChange(const juce::String& parameterID, float newValue) {
+    VST3_DBG("StateManager handling parameter: " << parameterID << " = " << newValue);
+    
+    if (parameterID.startsWith("SOLO_")) {
+        int channelIndex = parameterID.substring(5).getIntValue() - 1;
+        if (channelIndex >= 0 && channelIndex < 26) {
+            handleSoloParameterChange(channelIndex, newValue > 0.5f);
+        }
+    }
+    else if (parameterID.startsWith("MUTE_")) {
+        int channelIndex = parameterID.substring(5).getIntValue() - 1;
+        if (channelIndex >= 0 && channelIndex < 26) {
+            handleMuteParameterChange(channelIndex, newValue > 0.5f);
+        }
+    }
+}
+
+void StateManager::handleSoloParameterChange(int channelIndex, bool enabled) {
+    VST3_DBG("StateManager handling Solo parameter change: Channel " << channelIndex << " = " << (enabled ? "true" : "false"));
+    
+    if (enabled) {
+        // 激活Solo：模拟UI操作流程
+        if (getCurrentState() == SystemState::Normal || getCurrentState() == SystemState::MuteActive) {
+            handleSoloButtonClick();  // 进入Solo模式
+        }
+        handleChannelClick(channelIndex);  // 激活该通道Solo
+    } else {
+        // 取消Solo该通道
+        if (getChannelState(channelIndex) == ChannelState::Solo) {
+            handleChannelClick(channelIndex);  // 取消该通道Solo
+        }
+    }
+}
+
+void StateManager::handleMuteParameterChange(int channelIndex, bool enabled) {
+    VST3_DBG("StateManager handling Mute parameter change: Channel " << channelIndex << " = " << (enabled ? "true" : "false"));
+    
+    // 检查Solo/Mute互斥：如果通道已经Solo，不允许Mute
+    if (enabled && getChannelState(channelIndex) == ChannelState::Solo) {
+        VST3_DBG("Cannot mute a Solo channel: " << channelIndex);
+        return;
+    }
+    
+    if (enabled) {
+        // 激活Mute：模拟UI操作流程
+        if (getCurrentState() == SystemState::Normal) {
+            handleMuteButtonClick();  // 进入Mute模式
+        }
+        handleChannelClick(channelIndex);  // 激活该通道Mute
+    } else {
+        // 取消Mute该通道
+        if (getChannelState(channelIndex) == ChannelState::ManualMute) {
+            handleChannelClick(channelIndex);  // 取消该通道Mute
+        }
+    }
+}
+
+// =============================================================================
 // 调试和日志
 // =============================================================================
 

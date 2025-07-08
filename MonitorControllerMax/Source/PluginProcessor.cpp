@@ -62,18 +62,24 @@ StateManager& MonitorControllerMaxAudioProcessor::getStateManager()
 
 void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, float value)
 {
-    // StateManager回调：更新JUCE参数以反映状态机的变化
-    // channelIndex是0-based的通道索引，需要转换为1-based的参数ID
+    VST3_DBG("StateManager requesting parameter update: Channel " << channelIndex);
+    
+    // 设置标志防止循环更新 (暂时简化实现)
+    static bool updating = false;
+    if (updating) return;
+    updating = true;
     
     // 安全检查：确保StateManager有效
     if (!stateManager) {
         VST3_DBG("Warning: onParameterUpdate called but StateManager is null");
+        updating = false;
         return;
     }
     
     // 验证通道索引范围
     if (channelIndex < 0 || channelIndex >= 26) {
         VST3_DBG("Warning: Invalid channel index: " << channelIndex);
+        updating = false;
         return;
     }
     
@@ -96,17 +102,18 @@ void MonitorControllerMaxAudioProcessor::onParameterUpdate(int channelIndex, flo
     // 更新Mute参数 - 基于当前通道状态
     auto* muteParam = apvts.getParameter(muteParamId);
     if (muteParam) {
-        float muteValue = (channelState == ChannelState::ManualMute || 
-                          channelState == ChannelState::AutoMute) ? 1.0f : 0.0f;
+        float muteValue = (channelState == ChannelState::ManualMute) ? 1.0f : 0.0f;
         muteParam->setValueNotifyingHost(muteValue);
     } else {
         VST3_DBG("Warning: Mute parameter not found: " << muteParamId);
     }
     
-    VST3_DBG("Parameter sync update: Channel " << channelIndex << " | Solo=" << 
-        (channelState == ChannelState::Solo ? "Active" : "Inactive") << 
-        " | Mute=" << ((channelState == ChannelState::ManualMute || 
-                      channelState == ChannelState::AutoMute) ? "Active" : "Inactive"));
+    // 清除标志
+    updating = false;
+    
+    VST3_DBG("Parameter sync completed: Channel " << channelIndex << 
+             " | Solo=" << (channelState == ChannelState::Solo ? "Active" : "Inactive") << 
+             " | Mute=" << (channelState == ChannelState::ManualMute ? "Active" : "Inactive"));
 }
 
 void MonitorControllerMaxAudioProcessor::onUIUpdate()
@@ -1120,6 +1127,21 @@ bool MonitorControllerMaxAudioProcessor::getRemoteSoloState(int channel) const
 
 void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
+    VST3_DBG("Parameter changed: " << parameterID << " = " << newValue);
+    
+    // 防止StateManager回写时的循环更新 (简化版本)
+    static bool processingParameter = false;
+    if (processingParameter) {
+        VST3_DBG("Skipping parameter change (updating from StateManager)");
+        return;
+    }
+    
+    // 转发给StateManager处理 - 所有角色都需要状态同步
+    if (stateManager && (parameterID.startsWith("MUTE_") || parameterID.startsWith("SOLO_"))) {
+        stateManager->handleParameterChange(parameterID, newValue);
+    }
+    
+    // 主从通信（仅master角色） - 保持现有逻辑
     if (getRole() == Role::master)
     {
         if (parameterID.startsWith("MUTE_") || parameterID.startsWith("SOLO_"))
