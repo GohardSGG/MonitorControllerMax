@@ -11,6 +11,12 @@
 ParameterLinkageEngine::ParameterLinkageEngine(juce::AudioProcessorValueTreeState& apvts) 
     : parameters(apvts) {
     VST3_DBG("ParameterLinkageEngine initialized");
+    
+    // AGGRESSIVE FIX: Always reset to clean state on plugin load
+    // This prevents any inconsistent state from being restored by REAPER
+    // TODO: In production, you might want to be more sophisticated about this
+    VST3_DBG("Performing aggressive state reset to ensure clean initialization");
+    resetToCleanState();
 }
 
 void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, float value) {
@@ -128,6 +134,28 @@ void ParameterLinkageEngine::clearAllMuteParameters() {
     for (int i = 0; i < 26; ++i) {
         setParameterValue(getMuteParameterID(i), 0.0f);
     }
+}
+
+void ParameterLinkageEngine::resetToCleanState() {
+    VST3_DBG("Resetting to clean state - clearing all Solo and Mute parameters");
+    
+    ScopedLinkageGuard guard(isApplyingLinkage);
+    
+    // Clear all Solo parameters first
+    for (int i = 0; i < 26; ++i) {
+        setParameterValue(getSoloParameterID(i), 0.0f);
+    }
+    
+    // Clear all Mute parameters
+    for (int i = 0; i < 26; ++i) {
+        setParameterValue(getMuteParameterID(i), 0.0f);
+    }
+    
+    // Clear memory
+    muteMemory.clear();
+    previousSoloActive = false;
+    
+    VST3_DBG("Clean state reset completed");
 }
 
 void ParameterLinkageEngine::clearMuteMemory() {

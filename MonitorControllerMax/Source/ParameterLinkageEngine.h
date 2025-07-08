@@ -29,6 +29,7 @@ public:
     // Batch parameter operations for main buttons
     void clearAllSoloParameters();
     void clearAllMuteParameters();
+    void resetToCleanState();
     
     // Memory management
     void saveCurrentMuteMemory();
