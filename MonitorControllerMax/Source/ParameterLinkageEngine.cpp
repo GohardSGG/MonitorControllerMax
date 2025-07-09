@@ -171,6 +171,10 @@ void ParameterLinkageEngine::applyAutoMuteForSolo() {
     // Mimics JSFX: slider11 = slider31 ? 0 : 1
     VST3_DBG("Applying auto-mute for Solo mode");
     
+    // CRITICAL FIX: 禁用保护以允许系统自动计算
+    bool wasProtectionBypass = protectionBypass;
+    protectionBypass = true;
+    
     for (int i = 0; i < 26; ++i) {
         juce::String soloParamID = getSoloParameterID(i);
         juce::String muteParamID = getMuteParameterID(i);
@@ -183,6 +187,9 @@ void ParameterLinkageEngine::applyAutoMuteForSolo() {
         VST3_DBG("Auto-mute channel " << i << ": Solo=" << soloValue << " -> Mute=" << newMuteValue);
         setParameterValue(muteParamID, newMuteValue);
     }
+    
+    // 恢复原始保护状态
+    protectionBypass = wasProtectionBypass;
 }
 
 void ParameterLinkageEngine::saveCurrentMuteMemory() {
@@ -225,10 +232,17 @@ void ParameterLinkageEngine::clearAllCurrentMuteStates() {
     // Clear all current Mute states to create a clean environment
     VST3_DBG("Clearing all current Mute states");
     
+    // CRITICAL FIX: 禁用保护以允许系统清理操作
+    bool wasProtectionBypass = protectionBypass;
+    protectionBypass = true;
+    
     for (int i = 0; i < 26; ++i) {
         setParameterValue(getMuteParameterID(i), 0.0f);
         VST3_DBG("Cleared Mute[" << i << "] = 0");
     }
+    
+    // 恢复原始保护状态
+    protectionBypass = wasProtectionBypass;
 }
 
 void ParameterLinkageEngine::clearAllSoloParameters() {
@@ -236,9 +250,16 @@ void ParameterLinkageEngine::clearAllSoloParameters() {
     
     ScopedLinkageGuard guard(isApplyingLinkage);
     
+    // CRITICAL FIX: 禁用保护以允许系统清理操作
+    bool wasProtectionBypass = protectionBypass;
+    protectionBypass = true;
+    
     for (int i = 0; i < 26; ++i) {
         setParameterValue(getSoloParameterID(i), 0.0f);
     }
+    
+    // 恢复原始保护状态
+    protectionBypass = wasProtectionBypass;
     
     // This will trigger Solo state change and automatic Mute memory restoration
 }
@@ -301,8 +322,20 @@ float ParameterLinkageEngine::getParameterValue(const juce::String& paramID) con
 }
 
 void ParameterLinkageEngine::setParameterValue(const juce::String& paramID, float value) {
+    // CRITICAL FIX: 使用AudioProcessorValueTreeState的正确方法
     if (auto* param = parameters.getParameter(paramID)) {
-        param->setValueNotifyingHost(value);
+        // 方法1：使用APVTS的状态管理方法
+        if (auto* rawParam = parameters.getRawParameterValue(paramID)) {
+            // 直接设置值并触发监听器
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(value);
+            param->endChangeGesture();
+            
+            // 强制触发APVTS状态更新
+            parameters.state.setProperty(paramID, value, nullptr);
+            
+            VST3_DBG("Parameter " << paramID << " updated: gesture+APVTS state");
+        }
     }
 }
 
