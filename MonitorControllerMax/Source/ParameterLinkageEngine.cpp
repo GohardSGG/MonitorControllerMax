@@ -97,6 +97,8 @@ void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, 
             }
         }
         
+        // CRITICAL FIX: 只有在真正的最后一个Solo参数关闭时才恢复记忆
+        // 如果仍然有其他Solo参数激活，则只是重新计算Auto-Mute
         if (previousSoloActive && !willBeSoloActive) {
             VST3_DBG("Last Solo parameter deactivated - restoring memory");
             
@@ -113,6 +115,16 @@ void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, 
             
             // 4. 更新状态
             previousSoloActive = false;
+            
+            return; // 早期返回
+        } else if (previousSoloActive && willBeSoloActive) {
+            VST3_DBG("Solo parameter changed but Solo mode continues - recalculating auto-mute");
+            
+            ScopedLinkageGuard guard(isApplyingLinkage);
+            
+            // 只是重新计算Auto-Mute，不恢复记忆
+            setParameterValue(paramID, value);
+            applyAutoMuteForSolo();
             
             return; // 早期返回
         }
@@ -189,12 +201,23 @@ void ParameterLinkageEngine::restoreMuteMemory() {
     // Mimics JSFX: slider11 = user_mute_L
     VST3_DBG("Restoring Mute memory");
     
+    // CRITICAL FIX: 确保在保护禁用情况下恢复记忆
+    bool wasProtectionBypass = protectionBypass;
+    if (!wasProtectionBypass) {
+        protectionBypass = true;  // 临时禁用保护以允许记忆恢复
+    }
+    
     for (int i = 0; i < 26; ++i) {
         if (muteMemory.find(i) != muteMemory.end()) {
             float restoredValue = muteMemory[i];
             VST3_DBG("Restoring Mute[" << i << "] = " << restoredValue);
             setParameterValue(getMuteParameterID(i), restoredValue);
         }
+    }
+    
+    // 恢复原始保护状态
+    if (!wasProtectionBypass) {
+        protectionBypass = false;
     }
 }
 

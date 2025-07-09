@@ -600,15 +600,21 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     
     if (hasAnySoloActive()) {
         // 状态1：有Solo参数激活
-        // → 清除所有Solo参数 + 清除选择模式 + 关闭参数保护
+        // → 清除所有Solo参数 + 恢复记忆 + 清除选择模式 + 关闭参数保护
         VST3_DBG("Clearing all Solo parameters - will trigger memory restore");
+        
+        // 先清除选择状态
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
         
         // 临时禁用保护，允许系统清除操作
         if (linkageEngine) {
             linkageEngine->setParameterProtectionBypass(true);
+            
+            // CRITICAL FIX: 手动触发记忆恢复，因为clearAllSoloParameters可能无法正确触发
             linkageEngine->clearAllSoloParameters();
+            linkageEngine->restoreMuteMemory();  // 强制恢复记忆
+            
             linkageEngine->setParameterProtectionBypass(false);
         }
         
@@ -699,13 +705,17 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
 bool MonitorControllerMaxAudioProcessor::isInSoloSelectionMode() const
 {
     // Solo选择模式：待定Solo选择或已有Solo参数激活时
-    return pendingSoloSelection.load() || hasAnySoloActive();
+    bool result = pendingSoloSelection.load() || hasAnySoloActive();
+    VST3_DBG("isInSoloSelectionMode: pending=" << (pendingSoloSelection.load() ? "true" : "false") << " active=" << (hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
+    return result;
 }
 
 bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 {
     // Mute选择模式：待定Mute选择或已有Mute参数激活时（且没有Solo优先级干扰）
-    return (pendingMuteSelection.load() || hasAnyMuteActive()) && !hasAnySoloActive();
+    bool result = (pendingMuteSelection.load() || hasAnyMuteActive()) && !hasAnySoloActive();
+    VST3_DBG("isInMuteSelectionMode: pending=" << (pendingMuteSelection.load() ? "true" : "false") << " active=" << (hasAnyMuteActive() ? "true" : "false") << " soloActive=" << (hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
+    return result;
 }
 
 // Dual state button activation functions
@@ -737,6 +747,8 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     bool inSoloSelection = isInSoloSelectionMode();
     bool inMuteSelection = isInMuteSelectionMode();
     
+    VST3_DBG("Channel click state - SoloSel:" << (inSoloSelection ? "true" : "false") << " MuteSel:" << (inMuteSelection ? "true" : "false"));
+    
     if (inSoloSelection) {
         // Solo选择模式 -> 切换该通道的Solo参数
         auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
@@ -746,8 +758,8 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
             soloParam->setValueNotifyingHost(newSolo);
             VST3_DBG("Channel " << channelIndex << " Solo toggled: " << newSolo);
         }
-        // 清除待定选择状态 - 用户已经做出选择
-        pendingSoloSelection.store(false);
+        // CRITICAL FIX: 不再自动清除待定选择状态，保持在选择模式中
+        // pendingSoloSelection.store(false);  // 移除这行
     } else if (inMuteSelection) {
         // Mute选择模式 -> 切换该通道的Mute参数
         auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
@@ -757,8 +769,8 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
             muteParam->setValueNotifyingHost(newMute);
             VST3_DBG("Channel " << channelIndex << " Mute toggled: " << newMute);
         }
-        // 清除待定选择状态 - 用户已经做出选择
-        pendingMuteSelection.store(false);
+        // CRITICAL FIX: 不再自动清除待定选择状态，保持在选择模式中
+        // pendingMuteSelection.store(false);  // 移除这行
     } else {
         // 初始状态: 通道点击无效果
         VST3_DBG("Channel clicked in Initial state - no effect");
@@ -804,9 +816,14 @@ void MonitorControllerMaxAudioProcessor::validateStateConsistency()
     VST3_DBG("State check - Solo:" << (soloActive ? "true" : "false") << " Mute:" << (muteActive ? "true" : "false") 
              << " SoloSel:" << (soloSelection ? "true" : "false") << " MuteSel:" << (muteSelection ? "true" : "false"));
     
-    // 检查不合理的状态组合
+    // CRITICAL FIX: 只修复真正不合理的状态组合
     if (soloActive && muteSelection) {
-        VST3_DBG("WARNING: Inconsistent state - Solo active but Mute selection pending");
+        VST3_DBG("WARNING: Inconsistent state - Solo active but Mute selection pending - auto-fixing");
+        pendingMuteSelection.store(false);
     }
+    
+    // REMOVED: 删除错误的孤立状态检查
+    // 正常情况：!soloActive && !muteActive && !soloSelection && muteSelection
+    // 这是用户点击Mute按钮进入选择模式的正常状态，不应该被清除
 }
 
