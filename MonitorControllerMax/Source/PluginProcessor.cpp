@@ -601,13 +601,14 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     if (hasAnySoloActive()) {
         // Solo按钮激活 -> 清除所有Solo参数 (这会触发parameterChanged -> 恢复记忆)
         VST3_DBG("Clearing all Solo parameters - will trigger memory restore");
+        pendingSoloSelection.store(false);
+        pendingMuteSelection.store(false);
         linkageEngine->clearAllSoloParameters();
     } else {
         // Solo按钮未激活 -> 进入Solo选择模式，等待用户点击通道来添加Solo
         VST3_DBG("Entering Solo selection mode - waiting for channel clicks");
-        // 根据架构文档，这里不应该自动激活任何通道
-        // 用户需要点击通道按钮来添加Solo
-        // 这里仅仅是通知UI进入选择模式状态
+        pendingSoloSelection.store(true);
+        pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
     }
 }
 
@@ -626,13 +627,14 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
     if (hasAnyMuteActive()) {
         // Mute按钮激活 -> 清除所有Mute参数
         VST3_DBG("Clearing all Mute parameters");
+        pendingSoloSelection.store(false);
+        pendingMuteSelection.store(false);
         linkageEngine->clearAllMuteParameters();
     } else {
         // Mute按钮未激活 -> 进入Mute选择模式，等待用户点击通道来添加Mute
         VST3_DBG("Entering Mute selection mode - waiting for channel clicks");
-        // 根据架构文档，这里不应该自动激活任何通道
-        // 用户需要点击通道按钮来添加Mute
-        // 这里仅仅是通知UI进入选择模式状态
+        pendingMuteSelection.store(true);
+        pendingSoloSelection.store(false);  // 切换到Mute选择模式会取消Solo选择模式
     }
 }
 
@@ -649,16 +651,14 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
 // Selection mode state functions based on button activation
 bool MonitorControllerMaxAudioProcessor::isInSoloSelectionMode() const
 {
-    // Solo选择模式：没有任何参数激活时，点击Solo主按钮进入选择模式
-    // 或者已经有Solo参数激活时，继续处于Solo选择模式
-    return hasAnySoloActive();
+    // Solo选择模式：待定Solo选择或已有Solo参数激活时
+    return pendingSoloSelection.load() || hasAnySoloActive();
 }
 
 bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 {
-    // Mute选择模式：没有Solo参数激活，且有Mute参数激活时
-    // 或者没有任何参数激活时，点击Mute主按钮进入选择模式
-    return hasAnyMuteActive() && !hasAnySoloActive();
+    // Mute选择模式：待定Mute选择或已有Mute参数激活时（且没有Solo优先级干扰）
+    return (pendingMuteSelection.load() || hasAnyMuteActive()) && !hasAnySoloActive();
 }
 
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
@@ -686,6 +686,8 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
             soloParam->setValueNotifyingHost(newSolo);
             VST3_DBG("Channel " << channelIndex << " Solo toggled: " << newSolo);
         }
+        // 清除待定选择状态 - 用户已经做出选择
+        pendingSoloSelection.store(false);
     } else if (inMuteSelection) {
         // Mute选择模式 -> 切换该通道的Mute参数
         auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
@@ -695,6 +697,8 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
             muteParam->setValueNotifyingHost(newMute);
             VST3_DBG("Channel " << channelIndex << " Mute toggled: " << newMute);
         }
+        // 清除待定选择状态 - 用户已经做出选择
+        pendingMuteSelection.store(false);
     } else {
         // 初始状态: 通道点击无效果
         VST3_DBG("Channel clicked in Initial state - no effect");

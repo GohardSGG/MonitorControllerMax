@@ -144,6 +144,10 @@ private:
     bool isInSoloSelectionMode() const;
     bool isInMuteSelectionMode() const;
     
+    // Selection mode state tracking
+    std::atomic<bool> pendingSoloSelection{false};
+    std::atomic<bool> pendingMuteSelection{false};
+    
     // Flag to prevent parameter update loops
     std::atomic<bool> isUpdatingFromParameter{false};
 
