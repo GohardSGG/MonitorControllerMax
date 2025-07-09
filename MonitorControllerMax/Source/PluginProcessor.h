@@ -78,6 +78,10 @@ public:
     
     // Pure Logic UI Control
     bool isMuteButtonEnabled() const;
+    
+    // Mode Activation Helper Functions
+    void activateFirstVisibleChannelSolo();
+    void activateAllVisibleChannelsMute();
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;

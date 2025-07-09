@@ -602,17 +602,19 @@ UIState getCurrentUIState() const;  // 删除状态查询函数
 - 状态切换的复杂判断
 ```
 
-#### 6.2 实现纯逻辑主按钮处理
-**目标**: 简化主按钮逻辑为纯函数式
+#### 6.2 实现纯逻辑主按钮处理 (修正版)
+**目标**: 主按钮作为模式切换器，提供直观的交互逻辑
 
-**新的简化实现**:
+**修正的主按钮实现**:
 ```cpp
 void handleSoloButtonClick() {
     if (hasAnySoloActive()) {
         // 有Solo就清除所有Solo
         clearAllSoloParameters();
+    } else {
+        // 激活Solo模式 - 自动Solo第一个可见通道作为起始点
+        activateFirstVisibleChannelSolo();
     }
-    // 无Solo时不做任何事，UI自动显示提示
 }
 
 void handleMuteButtonClick() {
@@ -623,8 +625,10 @@ void handleMuteButtonClick() {
     if (hasAnyMuteActive()) {
         // 有Mute就清除所有Mute
         clearAllMuteParameters();
+    } else {
+        // 激活Mute模式 - 自动Mute所有可见通道作为起始点
+        activateAllVisibleChannelsMute();
     }
-    // 无Mute时不做任何事
 }
 ```
 
@@ -683,13 +687,32 @@ void updateMainButtonStates() {
 3. **Solo优先原则测试** - 验证Mute按钮禁用机制
 4. **参数保护测试** - 验证Solo模式下的Mute参数保护
 
+#### 6.6 修复主按钮模式切换逻辑 🔄
+**目标**: 实现主按钮作为模式切换器的正确逻辑
+
+**需要实现的功能**:
+1. **Solo主按钮**:
+   - 无Solo状态时 → 激活Solo模式（自动Solo第一个可见通道）
+   - 有Solo状态时 → 清除所有Solo参数
+2. **Mute主按钮**:
+   - 无Mute状态时 → 激活Mute模式（自动Mute所有可见通道）
+   - 有Mute状态时 → 清除所有Mute参数
+3. **添加辅助函数**:
+   - `activateFirstVisibleChannelSolo()` - 激活第一个可见通道的Solo
+   - `activateAllVisibleChannelsMute()` - 激活所有可见通道的Mute
+
+**实现步骤**:
+1. 在`PluginProcessor.cpp`中修改`handleSoloButtonClick()`和`handleMuteButtonClick()`
+2. 添加辅助函数实现模式激活逻辑
+3. 确保Solo优先原则正确实施
+4. 测试主按钮的模式切换功能
+
 ### 下一步工作建议
-1. **立即实施** - 移除状态机实现纯逻辑架构
-2. **修复初始状态bug** - 解决插件加载时意外激活Solo的问题
-3. **验证VST3参数窗口同步** - 在REAPER中测试参数窗口与UI的双向同步
-4. **测试Master-Slave通信** - 验证多实例间的状态同步
-5. **完整功能对比** - 与JSFX版本进行功能一致性测试
-6. **性能优化** - 根据实际使用情况进行性能调整
+1. **立即实施** - 修复主按钮模式切换逻辑 ✅
+2. **验证VST3参数窗口同步** - 在REAPER中测试参数窗口与UI的双向同步
+3. **测试Master-Slave通信** - 验证多实例间的状态同步
+4. **完整功能对比** - 与JSFX版本进行功能一致性测试
+5. **性能优化** - 根据实际使用情况进行性能调整
 
 ## 🎯 成功标准 ✅
 

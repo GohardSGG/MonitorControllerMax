@@ -102,18 +102,20 @@ void updateChannelButtonStates();  // 基于参数值更新所有按钮状态
 void timerCallback() override;     // 30Hz定时器确保同步
 ```
 
-### 4. 纯逻辑架构设计
+### 4. 纯逻辑架构设计 (修正版)
 
 #### 纯逻辑架构设计
-**核心原则：无状态变量，完全基于参数计算**
+**核心原则：无状态变量，完全基于参数计算，主按钮作为模式切换器**
 
-**主按钮逻辑（纯函数）**：
+**主按钮逻辑（修正版）**：
 ```cpp
 void handleSoloButtonClick() {
     if (hasAnySoloActive()) {
         clearAllSoloParameters();  // 有Solo就清除
+    } else {
+        // 激活Solo模式 - 自动Solo第一个可见通道作为起始点
+        activateFirstVisibleChannelSolo();
     }
-    // 无Solo时不做任何事，UI自动显示可点击通道的提示
 }
 
 void handleMuteButtonClick() {
@@ -121,8 +123,10 @@ void handleMuteButtonClick() {
     
     if (hasAnyMuteActive()) {
         clearAllMuteParameters();  // 有Mute就清除
+    } else {
+        // 激活Mute模式 - 自动Mute所有可见通道作为起始点
+        activateAllVisibleChannelsMute();
     }
-    // 无Mute时不做任何事
 }
 ```
 
@@ -130,11 +134,13 @@ void handleMuteButtonClick() {
 ```cpp
 void handleChannelClick(int channelIndex) {
     if (hasAnySoloActive()) {
-        toggleSoloParameter(channelIndex);  // Solo模式
+        toggleSoloParameter(channelIndex);  // Solo模式下切换Solo状态
     } else if (hasAnyMuteActive()) {
-        toggleMuteParameter(channelIndex);  // Mute模式
+        toggleMuteParameter(channelIndex);  // Mute模式下切换Mute状态
+    } else {
+        // 初始状态：通道点击无效果（需要先激活主按钮）
+        VST3_DBG("Channel clicked in Initial state - no effect");
     }
-    // 初始状态无效果
 }
 ```
 
@@ -144,11 +150,12 @@ void handleChannelClick(int channelIndex) {
 - 通道按钮状态 = 直接读取参数值
 
 #### 核心优势
-1. **极简架构** - 无状态变量，无模式概念
-2. **完全可预测** - 所有行为都是参数的纯函数
-3. **调试友好** - 只需要看参数值就知道所有状态
-4. **无同步问题** - UI永远反映参数的真实状态
-5. **符合JSFX逻辑** - 与原版JSFX的设计完全一致
+1. **主动模式切换** - 主按钮是模式切换器，而不是被动响应器
+2. **直观交互逻辑** - 符合用户对监听控制器的直觉期望
+3. **完全可预测** - 所有行为都是参数的纯函数
+4. **调试友好** - 只需要看参数值就知道所有状态
+5. **无同步问题** - UI永远反映参数的真实状态
+6. **符合JSFX逻辑** - 与原版JSFX的设计完全一致
 
 ## 🎯 关键技术细节
 

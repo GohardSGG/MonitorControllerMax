@@ -605,10 +605,10 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
         // Has active Solo -> clear all Solo parameters
         VST3_DBG("Clearing all Solo parameters");
         linkageEngine->clearAllSoloParameters();
-    }
-    // No Solo -> do nothing, UI will automatically show "can click channels" hint
-    else {
-        VST3_DBG("No Solo active - waiting for channel selection");
+    } else {
+        // No Solo -> activate Solo mode by soloing first visible channel
+        VST3_DBG("Activating Solo mode - soloing first visible channel");
+        activateFirstVisibleChannelSolo();
     }
 }
 
@@ -631,10 +631,10 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
         // Has active Mute -> clear all Mute parameters
         VST3_DBG("Clearing all Mute parameters");
         linkageEngine->clearAllMuteParameters();
-    }
-    // No Mute -> do nothing, UI will automatically show "can click channels" hint
-    else {
-        VST3_DBG("No Mute active - waiting for channel selection");
+    } else {
+        // No Mute -> activate Mute mode by muting all visible channels
+        VST3_DBG("Activating Mute mode - muting all visible channels");
+        activateAllVisibleChannelsMute();
     }
 }
 
@@ -693,5 +693,45 @@ bool MonitorControllerMaxAudioProcessor::isMuteButtonEnabled() const
 {
     // Mute button is disabled when any Solo is active (Solo Priority Rule)
     return !hasAnySoloActive();
+}
+
+void MonitorControllerMaxAudioProcessor::activateFirstVisibleChannelSolo()
+{
+    // 激活第一个可见通道的Solo作为Solo模式的起始点
+    const auto& layout = getCurrentLayout();
+    
+    if (!layout.channels.empty()) {
+        // 找到第一个可见通道
+        int firstChannelIndex = layout.channels[0].channelIndex;
+        auto soloParamId = "SOLO_" + juce::String(firstChannelIndex + 1);
+        
+        VST3_DBG("Activating Solo for first visible channel: " << firstChannelIndex);
+        
+        if (auto* soloParam = apvts.getParameter(soloParamId)) {
+            soloParam->setValueNotifyingHost(1.0f);
+            VST3_DBG("Solo activated for channel " << firstChannelIndex);
+        }
+    } else {
+        VST3_DBG("No visible channels found for Solo activation");
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::activateAllVisibleChannelsMute()
+{
+    // 激活所有可见通道的Mute作为Mute模式的起始点
+    const auto& layout = getCurrentLayout();
+    
+    VST3_DBG("Activating Mute for all visible channels");
+    
+    for (const auto& chanInfo : layout.channels) {
+        auto muteParamId = "MUTE_" + juce::String(chanInfo.channelIndex + 1);
+        
+        if (auto* muteParam = apvts.getParameter(muteParamId)) {
+            muteParam->setValueNotifyingHost(1.0f);
+            VST3_DBG("Mute activated for channel " << chanInfo.channelIndex);
+        }
+    }
+    
+    VST3_DBG("All visible channels muted");
 }
 
