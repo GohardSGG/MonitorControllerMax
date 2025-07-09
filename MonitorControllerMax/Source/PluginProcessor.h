@@ -76,10 +76,6 @@ public:
     bool hasAnySoloActive() const;
     bool hasAnyMuteActive() const;
     
-    // Logic state check functions
-    bool hasAnySoloParameterActive() const;
-    bool hasAnyMuteParameterActive() const;
-    
     // Pure Logic UI Control
     bool isMuteButtonEnabled() const;
 
@@ -144,9 +140,9 @@ private:
     // New unified parameter linkage engine
     std::unique_ptr<ParameterLinkageEngine> linkageEngine;
     
-    // Simple selection mode state tracking
-    std::atomic<bool> isInSoloSelectionMode{false};
-    std::atomic<bool> isInMuteSelectionMode{false};
+    // Selection mode state functions
+    bool isInSoloSelectionMode() const;
+    bool isInMuteSelectionMode() const;
     
     // Flag to prevent parameter update loops
     std::atomic<bool> isUpdatingFromParameter{false};

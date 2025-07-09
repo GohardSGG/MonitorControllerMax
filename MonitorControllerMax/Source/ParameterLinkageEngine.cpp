@@ -212,27 +212,9 @@ void ParameterLinkageEngine::clearMuteMemory() {
 }
 
 void ParameterLinkageEngine::enterSoloSelectionMode() {
-    VST3_DBG("Entering Solo selection mode - checking if memory save is needed");
-    
-    // 关键修复：只有当前没有任何Solo激活时才保存记忆
-    // 如果已经有Solo激活，当前的Mute状态是auto-mute，不应该保存到记忆中
-    if (!hasAnySoloActive()) {
-        VST3_DBG("No Solo active - saving current Mute memory and clearing display");
-        
-        // 保存当前Mute状态到记忆中（这是用户真实的Mute设置）
-        saveCurrentMuteMemory();
-        
-        // 清空所有Mute参数的显示状态
-        ScopedLinkageGuard guard(isApplyingLinkage);
-        for (int i = 0; i < 26; ++i) {
-            setParameterValue(getMuteParameterID(i), 0.0f);
-        }
-        
-        VST3_DBG("Solo selection mode entered - Mute memory saved and display cleared");
-    } else {
-        VST3_DBG("Solo already active - NOT saving memory (current Mute is auto-mute)");
-        VST3_DBG("Solo selection mode entered - waiting for channel selection");
-    }
+    VST3_DBG("enterSoloSelectionMode called - this function is now deprecated");
+    VST3_DBG("Memory management is now handled in parameterChanged unified trigger");
+    // This function is now deprecated - all memory management is in parameterChanged
 }
 
 // Helper methods
