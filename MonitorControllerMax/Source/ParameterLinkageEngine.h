@@ -35,6 +35,7 @@ public:
     void saveCurrentMuteMemory();
     void restoreMuteMemory();
     void clearMuteMemory();
+    void clearAllCurrentMuteStates();
     
     // Selection mode support
     void enterSoloSelectionMode();

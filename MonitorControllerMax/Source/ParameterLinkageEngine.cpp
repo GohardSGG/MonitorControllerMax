@@ -29,49 +29,83 @@ void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, 
         return;
     }
     
-    // Check for Solo state change (mimics JSFX: Current_Solo_Active != Pre_Solo_Active)
-    bool currentSoloActive = hasAnySoloActive();
-    
-    if (currentSoloActive != previousSoloActive) {
-        VST3_DBG("Solo state changed: " << (currentSoloActive ? "Active" : "Inactive"));
+    // CRITICAL FIX: Handle Solo parameter activation at the very beginning
+    if (paramID.startsWith("SOLO_") && value > 0.5f && !previousSoloActive) {
+        VST3_DBG("First Solo parameter activated - saving memory and clearing scene");
         
         ScopedLinkageGuard guard(isApplyingLinkage);
         
-        if (currentSoloActive) {
-            // Entering Solo mode (mimics JSFX entry logic)
-            VST3_DBG("Entering Solo mode - saving Mute memory and applying auto-mute");
-            saveCurrentMuteMemory();    // user_mute_L = slider11
-            applyAutoMuteForSolo();     // slider11 = slider31 ? 0 : 1
-        } else {
-            // Exiting Solo mode (mimics JSFX exit logic)
-            VST3_DBG("Exiting Solo mode - restoring Mute memory");
-            restoreMuteMemory();        // slider11 = user_mute_L
-        }
+        // 1. 立即保存当前用户的Mute状态（在任何修改前）
+        saveCurrentMuteMemory();
         
-        previousSoloActive = currentSoloActive;
-    }
-    
-    // CRITICAL FIX: Handle immediate Solo parameter changes
-    // If user sets any Solo parameter to 1 via parameter window, immediately apply auto-mute
-    if (paramID.startsWith("SOLO_") && value > 0.5f && currentSoloActive) {
-        VST3_DBG("Solo parameter activated directly - applying immediate auto-mute");
+        // 2. 立即清空所有现有Mute状态，创建干净环境
+        clearAllCurrentMuteStates();
         
-        ScopedLinkageGuard guard(isApplyingLinkage);
+        // 3. 现在设置Solo参数（因为我们在guard中，不会递归）
+        setParameterValue(paramID, value);
         
-        // If this is the first Solo being activated, save current Mute memory
-        if (!previousSoloActive) {
-            saveCurrentMuteMemory();
-        }
-        
-        // Apply auto-mute immediately
+        // 4. 在干净环境中计算自动Mute
         applyAutoMuteForSolo();
         
-        // Update the previous state
-        previousSoloActive = currentSoloActive;
+        // 5. 更新状态
+        previousSoloActive = true;
+        
+        return; // 早期返回，避免下面的逻辑处理
+    }
+    
+    // Handle Solo parameter deactivation
+    if (paramID.startsWith("SOLO_") && value <= 0.5f) {
+        // 检查这是否会导致Solo状态变为false
+        bool willBeSoloActive = false;
+        for (int i = 0; i < 26; ++i) {
+            juce::String soloParamID = getSoloParameterID(i);
+            if (soloParamID == paramID) {
+                continue; // 跳过当前要设置为0的参数
+            }
+            if (getParameterValue(soloParamID) > 0.5f) {
+                willBeSoloActive = true;
+                break;
+            }
+        }
+        
+        if (previousSoloActive && !willBeSoloActive) {
+            VST3_DBG("Last Solo parameter deactivated - restoring memory");
+            
+            ScopedLinkageGuard guard(isApplyingLinkage);
+            
+            // 1. 先设置Solo参数
+            setParameterValue(paramID, value);
+            
+            // 2. 完整清空所有当前Mute状态
+            clearAllCurrentMuteStates();
+            
+            // 3. 恢复用户原始记忆
+            restoreMuteMemory();
+            
+            // 4. 更新状态
+            previousSoloActive = false;
+            
+            return; // 早期返回
+        }
+    }
+    
+    // Handle other Solo parameter changes (在Solo模式中的调整)
+    if (paramID.startsWith("SOLO_") && previousSoloActive) {
+        VST3_DBG("Solo parameter changed in Solo mode - recalculating auto-mute");
+        
+        ScopedLinkageGuard guard(isApplyingLinkage);
+        
+        // 1. 设置Solo参数
+        setParameterValue(paramID, value);
+        
+        // 2. 重新计算自动Mute
+        applyAutoMuteForSolo();
+        
+        return; // 早期返回
     }
     
     // PARAMETER PROTECTION: Prevent illegal Mute parameter changes in Solo mode
-    if (paramID.startsWith("MUTE_") && currentSoloActive) {
+    if (paramID.startsWith("MUTE_") && previousSoloActive) {
         VST3_DBG("Parameter protection: Attempting to change " << paramID << " in Solo mode");
         
         // Extract channel index from parameter ID (MUTE_1 -> channel 0)
@@ -162,6 +196,16 @@ void ParameterLinkageEngine::restoreMuteMemory() {
             VST3_DBG("Restoring Mute[" << i << "] = " << restoredValue);
             setParameterValue(getMuteParameterID(i), restoredValue);
         }
+    }
+}
+
+void ParameterLinkageEngine::clearAllCurrentMuteStates() {
+    // Clear all current Mute states to create a clean environment
+    VST3_DBG("Clearing all current Mute states");
+    
+    for (int i = 0; i < 26; ++i) {
+        setParameterValue(getMuteParameterID(i), 0.0f);
+        VST3_DBG("Cleared Mute[" << i << "] = 0");
     }
 }
 
