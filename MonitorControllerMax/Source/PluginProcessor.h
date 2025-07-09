@@ -76,6 +76,10 @@ public:
     bool hasAnySoloActive() const;
     bool hasAnyMuteActive() const;
     
+    // Logic state check functions
+    bool hasAnySoloParameterActive() const;
+    bool hasAnyMuteParameterActive() const;
+    
     // Pure Logic UI Control
     bool isMuteButtonEnabled() const;
 

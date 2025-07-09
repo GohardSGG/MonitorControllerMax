@@ -36,6 +36,9 @@ public:
     void restoreMuteMemory();
     void clearMuteMemory();
     
+    // Selection mode support
+    void enterSoloSelectionMode();  // 
+    
 private:
     juce::AudioProcessorValueTreeState& parameters;
     

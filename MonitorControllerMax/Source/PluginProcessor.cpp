@@ -598,17 +598,27 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     
     if (!linkageEngine) return;
     
-    bool hasSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
-    VST3_DBG("Has Solo: " << (hasSolo ? "true" : "false"));
+    // 使用分离的状态检查进行逻辑判断
+    bool hasSoloParameter = hasAnySoloParameterActive();
+    bool inSoloSelection = isInSoloSelectionMode.load();
+    bool inMuteSelection = isInMuteSelectionMode.load();
     
-    if (hasSolo) {
-        // Has active Solo -> clear all Solo parameters and exit selection mode
-        VST3_DBG("Clearing all Solo parameters");
+    VST3_DBG("Has Solo Parameter: " << (hasSoloParameter ? "true" : "false"));
+    VST3_DBG("In Solo Selection: " << (inSoloSelection ? "true" : "false"));
+    VST3_DBG("In Mute Selection: " << (inMuteSelection ? "true" : "false"));
+    
+    if (hasSoloParameter || inSoloSelection) {
+        // 有Solo参数激活 OR 已在Solo选择模式 -> 清除所有Solo并退出选择模式
+        VST3_DBG("Clearing all Solo parameters and exiting Solo selection mode");
         linkageEngine->clearAllSoloParameters();
         isInSoloSelectionMode.store(false);
     } else {
-        // No Solo -> enter Solo selection mode (DO NOT auto-activate any channels)
+        // 初始状态 OR Mute选择模式 -> 进入Solo选择模式
         VST3_DBG("Entering Solo selection mode - waiting for user to click channels");
+        
+        // 进入Solo选择模式时，保存当前Mute状态到记忆并清空显示
+        linkageEngine->enterSoloSelectionMode();
+        
         isInSoloSelectionMode.store(true);
         isInMuteSelectionMode.store(false);  // 互斥选择模式
     }
@@ -620,23 +630,30 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
     
     if (!linkageEngine) return;
     
+    // 使用分离的状态检查进行逻辑判断
+    bool hasSoloParameter = hasAnySoloParameterActive();
+    bool hasMuteParameter = hasAnyMuteParameterActive();
+    bool inSoloSelection = isInSoloSelectionMode.load();
+    bool inMuteSelection = isInMuteSelectionMode.load();
+    
+    VST3_DBG("Has Solo Parameter: " << (hasSoloParameter ? "true" : "false"));
+    VST3_DBG("Has Mute Parameter: " << (hasMuteParameter ? "true" : "false"));
+    VST3_DBG("In Solo Selection: " << (inSoloSelection ? "true" : "false"));
+    VST3_DBG("In Mute Selection: " << (inMuteSelection ? "true" : "false"));
+    
     // Solo Priority Rule: If any Solo parameter is actually active, Mute button is completely disabled
-    bool hasActiveSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
-    if (hasActiveSolo) {
+    if (hasSoloParameter) {
         VST3_DBG("Mute button ignored - Solo priority rule active");
         return;
     }
     
-    bool hasMute = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
-    VST3_DBG("Has Mute: " << (hasMute ? "true" : "false"));
-    
-    if (hasMute) {
-        // Has active Mute -> clear all Mute parameters and exit selection mode
-        VST3_DBG("Clearing all Mute parameters");
+    if (hasMuteParameter || inMuteSelection) {
+        // 有Mute参数激活 OR 已在Mute选择模式 -> 清除所有Mute并退出选择模式
+        VST3_DBG("Clearing all Mute parameters and exiting Mute selection mode");
         linkageEngine->clearAllMuteParameters();
         isInMuteSelectionMode.store(false);
     } else {
-        // No Mute -> enter Mute selection mode (DO NOT auto-activate any channels)
+        // 初始状态 OR Solo选择模式 -> 进入Mute选择模式
         VST3_DBG("Entering Mute selection mode - waiting for user to click channels");
         isInMuteSelectionMode.store(true);
         isInSoloSelectionMode.store(false);  // 互斥选择模式
@@ -659,6 +676,17 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
     return hasActiveMute || inMuteSelection;
 }
 
+// 逻辑判断用（仅实际参数状态）
+bool MonitorControllerMaxAudioProcessor::hasAnySoloParameterActive() const
+{
+    return linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+}
+
+bool MonitorControllerMaxAudioProcessor::hasAnyMuteParameterActive() const
+{
+    return linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+}
+
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
 {
     // Validate channel index
@@ -674,8 +702,8 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     // 检查当前的选择模式状态
     bool inSoloSelection = isInSoloSelectionMode.load();
     bool inMuteSelection = isInMuteSelectionMode.load();
-    bool hasActiveSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
-    bool hasActiveMute = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    bool hasActiveSolo = hasAnySoloParameterActive();  // 使用分离的状态检查
+    bool hasActiveMute = hasAnyMuteParameterActive();  // 使用分离的状态检查
     
     if (inSoloSelection || hasActiveSolo) {
         // Solo选择模式或Solo激活状态 -> 切换该通道的Solo参数
@@ -716,8 +744,9 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
 
 bool MonitorControllerMaxAudioProcessor::isMuteButtonEnabled() const
 {
-    // Mute button is disabled when any Solo is active (Solo Priority Rule)
-    return !hasAnySoloActive();
+    // Mute button is disabled when any Solo parameter is active (Solo Priority Rule)
+    // 但Solo选择模式下Mute按钮应该可用，可以切换到Mute选择模式
+    return !hasAnySoloParameterActive();
 }
 
 // Simplified approach without complex selection mode management
