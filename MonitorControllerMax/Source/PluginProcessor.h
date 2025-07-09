@@ -69,12 +69,15 @@ public:
     void setLayoutChangeCallback(std::function<void(const juce::String&, const juce::String&)> callback);
     
     
-    // New unified parameter linkage interface
+    // Pure Logic Interface - No State Machine
     void handleSoloButtonClick();
     void handleMuteButtonClick();
     void handleChannelClick(int channelIndex);
     bool hasAnySoloActive() const;
     bool hasAnyMuteActive() const;
+    
+    // Pure Logic UI Control
+    bool isMuteButtonEnabled() const;
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;

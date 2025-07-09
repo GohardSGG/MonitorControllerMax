@@ -518,15 +518,37 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     bool hasSolo = audioProcessor.hasAnySoloActive();
     bool hasMute = audioProcessor.hasAnyMuteActive();
     
-    // Update main Solo button state
+    // Update main Solo button state and color
     if (globalSoloButton.getToggleState() != hasSolo) {
         globalSoloButton.setToggleState(hasSolo, juce::dontSendNotification);
     }
     
-    // Update main Mute button state
+    // Set correct Solo button color based on state
+    if (hasSolo) {
+        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
+        globalSoloButton.setColour(juce::TextButton::buttonColourId, customLookAndFeel.getSoloColour());
+    } else {
+        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalSoloButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+    }
+    
+    // Update main Mute button state and color
     if (globalMuteButton.getToggleState() != hasMute) {
         globalMuteButton.setToggleState(hasMute, juce::dontSendNotification);
     }
+    
+    // Set correct Mute button color based on state
+    if (hasMute) {
+        globalMuteButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getMuteColour());
+        globalMuteButton.setColour(juce::TextButton::buttonColourId, customLookAndFeel.getMuteColour());
+    } else {
+        globalMuteButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalMuteButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+    }
+    
+    // Apply Solo Priority Rule: Disable Mute button when Solo is active
+    bool muteButtonEnabled = audioProcessor.isMuteButtonEnabled();
+    globalMuteButton.setEnabled(muteButtonEnabled);
 
 }
 

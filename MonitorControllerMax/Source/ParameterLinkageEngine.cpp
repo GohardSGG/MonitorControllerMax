@@ -12,11 +12,9 @@ ParameterLinkageEngine::ParameterLinkageEngine(juce::AudioProcessorValueTreeStat
     : parameters(apvts) {
     VST3_DBG("ParameterLinkageEngine initialized");
     
-    // AGGRESSIVE FIX: Always reset to clean state on plugin load
-    // This prevents any inconsistent state from being restored by REAPER
-    // TODO: In production, you might want to be more sophisticated about this
-    VST3_DBG("Performing aggressive state reset to ensure clean initialization");
-    resetToCleanState();
+    // 移除构造函数中的激进重置
+    // 这会在setStateInformation中正确处理，避免与REAPER的状态恢复冲突
+    VST3_DBG("Parameter linkage engine ready - clean state will be set after state restoration");
 }
 
 void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, float value) {
@@ -51,6 +49,57 @@ void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, 
         }
         
         previousSoloActive = currentSoloActive;
+    }
+    
+    // CRITICAL FIX: Handle immediate Solo parameter changes
+    // If user sets any Solo parameter to 1 via parameter window, immediately apply auto-mute
+    if (paramID.startsWith("SOLO_") && value > 0.5f && currentSoloActive) {
+        VST3_DBG("Solo parameter activated directly - applying immediate auto-mute");
+        
+        ScopedLinkageGuard guard(isApplyingLinkage);
+        
+        // If this is the first Solo being activated, save current Mute memory
+        if (!previousSoloActive) {
+            saveCurrentMuteMemory();
+        }
+        
+        // Apply auto-mute immediately
+        applyAutoMuteForSolo();
+        
+        // Update the previous state
+        previousSoloActive = currentSoloActive;
+    }
+    
+    // PARAMETER PROTECTION: Prevent illegal Mute parameter changes in Solo mode
+    if (paramID.startsWith("MUTE_") && currentSoloActive) {
+        VST3_DBG("Parameter protection: Attempting to change " << paramID << " in Solo mode");
+        
+        // Extract channel index from parameter ID (MUTE_1 -> channel 0)
+        int channelIndex = paramID.getTrailingIntValue() - 1;
+        
+        // Determine the correct Auto-Mute value for this channel
+        bool isChannelSolo = false;
+        if (channelIndex >= 0 && channelIndex < 26) {
+            juce::String soloParamID = getSoloParameterID(channelIndex);
+            float soloValue = getParameterValue(soloParamID);
+            isChannelSolo = (soloValue > 0.5f);
+        }
+        
+        // Calculate correct Mute value: Solo channels = not muted, non-Solo channels = muted
+        float correctMuteValue = isChannelSolo ? 0.0f : 1.0f;
+        
+        // Force restore to correct value if user tried to change it
+        if (std::abs(value - correctMuteValue) > 0.1f) {
+            VST3_DBG("Parameter protection: Forcing " << paramID << " back to " << correctMuteValue);
+            
+            // Use a delayed call to avoid recursion
+            juce::MessageManager::callAsync([this, paramID, correctMuteValue]() {
+                setParameterValue(paramID, correctMuteValue);
+            });
+        }
+        
+        // Always return early to prevent any further processing of Mute changes in Solo mode
+        return;
     }
 }
 
