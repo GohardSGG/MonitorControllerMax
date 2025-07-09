@@ -598,17 +598,19 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     
     if (!linkageEngine) return;
     
-    bool hasSolo = linkageEngine->hasAnySoloActive();
+    bool hasSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
     VST3_DBG("Has Solo: " << (hasSolo ? "true" : "false"));
     
     if (hasSolo) {
-        // Has active Solo -> clear all Solo parameters
+        // Has active Solo -> clear all Solo parameters and exit selection mode
         VST3_DBG("Clearing all Solo parameters");
         linkageEngine->clearAllSoloParameters();
+        isInSoloSelectionMode.store(false);
     } else {
-        // No Solo -> activate Solo mode by soloing first visible channel
-        VST3_DBG("Activating Solo mode - soloing first visible channel");
-        activateFirstVisibleChannelSolo();
+        // No Solo -> enter Solo selection mode (DO NOT auto-activate any channels)
+        VST3_DBG("Entering Solo selection mode - waiting for user to click channels");
+        isInSoloSelectionMode.store(true);
+        isInMuteSelectionMode.store(false);  // 互斥选择模式
     }
 }
 
@@ -618,34 +620,43 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
     
     if (!linkageEngine) return;
     
-    // Solo Priority Rule: If any Solo is active, Mute button is completely disabled
-    if (linkageEngine->hasAnySoloActive()) {
+    // Solo Priority Rule: If any Solo parameter is actually active, Mute button is completely disabled
+    bool hasActiveSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    if (hasActiveSolo) {
         VST3_DBG("Mute button ignored - Solo priority rule active");
         return;
     }
     
-    bool hasMute = linkageEngine->hasAnyMuteActive();
+    bool hasMute = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
     VST3_DBG("Has Mute: " << (hasMute ? "true" : "false"));
     
     if (hasMute) {
-        // Has active Mute -> clear all Mute parameters
+        // Has active Mute -> clear all Mute parameters and exit selection mode
         VST3_DBG("Clearing all Mute parameters");
         linkageEngine->clearAllMuteParameters();
+        isInMuteSelectionMode.store(false);
     } else {
-        // No Mute -> activate Mute mode by muting all visible channels
-        VST3_DBG("Activating Mute mode - muting all visible channels");
-        activateAllVisibleChannelsMute();
+        // No Mute -> enter Mute selection mode (DO NOT auto-activate any channels)
+        VST3_DBG("Entering Mute selection mode - waiting for user to click channels");
+        isInMuteSelectionMode.store(true);
+        isInSoloSelectionMode.store(false);  // 互斥选择模式
     }
 }
 
 bool MonitorControllerMaxAudioProcessor::hasAnySoloActive() const
 {
-    return linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    // Solo主按钮激活条件：实际有Solo参数激活 OR 处于Solo选择模式
+    bool hasActiveSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    bool inSoloSelection = isInSoloSelectionMode.load();
+    return hasActiveSolo || inSoloSelection;
 }
 
 bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
 {
-    return linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    // Mute主按钮激活条件：实际有Mute参数激活 OR 处于Mute选择模式
+    bool hasActiveMute = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    bool inMuteSelection = isInMuteSelectionMode.load();
+    return hasActiveMute || inMuteSelection;
 }
 
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
@@ -660,30 +671,44 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     
     if (!linkageEngine) return;
     
-    // Pure Logic: Determine action based on current parameter state
-    bool hasSolo = linkageEngine->hasAnySoloActive();
-    bool hasMute = linkageEngine->hasAnyMuteActive();
+    // 检查当前的选择模式状态
+    bool inSoloSelection = isInSoloSelectionMode.load();
+    bool inMuteSelection = isInMuteSelectionMode.load();
+    bool hasActiveSolo = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    bool hasActiveMute = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
     
-    if (hasSolo) {
-        // Current state has Solo -> operate on Solo parameters
+    if (inSoloSelection || hasActiveSolo) {
+        // Solo选择模式或Solo激活状态 -> 切换该通道的Solo参数
         auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
         if (auto* soloParam = apvts.getParameter(soloParamId)) {
             float currentSolo = soloParam->getValue();
             float newSolo = (currentSolo > 0.5f) ? 0.0f : 1.0f;
             soloParam->setValueNotifyingHost(newSolo);
             VST3_DBG("Channel " << channelIndex << " Solo toggled: " << newSolo);
+            
+            // 当用户首次激活Solo时，退出Solo选择模式
+            if (inSoloSelection && newSolo > 0.5f) {
+                isInSoloSelectionMode.store(false);
+                VST3_DBG("Exiting Solo selection mode");
+            }
         }
-    } else if (hasMute) {
-        // Current state has Mute -> operate on Mute parameters
+    } else if (inMuteSelection || hasActiveMute) {
+        // Mute选择模式或Mute激活状态 -> 切换该通道的Mute参数
         auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
         if (auto* muteParam = apvts.getParameter(muteParamId)) {
             float currentMute = muteParam->getValue();
             float newMute = (currentMute > 0.5f) ? 0.0f : 1.0f;
             muteParam->setValueNotifyingHost(newMute);
             VST3_DBG("Channel " << channelIndex << " Mute toggled: " << newMute);
+            
+            // 当用户首次激活Mute时，退出Mute选择模式
+            if (inMuteSelection && newMute > 0.5f) {
+                isInMuteSelectionMode.store(false);
+                VST3_DBG("Exiting Mute selection mode");
+            }
         }
     } else {
-        // Initial state: channel click has no effect
+        // 初始状态: 通道点击无效果
         VST3_DBG("Channel clicked in Initial state - no effect");
     }
 }
@@ -695,43 +720,7 @@ bool MonitorControllerMaxAudioProcessor::isMuteButtonEnabled() const
     return !hasAnySoloActive();
 }
 
-void MonitorControllerMaxAudioProcessor::activateFirstVisibleChannelSolo()
-{
-    // 激活第一个可见通道的Solo作为Solo模式的起始点
-    const auto& layout = getCurrentLayout();
-    
-    if (!layout.channels.empty()) {
-        // 找到第一个可见通道
-        int firstChannelIndex = layout.channels[0].channelIndex;
-        auto soloParamId = "SOLO_" + juce::String(firstChannelIndex + 1);
-        
-        VST3_DBG("Activating Solo for first visible channel: " << firstChannelIndex);
-        
-        if (auto* soloParam = apvts.getParameter(soloParamId)) {
-            soloParam->setValueNotifyingHost(1.0f);
-            VST3_DBG("Solo activated for channel " << firstChannelIndex);
-        }
-    } else {
-        VST3_DBG("No visible channels found for Solo activation");
-    }
-}
-
-void MonitorControllerMaxAudioProcessor::activateAllVisibleChannelsMute()
-{
-    // 激活所有可见通道的Mute作为Mute模式的起始点
-    const auto& layout = getCurrentLayout();
-    
-    VST3_DBG("Activating Mute for all visible channels");
-    
-    for (const auto& chanInfo : layout.channels) {
-        auto muteParamId = "MUTE_" + juce::String(chanInfo.channelIndex + 1);
-        
-        if (auto* muteParam = apvts.getParameter(muteParamId)) {
-            muteParam->setValueNotifyingHost(1.0f);
-            VST3_DBG("Mute activated for channel " << chanInfo.channelIndex);
-        }
-    }
-    
-    VST3_DBG("All visible channels muted");
-}
+// Simplified approach without complex selection mode management
+// The main buttons now directly activate/deactivate parameters
+// Channel buttons work based on current parameter state
 

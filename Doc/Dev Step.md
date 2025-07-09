@@ -687,25 +687,29 @@ void updateMainButtonStates() {
 3. **Solo优先原则测试** - 验证Mute按钮禁用机制
 4. **参数保护测试** - 验证Solo模式下的Mute参数保护
 
-#### 6.6 修复主按钮模式切换逻辑 🔄
-**目标**: 实现主按钮作为模式切换器的正确逻辑
+#### 6.6 修复主按钮选择模式逻辑 🔄
+**目标**: 实现正确的选择模式，符合架构.md文档定义
 
-**需要实现的功能**:
+**核心错误修复**:
+1. **移除错误的自动激活逻辑** - 不能自动Solo/Mute任何通道
+2. **实现选择模式状态管理** - 添加SelectionMode枚举
+3. **正确的主按钮功能** - 进入选择模式，不激活参数
+
+**正确的功能定义**:
 1. **Solo主按钮**:
-   - 无Solo状态时 → 激活Solo模式（自动Solo第一个可见通道）
+   - 无Solo状态时 → 进入Solo选择模式（等待用户点击通道）
    - 有Solo状态时 → 清除所有Solo参数
 2. **Mute主按钮**:
-   - 无Mute状态时 → 激活Mute模式（自动Mute所有可见通道）
+   - 无Mute状态时 → 进入Mute选择模式（等待用户点击通道）
    - 有Mute状态时 → 清除所有Mute参数
-3. **添加辅助函数**:
-   - `activateFirstVisibleChannelSolo()` - 激活第一个可见通道的Solo
-   - `activateAllVisibleChannelsMute()` - 激活所有可见通道的Mute
 
 **实现步骤**:
-1. 在`PluginProcessor.cpp`中修改`handleSoloButtonClick()`和`handleMuteButtonClick()`
-2. 添加辅助函数实现模式激活逻辑
-3. 确保Solo优先原则正确实施
-4. 测试主按钮的模式切换功能
+1. 添加SelectionMode枚举和状态管理
+2. 移除错误的`activateFirstVisibleChannelSolo()`和`activateAllVisibleChannelsMute()`
+3. 实现`enterSoloSelectionMode()`和`enterMuteSelectionMode()`
+4. 修改通道按钮逻辑以支持选择模式
+5. 添加选择模式的UI视觉反馈
+6. 测试选择模式交互逻辑
 
 ### 下一步工作建议
 1. **立即实施** - 修复主按钮模式切换逻辑 ✅

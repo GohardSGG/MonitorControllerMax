@@ -107,14 +107,14 @@ void timerCallback() override;     // 30Hz定时器确保同步
 #### 纯逻辑架构设计
 **核心原则：无状态变量，完全基于参数计算，主按钮作为模式切换器**
 
-**主按钮逻辑（修正版）**：
+**主按钮逻辑（正确版）**：
 ```cpp
 void handleSoloButtonClick() {
     if (hasAnySoloActive()) {
-        clearAllSoloParameters();  // 有Solo就清除
+        clearAllSoloParameters();  // 有Solo就清除，回到初始状态
     } else {
-        // 激活Solo模式 - 自动Solo第一个可见通道作为起始点
-        activateFirstVisibleChannelSolo();
+        // 进入Solo选择模式（不激活任何通道，只改变UI状态）
+        enterSoloSelectionMode();
     }
 }
 
@@ -122,40 +122,52 @@ void handleMuteButtonClick() {
     if (hasAnySoloActive()) return;  // Solo优先原则
     
     if (hasAnyMuteActive()) {
-        clearAllMuteParameters();  // 有Mute就清除
+        clearAllMuteParameters();  // 有Mute就清除，回到初始状态
     } else {
-        // 激活Mute模式 - 自动Mute所有可见通道作为起始点
-        activateAllVisibleChannelsMute();
+        // 进入Mute选择模式（不激活任何通道，只改变UI状态）
+        enterMuteSelectionMode();
     }
 }
 ```
 
-**通道按钮逻辑（基于参数状态）**：
+**通道按钮逻辑（基于选择模式状态）**：
 ```cpp
 void handleChannelClick(int channelIndex) {
-    if (hasAnySoloActive()) {
-        toggleSoloParameter(channelIndex);  // Solo模式下切换Solo状态
-    } else if (hasAnyMuteActive()) {
-        toggleMuteParameter(channelIndex);  // Mute模式下切换Mute状态
+    SelectionMode currentMode = getCurrentSelectionMode();
+    
+    if (currentMode == SelectionMode::SoloSelection || hasAnySoloActive()) {
+        toggleSoloParameter(channelIndex);  // Solo选择模式或Solo激活状态下操作Solo
+    } else if (currentMode == SelectionMode::MuteSelection || hasAnyMuteActive()) {
+        toggleMuteParameter(channelIndex);  // Mute选择模式或Mute激活状态下操作Mute
     } else {
-        // 初始状态：通道点击无效果（需要先激活主按钮）
+        // 初始状态：通道点击无效果（需要先点击主按钮进入选择模式）
         VST3_DBG("Channel clicked in Initial state - no effect");
     }
 }
 ```
 
-**UI状态计算（完全基于参数）**：
-- 主按钮激活状态 = `hasAnySoloActive()` / `hasAnyMuteActive()`
-- 主按钮可点击性 = `!hasAnySoloActive()` (Mute按钮)
+**UI状态计算（基于参数和选择模式）**：
+- 主按钮激活状态 = `hasAnySoloActive()` / `hasAnyMuteActive()` 或选择模式状态
+- 主按钮可点击性 = `!hasAnySoloActive()` (Mute按钮，Solo优先原则)
 - 通道按钮状态 = 直接读取参数值
+- 选择模式提示 = 基于当前选择模式显示UI反馈
+
+#### 选择模式状态管理
+```cpp
+enum class SelectionMode {
+    None,            // 初始状态：两个主按钮都不激活
+    SoloSelection,   // Solo选择模式：等待用户点击通道来Solo
+    MuteSelection    // Mute选择模式：等待用户点击通道来Mute
+};
+```
 
 #### 核心优势
-1. **主动模式切换** - 主按钮是模式切换器，而不是被动响应器
+1. **正确的选择模式** - 主按钮进入选择模式，不自动激活任何通道
 2. **直观交互逻辑** - 符合用户对监听控制器的直觉期望
-3. **完全可预测** - 所有行为都是参数的纯函数
-4. **调试友好** - 只需要看参数值就知道所有状态
-5. **无同步问题** - UI永远反映参数的真实状态
-6. **符合JSFX逻辑** - 与原版JSFX的设计完全一致
+3. **完全可预测** - 所有行为都遵循架构文档定义的逻辑
+4. **调试友好** - 清晰的状态转换和参数驱动逻辑
+5. **无意外激活** - 避免用户不期望的自动Mute/Solo行为
+6. **符合架构设计** - 严格按照架构.md文档实现
 
 ## 🎯 关键技术细节
 

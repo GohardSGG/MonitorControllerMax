@@ -78,10 +78,6 @@ public:
     
     // Pure Logic UI Control
     bool isMuteButtonEnabled() const;
-    
-    // Mode Activation Helper Functions
-    void activateFirstVisibleChannelSolo();
-    void activateAllVisibleChannelsMute();
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -143,6 +139,10 @@ private:
     
     // New unified parameter linkage engine
     std::unique_ptr<ParameterLinkageEngine> linkageEngine;
+    
+    // Simple selection mode state tracking
+    std::atomic<bool> isInSoloSelectionMode{false};
+    std::atomic<bool> isInMuteSelectionMode{false};
     
     // Flag to prevent parameter update loops
     std::atomic<bool> isUpdatingFromParameter{false};
