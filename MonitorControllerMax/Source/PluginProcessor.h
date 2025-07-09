@@ -78,6 +78,10 @@ public:
     
     // Pure Logic UI Control
     bool isMuteButtonEnabled() const;
+    
+    // Dual state button activation functions
+    bool isSoloButtonActive() const;
+    bool isMuteButtonActive() const;
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -143,10 +147,6 @@ private:
     // Selection mode state functions
     bool isInSoloSelectionMode() const;
     bool isInMuteSelectionMode() const;
-    
-    // Dual state button activation functions
-    bool isSoloButtonActive() const;
-    bool isMuteButtonActive() const;
     
     // Selection mode state tracking
     std::atomic<bool> pendingSoloSelection{false};
