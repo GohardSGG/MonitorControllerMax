@@ -605,13 +605,26 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
         pendingMuteSelection.store(false);
         linkageEngine->clearAllSoloParameters();
     } else if (pendingSoloSelection.load()) {
-        // 处于Solo选择模式，但没有实际Solo参数 -> 退出Solo选择模式
-        VST3_DBG("Exiting Solo selection mode - returning to initial state");
+        // 处于Solo选择模式，但没有实际Solo参数 -> 退出Solo选择模式并恢复记忆
+        VST3_DBG("Exiting Solo selection mode - restoring memory");
+        
+        // 恢复之前保存的Mute记忆
+        if (linkageEngine) {
+            linkageEngine->restoreMuteMemory();
+        }
+        
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
     } else {
-        // 初始状态 -> 进入Solo选择模式，等待用户点击通道来添加Solo
-        VST3_DBG("Entering Solo selection mode - waiting for channel clicks");
+        // 初始状态 -> 进入Solo选择模式，立即保存记忆并清空现场
+        VST3_DBG("Entering Solo selection mode - saving memory and clearing scene");
+        
+        // 立即保存当前Mute记忆并清空现场
+        if (linkageEngine) {
+            linkageEngine->saveCurrentMuteMemory();
+            linkageEngine->clearAllCurrentMuteStates();
+        }
+        
         pendingSoloSelection.store(true);
         pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
     }
