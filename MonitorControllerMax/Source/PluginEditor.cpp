@@ -514,17 +514,17 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
         button->setColour(juce::TextButton::buttonOnColourId, buttonColor);
     }
     
-    // 2. Update main control buttons
-    bool hasSolo = audioProcessor.hasAnySoloActive();
-    bool hasMute = audioProcessor.hasAnyMuteActive();
+    // 2. Update main control buttons using dual state system
+    bool soloButtonActive = audioProcessor.isSoloButtonActive();
+    bool muteButtonActive = audioProcessor.isMuteButtonActive();
     
     // Update main Solo button state and color
-    if (globalSoloButton.getToggleState() != hasSolo) {
-        globalSoloButton.setToggleState(hasSolo, juce::dontSendNotification);
+    if (globalSoloButton.getToggleState() != soloButtonActive) {
+        globalSoloButton.setToggleState(soloButtonActive, juce::dontSendNotification);
     }
     
     // Set correct Solo button color based on state
-    if (hasSolo) {
+    if (soloButtonActive) {
         globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
         globalSoloButton.setColour(juce::TextButton::buttonColourId, customLookAndFeel.getSoloColour());
     } else {
@@ -533,12 +533,12 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     }
     
     // Update main Mute button state and color
-    if (globalMuteButton.getToggleState() != hasMute) {
-        globalMuteButton.setToggleState(hasMute, juce::dontSendNotification);
+    if (globalMuteButton.getToggleState() != muteButtonActive) {
+        globalMuteButton.setToggleState(muteButtonActive, juce::dontSendNotification);
     }
     
     // Set correct Mute button color based on state
-    if (hasMute) {
+    if (muteButtonActive) {
         globalMuteButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getMuteColour());
         globalMuteButton.setColour(juce::TextButton::buttonColourId, customLookAndFeel.getMuteColour());
     } else {

@@ -661,6 +661,19 @@ bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
     return (pendingMuteSelection.load() || hasAnyMuteActive()) && !hasAnySoloActive();
 }
 
+// Dual state button activation functions
+bool MonitorControllerMaxAudioProcessor::isSoloButtonActive() const
+{
+    // Solo按钮激活状态 = 有通道被Solo OR 处于Solo选择模式
+    return hasAnySoloActive() || pendingSoloSelection.load();
+}
+
+bool MonitorControllerMaxAudioProcessor::isMuteButtonActive() const
+{
+    // Mute按钮激活状态 = 有通道被Mute OR 处于Mute选择模式（且没有Solo优先级干扰）
+    return (hasAnyMuteActive() || pendingMuteSelection.load()) && !hasAnySoloActive();
+}
+
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
 {
     // Validate channel index

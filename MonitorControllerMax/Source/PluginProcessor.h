@@ -144,6 +144,10 @@ private:
     bool isInSoloSelectionMode() const;
     bool isInMuteSelectionMode() const;
     
+    // Dual state button activation functions
+    bool isSoloButtonActive() const;
+    bool isMuteButtonActive() const;
+    
     // Selection mode state tracking
     std::atomic<bool> pendingSoloSelection{false};
     std::atomic<bool> pendingMuteSelection{false};
