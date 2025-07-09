@@ -599,24 +599,37 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     if (!linkageEngine) return;
     
     if (hasAnySoloActive()) {
-        // 有实际Solo参数激活 -> 清除所有Solo参数 (这会触发parameterChanged -> 恢复记忆)
+        // 状态1：有Solo参数激活
+        // → 清除所有Solo参数 + 清除选择模式 + 关闭参数保护
         VST3_DBG("Clearing all Solo parameters - will trigger memory restore");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
-        linkageEngine->clearAllSoloParameters();
+        
+        // 临时禁用保护，允许系统清除操作
+        if (linkageEngine) {
+            linkageEngine->setParameterProtectionBypass(true);
+            linkageEngine->clearAllSoloParameters();
+            linkageEngine->setParameterProtectionBypass(false);
+        }
+        
+        // 关闭保护状态
+        soloModeProtectionActive = false;
+        
     } else if (pendingSoloSelection.load()) {
-        // 处于Solo选择模式，但没有实际Solo参数 -> 退出Solo选择模式并恢复记忆
+        // 状态2：无Solo参数，但在Solo选择模式
+        // → 退出Solo选择模式 + 恢复之前保存的记忆
         VST3_DBG("Exiting Solo selection mode - restoring memory");
         
-        // 恢复之前保存的Mute记忆
         if (linkageEngine) {
             linkageEngine->restoreMuteMemory();
         }
         
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
+        
     } else {
-        // 初始状态 -> 进入Solo选择模式，立即保存记忆并清空现场
+        // 状态3：初始状态
+        // → 进入Solo选择模式 + 立即保存当前Mute记忆 + 清空所有Mute状态
         VST3_DBG("Entering Solo selection mode - saving memory and clearing scene");
         
         // 立即保存当前Mute记忆并清空现场
@@ -628,6 +641,9 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
         pendingSoloSelection.store(true);
         pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
     }
+    
+    // 更新所有状态
+    updateAllStates();
 }
 
 void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
@@ -643,22 +659,30 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
     }
     
     if (hasAnyMuteActive()) {
-        // 有实际Mute参数激活 -> 清除所有Mute参数
+        // 状态1：有Mute参数激活
+        // → 清除所有Mute参数 + 清除选择模式
         VST3_DBG("Clearing all Mute parameters");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
-        linkageEngine->clearAllMuteParameters();
+        if (linkageEngine) {
+            linkageEngine->clearAllMuteParameters();
+        }
     } else if (pendingMuteSelection.load()) {
-        // 处于Mute选择模式，但没有实际Mute参数 -> 退出Mute选择模式
+        // 状态2：无Mute参数，但在Mute选择模式
+        // → 退出Mute选择模式
         VST3_DBG("Exiting Mute selection mode - returning to initial state");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
     } else {
-        // 初始状态 -> 进入Mute选择模式，等待用户点击通道来添加Mute
+        // 状态3：初始状态
+        // → 进入Mute选择模式
         VST3_DBG("Entering Mute selection mode - waiting for channel clicks");
         pendingMuteSelection.store(true);
         pendingSoloSelection.store(false);  // 切换到Mute选择模式会取消Solo选择模式
     }
+    
+    // 更新所有状态
+    updateAllStates();
 }
 
 bool MonitorControllerMaxAudioProcessor::hasAnySoloActive() const
@@ -748,7 +772,41 @@ bool MonitorControllerMaxAudioProcessor::isMuteButtonEnabled() const
     return !hasAnySoloActive();
 }
 
-// Simplified approach without complex selection mode management
-// The main buttons now directly activate/deactivate parameters
-// Channel buttons work based on current parameter state
+// State synchronization and validation functions
+
+void MonitorControllerMaxAudioProcessor::updateAllStates()
+{
+    // 1. 更新参数激活状态
+    bool currentSoloActive = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    bool currentMuteActive = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    
+    // 2. 更新保护状态
+    if (linkageEngine) {
+        linkageEngine->updateParameterProtection();
+    }
+    
+    // 3. 通知UI更新
+    // UI会在定时器中自动查询最新状态
+    
+    // 4. 验证状态一致性
+    validateStateConsistency();
+}
+
+void MonitorControllerMaxAudioProcessor::validateStateConsistency()
+{
+    // 验证状态标志的一致性
+    bool soloActive = hasAnySoloActive();
+    bool muteActive = hasAnyMuteActive();
+    bool soloSelection = pendingSoloSelection.load();
+    bool muteSelection = pendingMuteSelection.load();
+    
+    // 记录状态用于调试
+    VST3_DBG("State check - Solo:" << (soloActive ? "true" : "false") << " Mute:" << (muteActive ? "true" : "false") 
+             << " SoloSel:" << (soloSelection ? "true" : "false") << " MuteSel:" << (muteSelection ? "true" : "false"));
+    
+    // 检查不合理的状态组合
+    if (soloActive && muteSelection) {
+        VST3_DBG("WARNING: Inconsistent state - Solo active but Mute selection pending");
+    }
+}
 

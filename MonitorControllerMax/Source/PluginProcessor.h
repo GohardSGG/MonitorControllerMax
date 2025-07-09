@@ -152,6 +152,13 @@ private:
     std::atomic<bool> pendingSoloSelection{false};
     std::atomic<bool> pendingMuteSelection{false};
     
+    // Protection state management (new)
+    bool soloModeProtectionActive = false;
+    
+    // State synchronization and validation
+    void updateAllStates();
+    void validateStateConsistency();
+    
     // Flag to prevent parameter update loops
     std::atomic<bool> isUpdatingFromParameter{false};
 

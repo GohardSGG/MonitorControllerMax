@@ -37,6 +37,10 @@ public:
     void clearMuteMemory();
     void clearAllCurrentMuteStates();
     
+    // Parameter protection control
+    void setParameterProtectionBypass(bool bypass);
+    void updateParameterProtection();
+    
     // Selection mode support
     void enterSoloSelectionMode();
     
@@ -51,6 +55,10 @@ private:
     
     // State tracking (mimics JSFX Pre_Solo_Active)
     bool previousSoloActive = false;
+    
+    // Parameter protection state management
+    bool soloModeProtectionActive = false;
+    bool protectionBypass = false;
     
     // Recursion prevention
     std::atomic<bool> isApplyingLinkage{false};

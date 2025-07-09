@@ -1,99 +1,145 @@
-# 大一统架构重构实施计划 - 双重状态系统
+# 修正版大一统架构重构实施计划 - 解决状态混乱问题
 
 ## 🎯 总体目标
 
-**实现双重状态判断系统，解决选择模式显示问题，完全按照架构文档实现**
+**修正四个关键架构问题，实现稳定可靠的Solo/Mute控制系统**
 
-基于最新的架构审核，采用双重状态系统（参数激活状态 + 选择模式状态）解决主按钮激活显示问题，实现不自动激活任何通道的正确选择模式。
+基于最新的问题分析，我们需要修正以下关键问题：
+1. **选择模式逻辑错误** - 点击已激活通道时错误退出模式
+2. **参数保护状态同步** - Solo模式退出后保护机制仍然激活
+3. **记忆管理时机** - Solo选择模式进入时需要立即保存记忆
+4. **状态同步机制** - 各状态标志同步不一致导致混乱
 
 ## 📋 实施阶段
 
-### Phase 1: 核心状态系统重构
+### Phase 1: 核心状态系统修正
 
-#### 1.1 实现双重状态判断系统
+#### 1.1 修正版状态定义
 **文件**: `Source/PluginProcessor.h/cpp`
 
-**核心状态定义**：
+**新增状态管理系统**：
 ```cpp
-// 双重状态判断
-bool hasAnySoloActive() const;      // 检查是否有通道被Solo
-bool hasAnyMuteActive() const;      // 检查是否有通道被Mute
-bool isInSoloSelectionMode() const; // 等待用户点击通道的Solo选择状态
-bool isInMuteSelectionMode() const; // 等待用户点击通道的Mute选择状态
+// 参数激活状态（保持现有）
+bool hasAnySoloActive() const;
+bool hasAnyMuteActive() const;
 
-// 主按钮激活显示
-bool isSoloButtonActive() const;    // hasAnySoloActive() || isInSoloSelectionMode()
-bool isMuteButtonActive() const;    // hasAnyMuteActive() || isInMuteSelectionMode()
-```
-
-**选择模式状态管理**：
-```cpp
-// 选择模式状态标志
+// 选择模式状态（保持现有）
 std::atomic<bool> pendingSoloSelection{false};
 std::atomic<bool> pendingMuteSelection{false};
 
-// 选择模式判断实现
-bool isInSoloSelectionMode() const {
-    return pendingSoloSelection.load() || hasAnySoloActive();
-}
+// 保护状态（新增）
+bool soloModeProtectionActive = false;
 
-bool isInMuteSelectionMode() const {
-    return (pendingMuteSelection.load() || hasAnyMuteActive()) && !hasAnySoloActive();
-}
+// 修正版主按钮激活显示
+bool isSoloButtonActive() const;    // hasAnySoloActive() || pendingSoloSelection
+bool isMuteButtonActive() const;    // (hasAnyMuteActive() || pendingMuteSelection) && !hasAnySoloActive()
+bool isMuteButtonEnabled() const;   // !hasAnySoloActive()
 ```
 
-#### 1.2 重构主按钮功能逻辑
-**按照架构文档严格实现**：
+#### 1.2 修正版主按钮功能逻辑
+**关键修正：三态逻辑和状态同步**
 
-**Solo主按钮点击**：
+**Solo主按钮点击（三态逻辑）**：
 ```cpp
 void handleSoloButtonClick() {
     if (hasAnySoloActive()) {
-        // 有Solo参数激活 → 清除所有Solo + 清除选择模式
-        clearAllSoloParameters();
+        // 状态1：有Solo参数激活
+        // → 清除所有Solo参数 + 清除选择模式 + 关闭参数保护
+        VST3_DBG("Clearing all Solo parameters - will trigger memory restore");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
+        
+        // 临时禁用保护，允许系统清除操作
+        if (linkageEngine) {
+            linkageEngine->setParameterProtectionBypass(true);
+            linkageEngine->clearAllSoloParameters();
+            linkageEngine->setParameterProtectionBypass(false);
+        }
+        
+        // 关闭保护状态
+        soloModeProtectionActive = false;
+        
+    } else if (pendingSoloSelection.load()) {
+        // 状态2：无Solo参数，但在Solo选择模式
+        // → 退出Solo选择模式 + 恢复之前保存的记忆
+        VST3_DBG("Exiting Solo selection mode - restoring memory");
+        
+        if (linkageEngine) {
+            linkageEngine->restoreMuteMemory();
+        }
+        
+        pendingSoloSelection.store(false);
+        pendingMuteSelection.store(false);
+        
     } else {
-        // 无Solo参数激活 → 进入Solo选择模式（不激活任何通道）
-        VST3_DBG("Entering Solo selection mode - waiting for channel clicks");
+        // 状态3：初始状态
+        // → 进入Solo选择模式 + 立即保存当前Mute记忆 + 清空所有Mute状态
+        VST3_DBG("Entering Solo selection mode - saving memory and clearing scene");
+        
+        // 立即保存当前Mute记忆并清空现场
+        if (linkageEngine) {
+            linkageEngine->saveCurrentMuteMemory();
+            linkageEngine->clearAllCurrentMuteStates();
+        }
+        
         pendingSoloSelection.store(true);
-        pendingMuteSelection.store(false);  // 切换模式
+        pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
     }
 }
 ```
 
-**Mute主按钮点击**：
+**Mute主按钮点击（带Solo优先检查）**：
 ```cpp
 void handleMuteButtonClick() {
+    // Solo Priority Rule: If any Solo parameter is active, Mute button is disabled
     if (hasAnySoloActive()) {
         VST3_DBG("Mute button ignored - Solo priority rule active");
-        return;  // Solo优先原则
+        return;
     }
     
     if (hasAnyMuteActive()) {
-        // 有Mute参数激活 → 清除所有Mute + 清除选择模式
-        clearAllMuteParameters();
+        // 有实际Mute参数激活 → 清除所有Mute参数
+        VST3_DBG("Clearing all Mute parameters");
+        pendingSoloSelection.store(false);
+        pendingMuteSelection.store(false);
+        if (linkageEngine) {
+            linkageEngine->clearAllMuteParameters();
+        }
+    } else if (pendingMuteSelection.load()) {
+        // 处于Mute选择模式，但没有实际Mute参数 → 退出Mute选择模式
+        VST3_DBG("Exiting Mute selection mode - returning to initial state");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
     } else {
-        // 无Mute参数激活 → 进入Mute选择模式（不激活任何通道）
+        // 初始状态 → 进入Mute选择模式，等待用户点击通道来添加Mute
         VST3_DBG("Entering Mute selection mode - waiting for channel clicks");
         pendingMuteSelection.store(true);
-        pendingSoloSelection.store(false);  // 切换模式
+        pendingSoloSelection.store(false);  // 切换到Mute选择模式会取消Solo选择模式
     }
 }
 ```
 
-#### 1.3 重构通道点击逻辑
-**基于双重状态的通道操作**：
+#### 1.3 修正版通道点击逻辑
+**关键修正：区分模式内操作和模式退出**
 
 ```cpp
 void handleChannelClick(int channelIndex) {
+    // Validate channel index
+    if (channelIndex < 0 || channelIndex >= 26) {
+        VST3_DBG("Invalid channel index: " << channelIndex);
+        return;
+    }
+    
+    VST3_DBG("Channel click: " << channelIndex);
+    
+    if (!linkageEngine) return;
+    
+    // 检查当前的选择模式状态
     bool inSoloSelection = isInSoloSelectionMode();
     bool inMuteSelection = isInMuteSelectionMode();
     
     if (inSoloSelection) {
-        // Solo选择模式 → 操作Solo参数
+        // Solo选择模式 → 切换该通道的Solo参数
         auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
         if (auto* soloParam = apvts.getParameter(soloParamId)) {
             float currentSolo = soloParam->getValue();
@@ -104,7 +150,7 @@ void handleChannelClick(int channelIndex) {
         // 清除待定选择状态 - 用户已经做出选择
         pendingSoloSelection.store(false);
     } else if (inMuteSelection) {
-        // Mute选择模式 → 操作Mute参数
+        // Mute选择模式 → 切换该通道的Mute参数
         auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
         if (auto* muteParam = apvts.getParameter(muteParamId)) {
             float currentMute = muteParam->getValue();
@@ -115,328 +161,253 @@ void handleChannelClick(int channelIndex) {
         // 清除待定选择状态 - 用户已经做出选择
         pendingMuteSelection.store(false);
     } else {
-        // 初始状态 → 无效果
+        // 初始状态: 通道点击无效果
         VST3_DBG("Channel clicked in Initial state - no effect");
     }
 }
 ```
 
-### Phase 2: UI系统重构 (双重状态显示)
+### Phase 2: ParameterLinkageEngine 修正
 
-#### 2.1 重构UI更新系统
-**文件**: `Source/PluginEditor.h/cpp`
-
-**基于双重状态的UI更新**：
-```cpp
-void updateMainButtonStates() {
-    // 使用双重状态系统
-    bool soloButtonActive = audioProcessor.isSoloButtonActive();
-    bool muteButtonActive = audioProcessor.isMuteButtonActive();
-    
-    // 更新主按钮显示状态
-    if (globalSoloButton.getToggleState() != soloButtonActive) {
-        globalSoloButton.setToggleState(soloButtonActive, juce::dontSendNotification);
-    }
-    
-    if (globalMuteButton.getToggleState() != muteButtonActive) {
-        globalMuteButton.setToggleState(muteButtonActive, juce::dontSendNotification);
-    }
-    
-    // Solo优先原则 - 动态控制Mute按钮可点击性
-    bool muteButtonEnabled = !audioProcessor.hasAnySoloActive();
-    globalMuteButton.setEnabled(muteButtonEnabled);
-    
-    // 更新按钮颜色
-    updateMainButtonColors(soloButtonActive, muteButtonActive);
-}
-```
-
-#### 2.2 增强30Hz定时器更新
-**完整的UI同步机制**：
-
-```cpp
-void timerCallback() override {
-    // 检查总线布局变化
-    int currentChannelCount = audioProcessor.getTotalNumInputChannels();
-    if (currentChannelCount != lastKnownChannelCount && currentChannelCount > 0) {
-        lastKnownChannelCount = currentChannelCount;
-        audioProcessor.autoSelectLayoutForChannelCount(currentChannelCount);
-        updateLayout();
-    }
-    
-    // 更新主按钮状态（基于双重状态）
-    updateMainButtonStates();
-    
-    // 更新通道按钮状态（基于参数值）
-    updateChannelButtonStates();
-    
-    // 选择模式UI反馈
-    updateSelectionModeIndicators();
-}
-```
-
-#### 2.3 选择模式视觉反馈
-**实现选择模式的UI提示**：
-
-```cpp
-void updateSelectionModeIndicators() {
-    bool inSoloSelection = audioProcessor.isInSoloSelectionMode();
-    bool inMuteSelection = audioProcessor.isInMuteSelectionMode();
-    
-    // 选择模式下的视觉提示
-    if (inSoloSelection && !audioProcessor.hasAnySoloActive()) {
-        // Solo选择模式且没有实际参数激活 - 显示等待提示
-        setSelectionModeHint("点击通道进行Solo...");
-    } else if (inMuteSelection && !audioProcessor.hasAnyMuteActive()) {
-        // Mute选择模式且没有实际参数激活 - 显示等待提示
-        setSelectionModeHint("点击通道进行Mute...");
-    } else {
-        // 清除选择提示
-        clearSelectionModeHint();
-    }
-}
-```
-
-### Phase 3: ParameterLinkageEngine 集成
-
-#### 3.1 保持现有联动机制
+#### 2.1 修正版参数保护机制
 **文件**: `Source/ParameterLinkageEngine.h/cpp`
 
-**核心联动逻辑保持不变**：
+**新增保护状态管理**：
 ```cpp
-void ParameterLinkageEngine::handleParameterChange(const String& paramID, float value) {
-    if (isApplyingLinkage.load()) return;
+class ParameterLinkageEngine {
+private:
+    // 保护状态管理
+    bool soloModeProtectionActive = false;
+    bool protectionBypass = false;
     
-    // 检测Solo状态变化
-    bool currentSoloActive = hasAnySoloActive();
-    
-    if (currentSoloActive != previousSoloActive) {
-        ScopedLinkageGuard guard(isApplyingLinkage);
-        
-        if (currentSoloActive) {
-            // 进入Solo模式
-            VST3_DBG("Entering Solo mode - saving Mute memory and applying auto-mute");
-            saveCurrentMuteMemory();
-            applyAutoMuteForSolo();
-        } else {
-            // 退出Solo模式
-            VST3_DBG("Exiting Solo mode - restoring Mute memory");
-            restoreMuteMemory();
-        }
-        
-        previousSoloActive = currentSoloActive;
-    }
-}
-```
-
-#### 3.2 增强状态查询接口
-**为双重状态系统提供支持**：
-
-```cpp
-// 状态查询函数（保持现有实现）
-bool hasAnySoloActive() const;
-bool hasAnyMuteActive() const;
-
-// 批量操作函数（供主按钮使用）
-void clearAllSoloParameters();
-void clearAllMuteParameters();
-
-// 参数保护机制（Solo模式下的Mute参数保护）
-void enforceAutoMuteProtection(const String& paramID, float attemptedValue);
-```
-
-### Phase 4: 典型操作场景测试
-
-#### 4.1 场景测试计划
-
-**场景1：初始状态**
-- 状态：无参数激活，无选择模式
-- UI显示：Solo按钮非激活，Mute按钮非激活
-- 测试：点击Solo主按钮 → Solo按钮变绿色（进入选择模式）
-- 测试：点击Mute主按钮 → Mute按钮变红色（进入选择模式）
-
-**场景2：Solo选择模式**
-- 状态：Solo选择模式激活，无参数激活
-- UI显示：Solo按钮激活（绿色），Mute按钮非激活
-- 测试：点击通道1 → 激活SOLO_1，清除选择模式，进入实际Solo状态
-- 测试：点击Mute主按钮 → 切换到Mute选择模式
-
-**场景3：Mute选择模式**
-- 状态：Mute选择模式激活，无参数激活
-- UI显示：Solo按钮非激活，Mute按钮激活（红色）
-- 测试：点击通道2 → 激活MUTE_2，清除选择模式，进入实际Mute状态
-- 测试：点击Solo主按钮 → 切换到Solo选择模式
-
-**场景4：实际Solo激活**
-- 状态：有Solo参数激活，无选择模式
-- UI显示：Solo按钮激活（绿色），Mute按钮激活（红色，Auto-Mute）
-- 测试：点击Solo主按钮 → 清除所有Solo，恢复记忆，回到对应状态
-- 测试：点击Mute主按钮 → 无效果（Solo优先原则）
-
-**场景5：选择模式切换**
-- 从Solo选择模式：点击Mute主按钮 → 切换到Mute选择模式
-- 从Mute选择模式：点击Solo主按钮 → 切换到Solo选择模式
-- 条件：只有在没有实际参数激活时才能切换
-
-#### 4.2 边界情况测试
-
-**关键测试点**：
-- 快速连续点击主按钮的状态切换
-- 选择模式下通道点击的即时响应
-- Solo优先原则的严格执行
-- 参数窗口操作与选择模式的交互
-- 主从实例同步与选择模式状态
-
-### Phase 5: 完整架构验证
-
-#### 5.1 与架构文档对比验证
-
-**架构文档要求验证**：
-- Solo主按钮：无Solo时进入选择模式，有Solo时清除参数 ✓
-- Mute主按钮：无Mute时进入选择模式，有Mute时清除参数 ✓
-- 不自动激活任何通道，完全等待用户操作 ✓
-- Solo优先原则的严格执行 ✓
-- 选择模式可以相互切换（仅在无实际参数激活时）✓
-
-#### 5.2 双重状态系统验证
-
-**状态显示验证**：
-- 参数激活 → 按钮激活显示 ✓
-- 选择模式 → 按钮激活显示 ✓
-- 参数激活 + 选择模式 → 按钮激活显示 ✓
-- 无参数且无选择模式 → 按钮非激活显示 ✓
-
-#### 5.3 功能完整性验证
-
-**与JSFX版本对比**：
-- Solo联动机制完全一致 ✓
-- Mute记忆管理完全一致 ✓
-- 参数保护机制完全一致 ✓
-- UI响应性和实时性完全一致 ✓
-
-## 🔧 实施细节
-
-### 关键设计原则
-1. **双重状态判断** - 参数激活状态 + 选择模式状态 = 完整状态控制
-2. **不自动激活通道** - 严格按照架构文档，选择模式等待用户操作
-3. **Solo绝对优先** - Solo存在时Mute主按钮完全失效
-4. **统一触发点** - 所有逻辑变更都通过parameterChanged触发
-5. **原子状态管理** - 使用原子标志确保线程安全的选择模式状态
-
-### 选择模式状态转换图
-
-```
-初始状态 (无参数，无选择模式)
-    ↓ 点击Solo主按钮
-Solo选择模式 (选择模式，无参数)
-    ↓ 点击通道
-实际Solo状态 (有参数，无选择模式)
-    ↓ 点击Solo主按钮
-初始状态
-
-初始状态 (无参数，无选择模式)
-    ↓ 点击Mute主按钮
-Mute选择模式 (选择模式，无参数)
-    ↓ 点击通道
-实际Mute状态 (有参数，无选择模式)
-    ↓ 点击Mute主按钮
-初始状态
-```
-
-### 循环防护和线程安全
-
-```cpp
-// 选择模式状态的原子管理
-std::atomic<bool> pendingSoloSelection{false};
-std::atomic<bool> pendingMuteSelection{false};
-
-// 参数联动的循环防护
-class ScopedLinkageGuard {
-    std::atomic<bool>& flag;
 public:
-    ScopedLinkageGuard(std::atomic<bool>& f) : flag(f) { 
-        flag.store(true); 
-    }
-    ~ScopedLinkageGuard() { 
-        flag.store(false); 
-    }
+    // 保护状态控制
+    void setParameterProtectionBypass(bool bypass);
+    void updateParameterProtection();
+    
+    // 双重触发机制记忆管理
+    void enterSoloSelectionMode();
+    void clearAllCurrentMuteStates();
 };
 ```
 
-## 📊 进度追踪
+**修正版参数保护逻辑**：
+```cpp
+void ParameterLinkageEngine::handleParameterChange(const String& paramID, float value) {
+    if (isApplyingLinkage.load()) {
+        return;  // Prevent recursion during linkage application
+    }
+    
+    // 检查保护绕过标志
+    if (protectionBypass) {
+        // 主按钮操作时绕过保护
+        VST3_DBG("Parameter protection bypassed for system operation");
+        setParameterValue(paramID, value);
+        return;
+    }
+    
+    // PARAMETER PROTECTION: Prevent illegal Mute parameter changes in Solo mode
+    if (paramID.startsWith("MUTE_") && soloModeProtectionActive) {
+        VST3_DBG("Parameter protection: Blocking " << paramID << " change in Solo mode");
+        
+        // 计算正确的Auto-Mute值并强制恢复
+        int channelIndex = paramID.getTrailingIntValue() - 1;
+        if (channelIndex >= 0 && channelIndex < 26) {
+            String soloParamID = getSoloParameterID(channelIndex);
+            float soloValue = getParameterValue(soloParamID);
+            float correctMuteValue = (soloValue > 0.5f) ? 0.0f : 1.0f;
+            
+            if (std::abs(value - correctMuteValue) > 0.1f) {
+                VST3_DBG("Parameter protection: Forcing " << paramID << " back to " << correctMuteValue);
+                juce::MessageManager::callAsync([this, paramID, correctMuteValue]() {
+                    setParameterValue(paramID, correctMuteValue);
+                });
+            }
+        }
+        return; // 阻止进一步处理
+    }
+    
+    // 其他现有逻辑...
+}
 
-### 当前状态：Phase 1 - 双重状态系统实施
+void ParameterLinkageEngine::updateParameterProtection() {
+    bool shouldProtect = hasAnySoloActive();
+    
+    if (shouldProtect && !soloModeProtectionActive) {
+        soloModeProtectionActive = true;
+        VST3_DBG("Parameter protection ENABLED");
+    } else if (!shouldProtect && soloModeProtectionActive) {
+        soloModeProtectionActive = false;
+        VST3_DBG("Parameter protection DISABLED");
+    }
+}
 
-**已完成的基础设施**：
-- [x] ParameterLinkageEngine核心引擎
-- [x] Solo/Mute联动机制
-- [x] 状态记忆系统
-- [x] UI实时同步（30Hz定时器）
-- [x] VST3调试系统
-- [x] 参数保护机制
+void ParameterLinkageEngine::setParameterProtectionBypass(bool bypass) {
+    protectionBypass = bypass;
+    VST3_DBG("Parameter protection bypass: " << (bypass ? "ENABLED" : "DISABLED"));
+}
+```
 
-**当前实施阶段**：
-- [ ] **实现双重状态判断系统**
-  - [ ] 添加pendingSoloSelection和pendingMuteSelection状态标志
-  - [ ] 实现isInSoloSelectionMode()和isInMuteSelectionMode()函数
-  - [ ] 实现isSoloButtonActive()和isMuteButtonActive()函数
-- [ ] **重构主按钮功能逻辑**
-  - [ ] 修复handleSoloButtonClick()以正确进入选择模式
-  - [ ] 修复handleMuteButtonClick()以正确进入选择模式
-  - [ ] 移除错误的自动激活通道逻辑
-- [ ] **重构通道点击逻辑**
-  - [ ] 基于双重状态的通道操作
-  - [ ] 选择模式状态的自动清除
-  - [ ] 初始状态下的无效果处理
+#### 2.2 双重触发机制记忆管理
+**修正记忆管理的时机**：
 
-### 实施优先级
+```cpp
+void ParameterLinkageEngine::enterSoloSelectionMode() {
+    VST3_DBG("Entering Solo selection mode - immediate memory save and scene clear");
+    saveCurrentMuteMemory();
+    clearAllCurrentMuteStates();
+}
 
-**高优先级**：
-1. 修复主按钮选择模式逻辑（移除自动激活）
-2. 实现双重状态判断系统
-3. 重构通道点击逻辑
+void ParameterLinkageEngine::clearAllCurrentMuteStates() {
+    VST3_DBG("Clearing all current Mute states");
+    
+    ScopedLinkageGuard guard(isApplyingLinkage);
+    
+    for (int i = 0; i < 26; ++i) {
+        setParameterValue(getMuteParameterID(i), 0.0f);
+        VST3_DBG("Cleared Mute[" << i << "] = 0");
+    }
+}
+```
 
-**中优先级**：
-4. UI选择模式视觉反馈
-5. 完整场景测试验证
+### Phase 3: 统一状态同步机制
 
-**低优先级**：
-6. 性能优化和边界情况处理
-7. 与JSFX版本的细节对比
+#### 3.1 状态同步更新流程
+**任何状态变化时的统一更新**：
 
-### 关键里程碑
+```cpp
+void MonitorControllerMaxAudioProcessor::updateAllStates() {
+    // 1. 更新参数激活状态
+    bool currentSoloActive = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    bool currentMuteActive = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    
+    // 2. 更新保护状态
+    if (linkageEngine) {
+        linkageEngine->updateParameterProtection();
+    }
+    
+    // 3. 通知UI更新
+    // UI会在定时器中自动查询最新状态
+    
+    // 4. 验证状态一致性
+    validateStateConsistency();
+}
 
-**里程碑1**：双重状态系统基础实现
-- 选择模式状态管理正常工作
-- 主按钮激活显示正确反映状态
+void MonitorControllerMaxAudioProcessor::validateStateConsistency() {
+    // 验证状态标志的一致性
+    bool soloActive = hasAnySoloActive();
+    bool muteActive = hasAnyMuteActive();
+    bool soloSelection = pendingSoloSelection.load();
+    bool muteSelection = pendingMuteSelection.load();
+    
+    // 记录状态用于调试
+    VST3_DBG("State check - Solo:" << soloActive << " Mute:" << muteActive 
+             << " SoloSel:" << soloSelection << " MuteSel:" << muteSelection);
+    
+    // 检查不合理的状态组合
+    if (soloActive && muteSelection) {
+        VST3_DBG("WARNING: Inconsistent state - Solo active but Mute selection pending");
+    }
+}
+```
 
-**里程碑2**：主按钮逻辑修复
-- 不再自动激活任何通道
-- 正确进入选择模式等待用户操作
+### Phase 4: 关键场景修正测试
 
-**里程碑3**：完整功能验证
-- 所有架构文档场景测试通过
-- 与JSFX版本功能完全一致
+#### 4.1 修正版场景测试
 
-## 🎯 成功标准
+**场景：Solo模式下点击已激活通道**
+```
+操作序列：
+1. 用户Mute L通道
+2. 用户点击Solo主按钮 → 立即保存记忆，清空现场，进入Solo选择模式
+3. 用户点击L通道 → 激活L通道Solo，清除选择模式标志，进入Solo模式
+4. 用户再次点击L通道 → 取消L通道Solo，保持在Solo模式，等待下一个选择
 
-**架构文档完全遵循**：
-- Solo主按钮：无Solo时进入选择模式，有Solo时清除参数
-- Mute主按钮：无Mute时进入选择模式，有Mute时清除参数
-- 不自动激活任何通道，完全等待用户操作
-- Solo优先原则的严格执行
-- 选择模式的正确UI反馈
+期望结果：
+- 第4步后：Solo主按钮仍为绿色（表示仍在Solo功能模式）
+- 其他通道的Auto-Mute状态重新计算
+- 用户可以继续点击其他通道或点击Solo主按钮退出
+```
 
-**技术实现标准**：
-- 双重状态系统正常工作
-- 原子状态管理确保线程安全
-- UI与状态完全同步
-- 参数联动机制保持不变
-- 调试日志详细记录所有状态变化
+**场景：Solo模式退出后的参数保护**
+```
+操作序列：
+1. 激活Solo模式（有Auto-Mute）
+2. 点击Solo主按钮退出 → 立即关闭参数保护，恢复记忆
+3. 点击Mute主按钮 → 应该能正常清除所有Mute状态
+
+期望结果：
+- 第3步应该成功，不再出现参数保护阻止操作
+- 所有Mute状态应能正常清除
+- 系统不应锁死在保护状态
+```
+
+#### 4.2 边界情况测试
+
+**测试重点**：
+- 快速连续的主按钮点击
+- 选择模式和参数激活的状态转换
+- 参数保护的正确启用/关闭时机
+- 记忆管理的双重触发机制
+- 状态同步的一致性验证
+
+### Phase 5: 完整架构验证
+
+#### 5.1 修正版成功标准
+
+**架构问题解决验证**：
+- ✅ 选择模式中通道点击不再错误退出模式
+- ✅ 参数保护机制正确同步，不再锁死系统
+- ✅ 记忆管理在正确时机触发，用户状态得到保护
+- ✅ 所有状态标志同步一致，无状态混乱
+
+**技术实现验证**：
+- ✅ 三态主按钮逻辑正确工作
+- ✅ 保护绕过机制允许系统操作
+- ✅ 双重触发记忆管理时机正确
+- ✅ 统一状态更新流程确保一致性
+
+## 🔧 实施优先级
+
+### 高优先级修正（立即执行）：
+1. **修正通道点击逻辑** - 区分模式内操作和模式退出
+2. **修正参数保护同步** - 添加正确的启用/关闭时机
+3. **修正记忆管理时机** - 在Solo选择模式进入时立即保存
+
+### 中优先级修正：
+4. **完善状态同步机制** - 确保所有标志同步一致
+5. **优化UI反馈** - 让用户清楚了解当前状态
+
+### 低优先级：
+6. **性能优化和边界情况** - 确保系统健壮性
+
+## 📊 修正进度追踪
+
+### 当前阶段：Phase 1 - 核心问题修正
+
+**需要修正的文件**：
+- [ ] `PluginProcessor.h` - 添加保护状态管理
+- [ ] `PluginProcessor.cpp` - 修正主按钮三态逻辑
+- [ ] `ParameterLinkageEngine.h` - 添加保护和绕过机制
+- [ ] `ParameterLinkageEngine.cpp` - 修正参数保护逻辑
+- [ ] 测试验证所有修正场景
+
+**关键里程碑**：
+- **里程碑1**：通道点击逻辑修正完成
+- **里程碑2**：参数保护同步问题解决
+- **里程碑3**：记忆管理时机修正完成
+- **里程碑4**：状态同步机制完善
+
+## 🎯 最终验证标准
 
 **用户体验标准**：
-- 直观的选择模式交互
-- 清晰的按钮状态显示
-- 快速响应的UI更新
-- 完全可预测的行为模式
-- 与专业监听控制器习惯一致
+- Solo模式下点击已激活通道时保持在模式中
+- Solo模式退出后能正常操作所有Mute功能
+- 点击Solo主按钮时立即清空现有Mute状态
+- 所有操作都可预测，无意外行为
+
+**技术实现标准**：
+- 无状态标志不一致情况
+- 无参数保护机制锁死
+- 无记忆管理时机错误
+- 完整的调试日志记录所有状态变化

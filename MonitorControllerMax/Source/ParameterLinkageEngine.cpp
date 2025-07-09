@@ -29,6 +29,35 @@ void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, 
         return;
     }
     
+    // 检查保护绕过标志
+    if (protectionBypass) {
+        // 主按钮操作时绕过保护
+        VST3_DBG("Parameter protection bypassed for system operation");
+        setParameterValue(paramID, value);
+        return;
+    }
+    
+    // PARAMETER PROTECTION: Prevent illegal Mute parameter changes in Solo mode
+    if (paramID.startsWith("MUTE_") && soloModeProtectionActive) {
+        VST3_DBG("Parameter protection: Blocking " << paramID << " change in Solo mode");
+        
+        // 计算正确的Auto-Mute值并强制恢复
+        int channelIndex = paramID.getTrailingIntValue() - 1;
+        if (channelIndex >= 0 && channelIndex < 26) {
+            juce::String soloParamID = getSoloParameterID(channelIndex);
+            float soloValue = getParameterValue(soloParamID);
+            float correctMuteValue = (soloValue > 0.5f) ? 0.0f : 1.0f;
+            
+            if (std::abs(value - correctMuteValue) > 0.1f) {
+                VST3_DBG("Parameter protection: Forcing " << paramID << " back to " << correctMuteValue);
+                juce::MessageManager::callAsync([this, paramID, correctMuteValue]() {
+                    setParameterValue(paramID, correctMuteValue);
+                });
+            }
+        }
+        return; // 阻止进一步处理
+    }
+    
     // CRITICAL FIX: Handle Solo parameter activation at the very beginning
     if (paramID.startsWith("SOLO_") && value > 0.5f && !previousSoloActive) {
         VST3_DBG("First Solo parameter activated - saving memory and clearing scene");
@@ -104,37 +133,7 @@ void ParameterLinkageEngine::handleParameterChange(const juce::String& paramID, 
         return; // 早期返回
     }
     
-    // PARAMETER PROTECTION: Prevent illegal Mute parameter changes in Solo mode
-    if (paramID.startsWith("MUTE_") && previousSoloActive) {
-        VST3_DBG("Parameter protection: Attempting to change " << paramID << " in Solo mode");
-        
-        // Extract channel index from parameter ID (MUTE_1 -> channel 0)
-        int channelIndex = paramID.getTrailingIntValue() - 1;
-        
-        // Determine the correct Auto-Mute value for this channel
-        bool isChannelSolo = false;
-        if (channelIndex >= 0 && channelIndex < 26) {
-            juce::String soloParamID = getSoloParameterID(channelIndex);
-            float soloValue = getParameterValue(soloParamID);
-            isChannelSolo = (soloValue > 0.5f);
-        }
-        
-        // Calculate correct Mute value: Solo channels = not muted, non-Solo channels = muted
-        float correctMuteValue = isChannelSolo ? 0.0f : 1.0f;
-        
-        // Force restore to correct value if user tried to change it
-        if (std::abs(value - correctMuteValue) > 0.1f) {
-            VST3_DBG("Parameter protection: Forcing " << paramID << " back to " << correctMuteValue);
-            
-            // Use a delayed call to avoid recursion
-            juce::MessageManager::callAsync([this, paramID, correctMuteValue]() {
-                setParameterValue(paramID, correctMuteValue);
-            });
-        }
-        
-        // Always return early to prevent any further processing of Mute changes in Solo mode
-        return;
-    }
+    // 这里的旧保护逻辑已经被前面的新保护逻辑替代
 }
 
 bool ParameterLinkageEngine::hasAnySoloActive() const {
@@ -293,4 +292,23 @@ ParameterLinkageEngine::ScopedLinkageGuard::ScopedLinkageGuard(std::atomic<bool>
 
 ParameterLinkageEngine::ScopedLinkageGuard::~ScopedLinkageGuard() {
     guardFlag.store(false);
+}
+
+// Parameter protection control functions
+
+void ParameterLinkageEngine::setParameterProtectionBypass(bool bypass) {
+    protectionBypass = bypass;
+    VST3_DBG("Parameter protection bypass: " << (bypass ? "ENABLED" : "DISABLED"));
+}
+
+void ParameterLinkageEngine::updateParameterProtection() {
+    bool shouldProtect = hasAnySoloActive();
+    
+    if (shouldProtect && !soloModeProtectionActive) {
+        soloModeProtectionActive = true;
+        VST3_DBG("Parameter protection ENABLED");
+    } else if (!shouldProtect && soloModeProtectionActive) {
+        soloModeProtectionActive = false;
+        VST3_DBG("Parameter protection DISABLED");
+    }
 }
