@@ -17,9 +17,10 @@ class PhysicalChannelMapper;
  * 3. 在插件加载时广播所有当前状态
  * 
  * OSC协议格式：
- * 地址: /Monitor/{Action}_{Channel}/
+ * 地址: /Monitor/{Action}/{Channel}
  * 值: 1.0f (ON) / 0.0f (OFF)
- * 示例: /Monitor/Solo_L/ 1.0, /Monitor/Mute_R/ 0.0
+ * 示例: /Monitor/Solo/L 1.0, /Monitor/Mute/SUB_B 0.0
+ * 注：通道名中的空格会自动转换为下划线
  */
 class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::RealtimeCallback>
 {

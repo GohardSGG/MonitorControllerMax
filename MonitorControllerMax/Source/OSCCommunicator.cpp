@@ -237,30 +237,35 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
 
 juce::String OSCCommunicator::formatOSCAddress(const juce::String& action, const juce::String& channelName) const
 {
-    return "/Monitor/" + action + "_" + channelName + "/";
+    // 将通道名中的空格替换为下划线
+    juce::String sanitizedChannelName = channelName.replaceCharacter(' ', '_');
+    return "/Monitor/" + action + "/" + sanitizedChannelName;
 }
 
 std::pair<juce::String, juce::String> OSCCommunicator::parseOSCAddress(const juce::String& address) const
 {
-    // 期望格式: /Monitor/{Action}_{Channel}/
+    // 期望格式: /Monitor/{Action}/{Channel}
     
-    if (!address.startsWith("/Monitor/") || !address.endsWith("/"))
+    if (!address.startsWith("/Monitor/"))
     {
         return {"", ""};
     }
     
-    // 移除前缀和后缀
-    juce::String content = address.substring(9, address.length() - 1); // 移除"/Monitor/"和"/"
+    // 移除前缀
+    juce::String content = address.substring(9); // 移除"/Monitor/"
     
-    // 查找下划线分隔符
-    int underscorePos = content.indexOf("_");
-    if (underscorePos == -1)
+    // 查找第一个斜杠分隔符
+    int slashPos = content.indexOf("/");
+    if (slashPos == -1)
     {
         return {"", ""};
     }
     
-    juce::String action = content.substring(0, underscorePos);
-    juce::String channelName = content.substring(underscorePos + 1);
+    juce::String action = content.substring(0, slashPos);
+    juce::String channelName = content.substring(slashPos + 1);
+    
+    // 将下划线替换回空格（如果需要）
+    channelName = channelName.replaceCharacter('_', ' ');
     
     return {action, channelName};
 }
