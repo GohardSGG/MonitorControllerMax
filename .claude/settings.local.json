@@ -44,7 +44,11 @@
       "Bash(\"/c/Program Files/JUCE/Projucer.exe\" --resave MonitorControllerMax.jucer)",
       "Bash(\"/mnt/c/REAPER/Effects/Masking Effects/MonitorControllerMax/JuceLibraryCode/juce_header.h\" --resave MonitorControllerMax.jucer)",
       "Bash(taskkill:*)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(\"/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" \"Test Para.sln\" /p:Configuration=Debug /p:Platform=x64)",
+      "Bash(\"/mnt/c/JUCE/Projucer.exe\" --resave MonitorControllerMax.jucer)",
+      "Bash(g++:*)",
+      "Bash(./semantic_test.exe)"
     ],
     "deny": []
   }

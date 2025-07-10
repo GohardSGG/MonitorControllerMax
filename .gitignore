@@ -1,7 +1,6 @@
 # JUCE
 #
 # Projucer
-*.jucer
 Builds/
 
 # Visual Studio
