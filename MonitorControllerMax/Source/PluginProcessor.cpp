@@ -51,6 +51,26 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     
     VST3_DBG("Semantic state system initialization complete");
     
+    // Initialize OSC communication system
+    VST3_DBG("Initialize OSC communication system");
+    
+    // 设置OSC外部控制回调
+    oscCommunicator.onExternalStateChange = [this](const juce::String& channelName, bool soloState, bool muteState) 
+    {
+        // 处理外部OSC控制，更新语义状态
+        handleExternalOSCControl(channelName, soloState, muteState);
+    };
+    
+    // 尝试初始化OSC连接
+    if (oscCommunicator.initialize())
+    {
+        VST3_DBG("OSC communication system initialized successfully");
+    }
+    else
+    {
+        VST3_DBG("OSC communication system initialization failed - continuing without OSC");
+    }
+    
     // Initialize legacy StateManager (will be phased out)
 }
 
@@ -58,6 +78,11 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
+    VST3_DBG("PluginProcessor: Destructor - cleaning up resources");
+    
+    // Shutdown OSC communication
+    oscCommunicator.shutdown();
+    
     // Only remove Gain parameter listeners - Solo/Mute parameters no longer exist
     const int maxChannels = 26;
     for (int i = 0; i < maxChannels; ++i)
@@ -132,20 +157,14 @@ void MonitorControllerMaxAudioProcessor::changeProgramName (int index, const juc
 //==============================================================================
 void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    VST3_DBG("PluginProcessor: prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
+    
+    // 只处理保留的Gain参数
     const int maxChannels = 26;
     for (int i = 0; i < maxChannels; ++i)
     {
-        auto muteId = "MUTE_" + juce::String(i + 1);
-        auto soloId = "SOLO_" + juce::String(i + 1);
         auto gainId = "GAIN_" + juce::String(i + 1);
-
-        muteParams[i] = apvts.getRawParameterValue(muteId);
-        soloParams[i] = apvts.getRawParameterValue(soloId);
         gainParams[i] = apvts.getRawParameterValue(gainId);
-
-        // Simply add the listeners. JUCE is robust enough to handle this.
-        apvts.addParameterListener(muteId, this);
-        apvts.addParameterListener(soloId, this);
         apvts.addParameterListener(gainId, this);
     }
     
@@ -155,6 +174,10 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
     {
         autoSelectLayoutForChannelCount(currentChannelCount);
     }
+    
+    // 插件准备就绪后，广播所有当前状态到OSC
+    VST3_DBG("PluginProcessor: Broadcasting initial states to OSC");
+    oscCommunicator.broadcastAllStates(semanticState, physicalMapper);
 }
 
 void MonitorControllerMaxAudioProcessor::releaseResources()
@@ -607,29 +630,40 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     VST3_DBG("Solo button clicked - using semantic state system");
     
     if (semanticState.hasAnySoloActive()) {
-        // 状态1：有Solo状态激活 - 清除所有Solo状态
-        VST3_DBG("Clearing all Solo states");
+        // 状态1：有Solo状态激活 - 清除所有Solo状态并恢复Mute记忆
+        VST3_DBG("Clearing all Solo states and restoring Mute memory");
         
         // 清除选择模式
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
         
-        // 清除所有Solo状态 - 这会自动触发Solo模式联动逻辑
+        // 清除所有Solo状态
         semanticState.clearAllSoloStates();
+        
+        // 恢复之前保存的Mute记忆状态
+        semanticState.restoreMuteMemory();
         
         // 关闭保护状态
         soloModeProtectionActive = false;
         
     } else if (pendingSoloSelection.load()) {
-        // 状态2：无Solo状态，但在Solo选择模式 - 退出选择模式
-        VST3_DBG("Exiting Solo selection mode");
+        // 状态2：无Solo状态，但在Solo选择模式 - 退出选择模式并恢复记忆
+        VST3_DBG("Exiting Solo selection mode and restoring Mute memory");
+        
+        // 恢复之前保存的Mute记忆状态
+        semanticState.restoreMuteMemory();
         
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
         
     } else {
         // 状态3：初始状态 - 进入Solo选择模式
-        VST3_DBG("Entering Solo selection mode");
+        // → 保存当前Mute记忆 + 清空所有当前Mute状态 + 进入Solo选择模式
+        VST3_DBG("Entering Solo selection mode - saving Mute memory and clearing current Mute states");
+        
+        // 保存当前Mute记忆并清空现场，让UI显示干净状态
+        semanticState.saveCurrentMuteMemory();
+        semanticState.clearAllMuteStates();
         
         pendingSoloSelection.store(true);
         pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
@@ -822,8 +856,8 @@ void MonitorControllerMaxAudioProcessor::onSoloStateChanged(const juce::String& 
     // Log the change for debugging
     semanticState.logCurrentState();
     
-    // Future: Add OSC communication here when implemented
-    // oscComm.sendSoloState(channelName, state);
+    // Send OSC state change notification
+    oscCommunicator.sendSoloState(channelName, state);
     
     // Trigger UI updates if needed
     // (UI should use timer-based updates to poll semantic state)
@@ -836,8 +870,8 @@ void MonitorControllerMaxAudioProcessor::onMuteStateChanged(const juce::String& 
     // Log the change for debugging
     semanticState.logCurrentState();
     
-    // Future: Add OSC communication here when implemented
-    // oscComm.sendMuteState(channelName, state);
+    // Send OSC state change notification
+    oscCommunicator.sendMuteState(channelName, state);
     
     // Trigger UI updates if needed
     // (UI should use timer-based updates to poll semantic state)
@@ -851,10 +885,55 @@ void MonitorControllerMaxAudioProcessor::onGlobalModeChanged()
     // Log complete state for debugging
     semanticState.logCurrentState();
     
-    // Future: Add OSC communication here when implemented
-    // oscComm.broadcastAllStates(semanticState);
+    // Broadcast all states when global mode changes
+    oscCommunicator.broadcastAllStates(semanticState, physicalMapper);
     
     // Trigger UI updates if needed
     // (UI should use timer-based updates to poll semantic state)
+}
+
+//==============================================================================
+// OSC external control handler
+//==============================================================================
+
+void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::String& channelName, bool soloState, bool muteState)
+{
+    VST3_DBG("PluginProcessor: Handle external OSC control - channel: " + channelName + 
+             ", solo: " + (soloState ? "ON" : "OFF") + ", mute: " + (muteState ? "ON" : "OFF"));
+    
+    // 验证通道名称是否在当前映射中存在
+    if (!physicalMapper.hasSemanticChannel(channelName))
+    {
+        VST3_DBG("PluginProcessor: OSC control for unmapped channel ignored - " + channelName);
+        return;
+    }
+    
+    // 更新语义状态 - 这些调用会自动触发状态变化回调
+    // 但OSCCommunicator会通过suppressOSCSend标志防止循环发送
+    
+    // 注意：OSC消息是分别发送Solo和Mute状态的，所以需要智能处理
+    // 这个回调是针对单个Solo或Mute消息的，不是同时更新两个状态
+    
+    if (soloState)
+    {
+        // Solo状态激活
+        semanticState.setSoloState(channelName, true);
+        VST3_DBG("PluginProcessor: External OSC activated Solo for channel " + channelName);
+    }
+    else if (muteState)
+    {
+        // Mute状态激活  
+        semanticState.setMuteState(channelName, true);
+        VST3_DBG("PluginProcessor: External OSC activated Mute for channel " + channelName);
+    }
+    else
+    {
+        // 状态关闭 - 这里实际上不会同时收到soloState=false和muteState=false
+        // OSCCommunicator会分别调用这个函数来处理Solo OFF或Mute OFF
+        VST3_DBG("PluginProcessor: External OSC deactivated state for channel " + channelName);
+        
+        // 由于这是从OSC解析来的，我们知道具体是哪个操作
+        // 这个逻辑需要在OSCCommunicator中改进，分别处理Solo和Mute消息
+    }
 }
 

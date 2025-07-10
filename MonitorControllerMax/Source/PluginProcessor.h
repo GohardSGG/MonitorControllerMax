@@ -17,6 +17,7 @@
 #include "ConfigManager.h"
 #include "SemanticChannelState.h"
 #include "PhysicalChannelMapper.h"
+#include "OSCCommunicator.h"
 
 class InterPluginCommunicator;
 
@@ -88,13 +89,18 @@ public:
     // Semantic state system access (new interface)
     SemanticChannelState& getSemanticState() { return semanticState; }
     PhysicalChannelMapper& getPhysicalMapper() { return physicalMapper; }
+    OSCCommunicator& getOSCCommunicator() { return oscCommunicator; }
     const SemanticChannelState& getSemanticState() const { return semanticState; }
     const PhysicalChannelMapper& getPhysicalMapper() const { return physicalMapper; }
+    const OSCCommunicator& getOSCCommunicator() const { return oscCommunicator; }
 
     // SemanticChannelState::StateChangeListener interface
     void onSoloStateChanged(const juce::String& channelName, bool state) override;
     void onMuteStateChanged(const juce::String& channelName, bool state) override;
     void onGlobalModeChanged() override;
+    
+    // OSC external control handler
+    void handleExternalOSCControl(const juce::String& channelName, bool soloState, bool muteState);
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -142,6 +148,7 @@ public:
     // New semantic state system (gradually replacing VST3 parameter system)
     SemanticChannelState semanticState;
     PhysicalChannelMapper physicalMapper;
+    OSCCommunicator oscCommunicator;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

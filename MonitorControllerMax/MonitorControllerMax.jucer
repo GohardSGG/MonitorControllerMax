@@ -4,6 +4,10 @@
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
   <MAINGROUP id="fEulgD" name="MonitorControllerMax">
     <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
+      <FILE id="l5zTf3" name="OSCCommunicator.cpp" compile="1" resource="0"
+            file="Source/OSCCommunicator.cpp"/>
+      <FILE id="JnvGwl" name="OSCCommunicator.h" compile="0" resource="0"
+            file="Source/OSCCommunicator.h"/>
       <FILE id="kD91kL" name="SemanticChannelButton.cpp" compile="1" resource="0"
             file="Source/SemanticChannelButton.cpp"/>
       <FILE id="BMIJlh" name="SemanticChannelButton.h" compile="0" resource="0"
@@ -53,6 +57,7 @@
     <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_javascript" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_osc" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
@@ -76,6 +81,7 @@
         <MODULEPATH id="juce_gui_basics" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
         <MODULEPATH id="juce_javascript" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_osc" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
       </MODULEPATHS>
     </VS2022>
   </EXPORTFORMATS>
