@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
     DebugLogger.h
     VST3 Debug Logging System - Provides debug output for VST3 plugins

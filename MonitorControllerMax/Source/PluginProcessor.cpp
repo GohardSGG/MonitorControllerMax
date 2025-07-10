@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
 
     This file contains the basic framework code for a JUCE plugin processor.
@@ -32,8 +32,24 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     
     communicator.reset(new InterPluginCommunicator(*this));
     
-    // Initialize new unified parameter linkage engine
-    linkageEngine = std::make_unique<ParameterLinkageEngine>(apvts);
+    // Initialize semantic state system
+    semanticState.addStateChangeListener(this);
+    
+    VST3_DBG("Initialize semantic state system");
+    
+    // Initialize with default layout if available
+    if (!currentLayout.channels.empty())
+    {
+        physicalMapper.updateMapping(currentLayout);
+        
+        // Initialize semantic channels
+        for (const auto& channelInfo : currentLayout.channels)
+        {
+            semanticState.initializeChannel(channelInfo.name);
+        }
+    }
+    
+    VST3_DBG("Semantic state system initialization complete");
     
     // Initialize legacy StateManager (will be phased out)
 }
@@ -42,14 +58,11 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
+    // Only remove Gain parameter listeners - Solo/Mute parameters no longer exist
     const int maxChannels = 26;
     for (int i = 0; i < maxChannels; ++i)
     {
-        auto muteId = "MUTE_" + juce::String(i + 1);
-        auto soloId = "SOLO_" + juce::String(i + 1);
         auto gainId = "GAIN_" + juce::String(i + 1);
-        apvts.removeParameterListener(muteId, this);
-        apvts.removeParameterListener(soloId, this);
         apvts.removeParameterListener(gainId, this);
     }
 }
@@ -187,24 +200,42 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
         buffer.clear (i, 0, buffer.getNumSamples());
 
     // =================================================================================
+    // NEW: Semantic state system processing (additional layer) - TEMPORARILY DISABLED
+    // =================================================================================
+    
+    // TODO: Apply semantic state processing for mapped channels
+    // This will be enabled after basic compilation is working
+    /*
+    for (int physicalPin = 0; physicalPin < totalNumInputChannels; ++physicalPin)
+    {
+        // Get semantic channel name for this physical pin (if mapped)
+        juce::String semanticName = physicalMapper.getSemanticNameSafe(physicalPin);
+        
+        if (!semanticName.isEmpty())
+        {
+            // Apply semantic state to physical audio
+            bool semanticFinalMute = semanticState.getFinalMuteState(semanticName);
+            
+            if (semanticFinalMute)
+            {
+                // Semantic system overrides: mute this channel
+                buffer.clear(physicalPin, 0, buffer.getNumSamples());
+                // Skip further processing for this channel
+                continue;
+            }
+        }
+    }
+    */
+
+    // =================================================================================
     // 1. 确定所有 *在当前布局中激活的* 逻辑通道的最终 Mute/Solo 状态
     // =================================================================================
 
     bool anySoloEngaged = false;
     const auto role = getRole();
 
-    // 检查是否有任何一个 *逻辑通道* 被 solo
-    for (const auto& chanInfo : currentLayout.channels)
-    {
-        // 参数索引从1开始，所以是 channelIndex + 1
-        bool isSoloed = (role == Role::slave) ? remoteSolos[chanInfo.channelIndex].load()
-                                              : apvts.getRawParameterValue("SOLO_" + juce::String(chanInfo.channelIndex + 1))->load() > 0.5f;
-        if (isSoloed)
-        {
-            anySoloEngaged = true;
-            break;
-        }
-    }
+    // 检查是否有任何一个 *语义通道* 被 solo
+    anySoloEngaged = (role == Role::slave) ? false : semanticState.hasAnySoloActive();
 
     // =================================================================================
     // 2. 将处理逻辑应用到物理音频缓冲区 (全新逻辑)
@@ -213,35 +244,19 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     
     for (int physicalChannel = 0; physicalChannel < totalNumInputChannels; ++physicalChannel)
     {
-        // 尝试将当前物理通道映射到我们布局中的一个逻辑通道
-        const ChannelInfo* mappedChannelInfo = nullptr;
-        for (const auto& chanInfo : currentLayout.channels)
-        {
-            // 我们的 `channelIndex` 在 `ConfigManager` 中是基于0的，这正好可以和物理通道索引对应
-            if (chanInfo.channelIndex == physicalChannel)
-            {
-                mappedChannelInfo = &chanInfo;
-                break;
-            }
-        }
-
-        // 如果这个物理通道没有在当前布局中定义，我们就跳过它，实现音频直通
-        if (mappedChannelInfo == nullptr)
+        // 获取对应的语义通道名
+        juce::String semanticChannelName = physicalMapper.getSemanticName(physicalChannel);
+        
+        // 如果这个物理通道没有语义映射，我们就跳过它，实现音频直通
+        if (semanticChannelName.isEmpty())
         {
             continue;
         }
 
-        // --- 从这里开始，我们确认了 physicalChannel 对应一个有效的逻辑通道 ---
+        // --- 从这里开始，我们确认了 physicalChannel 对应一个有效的语义通道 ---
 
-        // 获取这个逻辑通道的 Mute 和 Solo 状态
-        const bool isMuted = (role == Role::slave) ? remoteMutes[mappedChannelInfo->channelIndex].load()
-                                                   : apvts.getRawParameterValue("MUTE_" + juce::String(mappedChannelInfo->channelIndex + 1))->load() > 0.5f;
-
-        const bool isSoloed = (role == Role::slave) ? remoteSolos[mappedChannelInfo->channelIndex].load()
-                                                    : apvts.getRawParameterValue("SOLO_" + juce::String(mappedChannelInfo->channelIndex + 1))->load() > 0.5f;
-        
-        // 计算最终是否应该静音
-        const bool shouldBeSilent = isMuted || (anySoloEngaged && !isSoloed);
+        // 获取这个语义通道的最终Mute状态（已包含Solo模式联动逻辑）
+        const bool shouldBeSilent = (role == Role::slave) ? false : semanticState.getFinalMuteState(semanticChannelName);
 
         if (shouldBeSilent)
         {
@@ -249,8 +264,8 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
         }
         else
         {
-            // 应用增益
-            const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(mappedChannelInfo->channelIndex + 1))->load();
+            // 应用增益 - 从物理通道索引获取对应的Gain参数
+            const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(physicalChannel + 1))->load();
             if (std::abs(gainDb) > 0.01f)
             {
                 buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
@@ -300,10 +315,9 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     
     // 重要修复：状态恢复后立即重置到干净状态
     // 这确保无论REAPER恢复了什么状态，我们都从干净状态开始
-    if (linkageEngine) {
-        VST3_DBG("Performing post-state-restore clean reset");
-        linkageEngine->resetToCleanState();
-    }
+    // Reset semantic state to clean state
+    VST3_DBG("Performing post-state-restore clean reset");
+    semanticState.clearAllStates();
     
     // 状态恢复后立即根据当前通道数选择布局
     int currentChannelCount = getTotalNumInputChannels();
@@ -395,8 +409,26 @@ const juce::String MonitorControllerMaxAudioProcessor::getOutputChannelName(int 
 
 void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)
 {
+    VST3_DBG("Update config layout - Speaker: " + speaker + ", Sub: " + sub);
+    
     // 只更新内部状态，不再尝试改变总线布局
     currentLayout = configManager.getLayoutFor(speaker, sub);
+
+    // Update semantic state system mapping
+    VST3_DBG("Update physical channel mapping");
+    physicalMapper.updateMapping(currentLayout);
+    
+    // Clear and reinitialize semantic channels
+    semanticState.clearAllStates();
+    for (const auto& channelInfo : currentLayout.channels)
+    {
+        semanticState.initializeChannel(channelInfo.name);
+        VST3_DBG("Initialize semantic channel: " + channelInfo.name + " -> physical pin " + juce::String(channelInfo.channelIndex));
+    }
+    
+    // Log current mapping
+    physicalMapper.logCurrentMapping();
+    semanticState.logCurrentState();
 
     // 立即请求宿主更新显示信息
     updateHostDisplay();
@@ -498,13 +530,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioPro
     
     const int maxParams = 26; 
 
+    // Only create Gain parameters - Solo/Mute are now handled by semantic state system
     for (int i = 0; i < maxParams; ++i)
     {
         juce::String chanNumStr = juce::String(i + 1);
         
-        // Create with generic names. They will be updated by getParameterName.
-        params.push_back(std::make_unique<juce::AudioParameterBool>("MUTE_" + chanNumStr, "Mute " + chanNumStr, false));
-        params.push_back(std::make_unique<juce::AudioParameterBool>("SOLO_" + chanNumStr, "Solo " + chanNumStr, false));
+        // Only Gain parameters remain for VST3 automation
         params.push_back(std::make_unique<juce::AudioParameterFloat>("GAIN_" + chanNumStr, "Gain " + chanNumStr, 
                                                                     juce::NormalisableRange<float>(-100.0f, 12.0f, 0.1f, 3.0f), 0.0f, "dB"));
     }
@@ -556,36 +587,15 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
 {
     VST3_DBG("Parameter changed: " << parameterID << " = " << newValue);
     
-    // 1. Parameter linkage processing (core logic)
-    if (linkageEngine) {
-        linkageEngine->handleParameterChange(parameterID, newValue);
-    }
-    
-    
-    // 主从通信（仅master角色） - 保持现有逻辑
-    if (getRole() == Role::master)
+    // Only handle Gain parameters now - Solo/Mute are managed by semantic state system
+    if (parameterID.startsWith("GAIN_"))
     {
-        if (parameterID.startsWith("MUTE_") || parameterID.startsWith("SOLO_"))
-        {
-            MuteSoloState currentState;
-            // We must pack the state for ALL possible parameters, not just the active ones,
-            // to ensure slaves receive a complete and consistent state object.
-            for (int i = 0; i < 26; ++i)
-            {
-                // Note: The Parameter ID suffix is (physical channel index + 1)
-                if (auto* muteParam = apvts.getRawParameterValue("MUTE_" + juce::String(i + 1)))
-                    currentState.mutes[i] = muteParam->load() > 0.5f;
-                else
-                    currentState.mutes[i] = false;
-
-                if (auto* soloParam = apvts.getRawParameterValue("SOLO_" + juce::String(i + 1)))
-                    currentState.solos[i] = soloParam->load() > 0.5f;
-                else
-                    currentState.solos[i] = false;
-            }
-            communicator->sendMuteSoloState(currentState);
-        }
+        // Gain parameter changes can be logged or processed if needed
+        VST3_DBG("Gain parameter updated: " << parameterID << " = " << newValue << " dB");
     }
+    
+    // Note: Solo/Mute parameters no longer exist in VST3 parameter system
+    // They are now handled by the semantic state system directly
 }
 
 // =============================================================================
@@ -594,55 +604,32 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
 
 void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 {
-    VST3_DBG("Solo button clicked");
+    VST3_DBG("Solo button clicked - using semantic state system");
     
-    if (!linkageEngine) return;
-    
-    if (hasAnySoloActive()) {
-        // 状态1：有Solo参数激活
-        // → 清除所有Solo参数 + 恢复记忆 + 清除选择模式 + 关闭参数保护
-        VST3_DBG("Clearing all Solo parameters - will trigger memory restore");
+    if (semanticState.hasAnySoloActive()) {
+        // 状态1：有Solo状态激活 - 清除所有Solo状态
+        VST3_DBG("Clearing all Solo states");
         
-        // 先清除选择状态
+        // 清除选择模式
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
         
-        // 临时禁用保护，允许系统清除操作
-        if (linkageEngine) {
-            linkageEngine->setParameterProtectionBypass(true);
-            
-            // CRITICAL FIX: 手动触发记忆恢复，因为clearAllSoloParameters可能无法正确触发
-            linkageEngine->clearAllSoloParameters();
-            linkageEngine->restoreMuteMemory();  // 强制恢复记忆
-            
-            linkageEngine->setParameterProtectionBypass(false);
-        }
+        // 清除所有Solo状态 - 这会自动触发Solo模式联动逻辑
+        semanticState.clearAllSoloStates();
         
         // 关闭保护状态
         soloModeProtectionActive = false;
         
     } else if (pendingSoloSelection.load()) {
-        // 状态2：无Solo参数，但在Solo选择模式
-        // → 退出Solo选择模式 + 恢复之前保存的记忆
-        VST3_DBG("Exiting Solo selection mode - restoring memory");
-        
-        if (linkageEngine) {
-            linkageEngine->restoreMuteMemory();
-        }
+        // 状态2：无Solo状态，但在Solo选择模式 - 退出选择模式
+        VST3_DBG("Exiting Solo selection mode");
         
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
         
     } else {
-        // 状态3：初始状态
-        // → 进入Solo选择模式 + 立即保存当前Mute记忆 + 清空所有Mute状态
-        VST3_DBG("Entering Solo selection mode - saving memory and clearing scene");
-        
-        // 立即保存当前Mute记忆并清空现场
-        if (linkageEngine) {
-            linkageEngine->saveCurrentMuteMemory();
-            linkageEngine->clearAllCurrentMuteStates();
-        }
+        // 状态3：初始状态 - 进入Solo选择模式
+        VST3_DBG("Entering Solo selection mode");
         
         pendingSoloSelection.store(true);
         pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
@@ -654,34 +641,30 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 
 void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
 {
-    VST3_DBG("Mute button clicked");
+    VST3_DBG("Mute button clicked - using semantic state system");
     
-    if (!linkageEngine) return;
-    
-    // Solo Priority Rule: If any Solo parameter is active, Mute button is disabled
-    if (hasAnySoloActive()) {
+    // Solo Priority Rule: If any Solo state is active, Mute button is disabled
+    if (semanticState.hasAnySoloActive()) {
         VST3_DBG("Mute button ignored - Solo priority rule active");
         return;
     }
     
-    if (hasAnyMuteActive()) {
-        // 状态1：有Mute参数激活
-        // → 清除所有Mute参数 + 清除选择模式
-        VST3_DBG("Clearing all Mute parameters");
+    if (semanticState.hasAnyMuteActive()) {
+        // 状态1：有Mute状态激活 - 清除所有Mute状态
+        VST3_DBG("Clearing all Mute states");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
-        if (linkageEngine) {
-            linkageEngine->clearAllMuteParameters();
-        }
+        
+        // 清除所有Mute状态
+        semanticState.clearAllMuteStates();
+        
     } else if (pendingMuteSelection.load()) {
-        // 状态2：无Mute参数，但在Mute选择模式
-        // → 退出Mute选择模式
+        // 状态2：无Mute状态，但在Mute选择模式 - 退出选择模式
         VST3_DBG("Exiting Mute selection mode - returning to initial state");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
     } else {
-        // 状态3：初始状态
-        // → 进入Mute选择模式
+        // 状态3：初始状态 - 进入Mute选择模式
         VST3_DBG("Entering Mute selection mode - waiting for channel clicks");
         pendingMuteSelection.store(true);
         pendingSoloSelection.store(false);  // 切换到Mute选择模式会取消Solo选择模式
@@ -693,28 +676,28 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
 
 bool MonitorControllerMaxAudioProcessor::hasAnySoloActive() const
 {
-    return linkageEngine ? linkageEngine->hasAnySoloActive() : false;
+    return semanticState.hasAnySoloActive();
 }
 
 bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
 {
-    return linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    return semanticState.hasAnyMuteActive();
 }
 
 // Selection mode state functions based on button activation
 bool MonitorControllerMaxAudioProcessor::isInSoloSelectionMode() const
 {
     // Solo选择模式：待定Solo选择或已有Solo参数激活时
-    bool result = pendingSoloSelection.load() || hasAnySoloActive();
-    VST3_DBG("isInSoloSelectionMode: pending=" << (pendingSoloSelection.load() ? "true" : "false") << " active=" << (hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
+    bool result = pendingSoloSelection.load() || semanticState.hasAnySoloActive();
+    VST3_DBG("isInSoloSelectionMode: pending=" << (pendingSoloSelection.load() ? "true" : "false") << " active=" << (semanticState.hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
     return result;
 }
 
 bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 {
     // Mute选择模式：待定Mute选择或已有Mute参数激活时（且没有Solo优先级干扰）
-    bool result = (pendingMuteSelection.load() || hasAnyMuteActive()) && !hasAnySoloActive();
-    VST3_DBG("isInMuteSelectionMode: pending=" << (pendingMuteSelection.load() ? "true" : "false") << " active=" << (hasAnyMuteActive() ? "true" : "false") << " soloActive=" << (hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
+    bool result = (pendingMuteSelection.load() || semanticState.hasAnyMuteActive()) && !semanticState.hasAnySoloActive();
+    VST3_DBG("isInMuteSelectionMode: pending=" << (pendingMuteSelection.load() ? "true" : "false") << " active=" << (semanticState.hasAnyMuteActive() ? "true" : "false") << " soloActive=" << (semanticState.hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
     return result;
 }
 
@@ -722,13 +705,13 @@ bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 bool MonitorControllerMaxAudioProcessor::isSoloButtonActive() const
 {
     // Solo按钮激活状态 = 有通道被Solo OR 处于Solo选择模式
-    return hasAnySoloActive() || pendingSoloSelection.load();
+    return semanticState.hasAnySoloActive() || pendingSoloSelection.load();
 }
 
 bool MonitorControllerMaxAudioProcessor::isMuteButtonActive() const
 {
     // Mute按钮激活状态 = 有通道被Mute OR 处于Mute选择模式（且没有Solo优先级干扰）
-    return (hasAnyMuteActive() || pendingMuteSelection.load()) && !hasAnySoloActive();
+    return (semanticState.hasAnyMuteActive() || pendingMuteSelection.load()) && !semanticState.hasAnySoloActive();
 }
 
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
@@ -741,7 +724,14 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     
     VST3_DBG("Channel click: " << channelIndex);
     
-    if (!linkageEngine) return;
+    // Get semantic channel name from physical channel index
+    juce::String semanticChannelName = physicalMapper.getSemanticName(channelIndex);
+    
+    // Skip unmapped channels
+    if (semanticChannelName.isEmpty()) {
+        VST3_DBG("Channel " << channelIndex << " has no semantic mapping - no effect");
+        return;
+    }
     
     // 检查当前的选择模式状态
     bool inSoloSelection = isInSoloSelectionMode();
@@ -750,25 +740,21 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     VST3_DBG("Channel click state - SoloSel:" << (inSoloSelection ? "true" : "false") << " MuteSel:" << (inMuteSelection ? "true" : "false"));
     
     if (inSoloSelection) {
-        // Solo选择模式 -> 切换该通道的Solo参数
-        auto soloParamId = "SOLO_" + juce::String(channelIndex + 1);
-        if (auto* soloParam = apvts.getParameter(soloParamId)) {
-            float currentSolo = soloParam->getValue();
-            float newSolo = (currentSolo > 0.5f) ? 0.0f : 1.0f;
-            soloParam->setValueNotifyingHost(newSolo);
-            VST3_DBG("Channel " << channelIndex << " Solo toggled: " << newSolo);
-        }
+        // Solo选择模式 -> 切换该语义通道的Solo状态
+        bool currentSolo = semanticState.getSoloState(semanticChannelName);
+        bool newSolo = !currentSolo;
+        semanticState.setSoloState(semanticChannelName, newSolo);
+        VST3_DBG("Channel " << channelIndex << " (" << semanticChannelName << ") Solo toggled: " << (newSolo ? "ON" : "OFF"));
+        
         // CRITICAL FIX: 不再自动清除待定选择状态，保持在选择模式中
         // pendingSoloSelection.store(false);  // 移除这行
     } else if (inMuteSelection) {
-        // Mute选择模式 -> 切换该通道的Mute参数
-        auto muteParamId = "MUTE_" + juce::String(channelIndex + 1);
-        if (auto* muteParam = apvts.getParameter(muteParamId)) {
-            float currentMute = muteParam->getValue();
-            float newMute = (currentMute > 0.5f) ? 0.0f : 1.0f;
-            muteParam->setValueNotifyingHost(newMute);
-            VST3_DBG("Channel " << channelIndex << " Mute toggled: " << newMute);
-        }
+        // Mute选择模式 -> 切换该语义通道的Mute状态
+        bool currentMute = semanticState.getMuteState(semanticChannelName);
+        bool newMute = !currentMute;
+        semanticState.setMuteState(semanticChannelName, newMute);
+        VST3_DBG("Channel " << channelIndex << " (" << semanticChannelName << ") Mute toggled: " << (newMute ? "ON" : "OFF"));
+        
         // CRITICAL FIX: 不再自动清除待定选择状态，保持在选择模式中
         // pendingMuteSelection.store(false);  // 移除这行
     } else {
@@ -781,21 +767,19 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
 bool MonitorControllerMaxAudioProcessor::isMuteButtonEnabled() const
 {
     // Mute button is disabled when any Solo parameter is active (Solo Priority Rule)
-    return !hasAnySoloActive();
+    return !semanticState.hasAnySoloActive();
 }
+
 
 // State synchronization and validation functions
 
 void MonitorControllerMaxAudioProcessor::updateAllStates()
 {
-    // 1. 更新参数激活状态
-    bool currentSoloActive = linkageEngine ? linkageEngine->hasAnySoloActive() : false;
-    bool currentMuteActive = linkageEngine ? linkageEngine->hasAnyMuteActive() : false;
+    // 1. 更新语义状态 (这里不需要更新，语义状态会自动管理)
+    bool currentSoloActive = semanticState.hasAnySoloActive();
+    bool currentMuteActive = semanticState.hasAnyMuteActive();
     
-    // 2. 更新保护状态
-    if (linkageEngine) {
-        linkageEngine->updateParameterProtection();
-    }
+    // 2. 更新保护状态 (语义状态系统内部管理，无需外部保护)
     
     // 3. 通知UI更新
     // UI会在定时器中自动查询最新状态
@@ -825,5 +809,52 @@ void MonitorControllerMaxAudioProcessor::validateStateConsistency()
     // REMOVED: 删除错误的孤立状态检查
     // 正常情况：!soloActive && !muteActive && !soloSelection && muteSelection
     // 这是用户点击Mute按钮进入选择模式的正常状态，不应该被清除
+}
+
+//==============================================================================
+// Semantic state change callbacks
+//==============================================================================
+
+void MonitorControllerMaxAudioProcessor::onSoloStateChanged(const juce::String& channelName, bool state)
+{
+    VST3_DBG("PluginProcessor: Solo state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
+    
+    // Log the change for debugging
+    semanticState.logCurrentState();
+    
+    // Future: Add OSC communication here when implemented
+    // oscComm.sendSoloState(channelName, state);
+    
+    // Trigger UI updates if needed
+    // (UI should use timer-based updates to poll semantic state)
+}
+
+void MonitorControllerMaxAudioProcessor::onMuteStateChanged(const juce::String& channelName, bool state)
+{
+    VST3_DBG("PluginProcessor: Mute state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
+    
+    // Log the change for debugging
+    semanticState.logCurrentState();
+    
+    // Future: Add OSC communication here when implemented
+    // oscComm.sendMuteState(channelName, state);
+    
+    // Trigger UI updates if needed
+    // (UI should use timer-based updates to poll semantic state)
+}
+
+void MonitorControllerMaxAudioProcessor::onGlobalModeChanged()
+{
+    bool isGlobalSoloModeActive = semanticState.isGlobalSoloModeActive();
+    VST3_DBG("PluginProcessor: Global mode change callback - Solo mode: " + juce::String(isGlobalSoloModeActive ? "ACTIVE" : "OFF"));
+    
+    // Log complete state for debugging
+    semanticState.logCurrentState();
+    
+    // Future: Add OSC communication here when implemented
+    // oscComm.broadcastAllStates(semanticState);
+    
+    // Trigger UI updates if needed
+    // (UI should use timer-based updates to poll semantic state)
 }
 

@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
 
     This file contains the basic framework code for a JUCE plugin processor.
@@ -15,14 +15,16 @@
 #include <map>
 #include <set>
 #include "ConfigManager.h"
-#include "ParameterLinkageEngine.h"
+#include "SemanticChannelState.h"
+#include "PhysicalChannelMapper.h"
 
 class InterPluginCommunicator;
 
 //==============================================================================
 
 class MonitorControllerMaxAudioProcessor  : public juce::AudioProcessor,
-                                          public juce::AudioProcessorValueTreeState::Listener
+                                          public juce::AudioProcessorValueTreeState::Listener,
+                                          public SemanticChannelState::StateChangeListener
 {
 public:
     //==============================================================================
@@ -83,6 +85,17 @@ public:
     bool isSoloButtonActive() const;
     bool isMuteButtonActive() const;
 
+    // Semantic state system access (new interface)
+    SemanticChannelState& getSemanticState() { return semanticState; }
+    PhysicalChannelMapper& getPhysicalMapper() { return physicalMapper; }
+    const SemanticChannelState& getSemanticState() const { return semanticState; }
+    const PhysicalChannelMapper& getPhysicalMapper() const { return physicalMapper; }
+
+    // SemanticChannelState::StateChangeListener interface
+    void onSoloStateChanged(const juce::String& channelName, bool state) override;
+    void onMuteStateChanged(const juce::String& channelName, bool state) override;
+    void onGlobalModeChanged() override;
+
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -126,6 +139,10 @@ public:
     ConfigManager configManager;
     Layout currentLayout;
 
+    // New semantic state system (gradually replacing VST3 parameter system)
+    SemanticChannelState semanticState;
+    PhysicalChannelMapper physicalMapper;
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     //==============================================================================
@@ -141,8 +158,6 @@ private:
     std::array<std::atomic<float>*, 26> soloParams{};
     std::array<std::atomic<float>*, 26> gainParams{};
     
-    // New unified parameter linkage engine
-    std::unique_ptr<ParameterLinkageEngine> linkageEngine;
     
     // Selection mode state functions
     bool isInSoloSelectionMode() const;

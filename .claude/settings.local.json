@@ -48,7 +48,9 @@
       "Bash(\"/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" \"Test Para.sln\" /p:Configuration=Debug /p:Platform=x64)",
       "Bash(\"/mnt/c/JUCE/Projucer.exe\" --resave MonitorControllerMax.jucer)",
       "Bash(g++:*)",
-      "Bash(./semantic_test.exe)"
+      "Bash(./semantic_test.exe)",
+      "Bash(python3:*)",
+      "Bash(awk:*)"
     ],
     "deny": []
   }

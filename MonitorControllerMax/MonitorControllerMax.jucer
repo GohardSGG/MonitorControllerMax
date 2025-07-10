@@ -4,11 +4,19 @@
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
   <MAINGROUP id="fEulgD" name="MonitorControllerMax">
     <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
+      <FILE id="kD91kL" name="SemanticChannelButton.cpp" compile="1" resource="0"
+            file="Source/SemanticChannelButton.cpp"/>
+      <FILE id="BMIJlh" name="SemanticChannelButton.h" compile="0" resource="0"
+            file="Source/SemanticChannelButton.h"/>
+      <FILE id="AO2WnM" name="SemanticChannelState.cpp" compile="1" resource="0"
+            file="Source/SemanticChannelState.cpp"/>
+      <FILE id="FrdHWS" name="SemanticChannelState.h" compile="0" resource="0"
+            file="Source/SemanticChannelState.h"/>
+      <FILE id="PhyMap1" name="PhysicalChannelMapper.cpp" compile="1" resource="0"
+            file="Source/PhysicalChannelMapper.cpp"/>
+      <FILE id="PhyMap2" name="PhysicalChannelMapper.h" compile="0" resource="0"
+            file="Source/PhysicalChannelMapper.h"/>
       <FILE id="gxPKeb" name="DebugLogger.h" compile="0" resource="0" file="Source/DebugLogger.h"/>
-      <FILE id="puLDds" name="ParameterLinkageEngine.cpp" compile="1" resource="0"
-            file="Source/ParameterLinkageEngine.cpp"/>
-      <FILE id="osjNYY" name="ParameterLinkageEngine.h" compile="0" resource="0"
-            file="Source/ParameterLinkageEngine.h"/>
       <GROUP id="{74052EAE-9C3B-EE4A-5A60-52EA12D40821}" name="Config">
         <FILE id="saGkwp" name="Speaker_Config.json" compile="0" resource="1"
               file="Source/Config/Speaker_Config.json"/>

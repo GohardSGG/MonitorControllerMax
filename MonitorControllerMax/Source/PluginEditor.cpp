@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
 
     This file contains the basic framework code for a JUCE plugin editor.
@@ -334,6 +334,10 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
 
     channelGrid.performLayout(channelGridContainer.getLocalBounds());
     updateChannelButtonStates(); // Ensure button states are updated immediately
+    
+    // NEW: Create semantic channel buttons based on current mapping - TEMPORARILY DISABLED
+    // TODO: Re-enable after basic compilation works
+    // createSemanticChannelButtons();
 }
 
 void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverride()
@@ -455,6 +459,10 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
     // Update button states to reflect current parameter values
     // This is essential since parameter listener mechanism isn't working properly
     updateChannelButtonStates();
+    
+    // NEW: Update semantic buttons from semantic state - TEMPORARILY DISABLED
+    // TODO: Re-enable after basic compilation works  
+    // updateAllSemanticButtonsFromState();
 }
 
 void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
@@ -465,36 +473,33 @@ void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 
 void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 {
-    // Parameter-driven UI update logic
-    // UI state is calculated directly from parameter values
+    // Semantic state-driven UI update logic
+    // UI state is calculated directly from semantic channel states
     
-    // 1. Update each channel button based on parameter state
+    // 1. Update each channel button based on semantic state
     for (auto const& [index, button] : channelButtons)
     {
         if (!button->isVisible() || index < 0) continue;
         
-        // Get parameter IDs for this channel
-        auto muteParamId = "MUTE_" + juce::String(index + 1);
-        auto soloParamId = "SOLO_" + juce::String(index + 1);
+        // Get semantic channel name from physical channel index
+        juce::String semanticChannelName = audioProcessor.getPhysicalMapper().getSemanticName(index);
         
-        // Get current parameter values
-        auto* muteParam = audioProcessor.apvts.getRawParameterValue(muteParamId);
-        auto* soloParam = audioProcessor.apvts.getRawParameterValue(soloParamId);
+        // Skip unmapped channels
+        if (semanticChannelName.isEmpty()) continue;
         
-        if (!muteParam || !soloParam) continue;
+        // Get current semantic states
+        bool soloState = audioProcessor.getSemanticState().getSoloState(semanticChannelName);
+        bool finalMuteState = audioProcessor.getSemanticState().getFinalMuteState(semanticChannelName);
         
-        float muteValue = muteParam->load();
-        float soloValue = soloParam->load();
-        
-        // Determine button state and color based on parameter values
+        // Determine button state and color based on semantic states
         bool shouldBeActive = false;
         juce::Colour buttonColor = getLookAndFeel().findColour(juce::TextButton::buttonColourId);
         
-        if (soloValue > 0.5f) {
+        if (soloState) {
             // Solo active - use proper Solo color and active state
             shouldBeActive = true;
             buttonColor = customLookAndFeel.getSoloColour();
-        } else if (muteValue > 0.5f) {
+        } else if (finalMuteState) {
             // Mute active - use proper Mute color and inactive state (showing muted)
             shouldBeActive = false;
             buttonColor = customLookAndFeel.getMuteColour();
@@ -514,7 +519,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
         button->setColour(juce::TextButton::buttonOnColourId, buttonColor);
     }
     
-    // 2. Update main control buttons using dual state system
+    // 2. Update main control buttons using semantic state system
     bool soloButtonActive = audioProcessor.isSoloButtonActive();
     bool muteButtonActive = audioProcessor.isMuteButtonActive();
     
@@ -581,4 +586,90 @@ void MonitorControllerMaxAudioProcessorEditor::updatePluginConfiguration()
     
     // 确保UI状态同步更新
     updateChannelButtonStates();
+}
+
+//==============================================================================
+// New semantic UI methods
+//==============================================================================
+
+void MonitorControllerMaxAudioProcessorEditor::createSemanticChannelButtons()
+{
+    VST3_DBG("PluginEditor: Create semantic channel buttons");
+    
+    // Clear existing semantic buttons
+    clearSemanticChannelButtons();
+    
+    // Get active semantic channels from processor's mapping
+    auto activeChannels = audioProcessor.getPhysicalMapper().getActiveSemanticChannels();
+    
+    VST3_DBG("PluginEditor: Detected " + juce::String(activeChannels.size()) + " active semantic channels");
+    
+    // Create button pairs for each semantic channel
+    for (const auto& channelName : activeChannels)
+    {
+        // Get grid position for this semantic channel
+        auto gridPos = audioProcessor.getPhysicalMapper().getGridPosition(channelName);
+        
+        VST3_DBG("PluginEditor: Create semantic button pair - " + channelName + 
+                 " (grid position: " + juce::String(gridPos.first) + "," + juce::String(gridPos.second) + ")");
+        
+        // Create button pair
+        auto buttonPair = std::make_unique<SemanticChannelButtonPair>(audioProcessor, channelName, gridPos);
+        
+        // Set up button appearance to match existing system
+        buttonPair->soloButton->setLookAndFeel(&customLookAndFeel);
+        buttonPair->muteButton->setLookAndFeel(&customLookAndFeel);
+        
+        // Add to component hierarchy (initially hidden - will be shown when legacy system is phased out)
+        addChildComponent(buttonPair->soloButton.get());
+        addChildComponent(buttonPair->muteButton.get());
+        
+        // Store the button pair
+        semanticChannelButtons[channelName] = std::move(buttonPair);
+    }
+    
+    VST3_DBG("PluginEditor: Semantic button creation complete - total " + juce::String(semanticChannelButtons.size()) + " button pairs");
+    
+    // Update button states from semantic state
+    updateAllSemanticButtonsFromState();
+}
+
+void MonitorControllerMaxAudioProcessorEditor::clearSemanticChannelButtons()
+{
+    VST3_DBG("PluginEditor: Clear semantic channel buttons");
+    
+    // Remove from component hierarchy and clear
+    for (auto& [channelName, buttonPair] : semanticChannelButtons)
+    {
+        if (buttonPair)
+        {
+            removeChildComponent(buttonPair->soloButton.get());
+            removeChildComponent(buttonPair->muteButton.get());
+        }
+    }
+    
+    semanticChannelButtons.clear();
+}
+
+void MonitorControllerMaxAudioProcessorEditor::updateAllSemanticButtonsFromState()
+{
+    // Update all semantic buttons from processor's semantic state
+    for (auto& [channelName, buttonPair] : semanticChannelButtons)
+    {
+        if (buttonPair)
+        {
+            buttonPair->updateFromSemanticState();
+        }
+    }
+}
+
+void MonitorControllerMaxAudioProcessorEditor::updateLayoutFromSemanticMapping()
+{
+    VST3_DBG("PluginEditor: Update UI layout from semantic mapping");
+    
+    // This method will be used to transition from legacy layout to semantic layout
+    // For now, it creates semantic buttons in parallel with legacy system
+    createSemanticChannelButtons();
+    
+    VST3_DBG("PluginEditor: Semantic UI layout update complete");
 }

@@ -1,4 +1,4 @@
-/*
+﻿/*
   ==============================================================================
 
     This file contains the basic framework code for a JUCE plugin editor.
@@ -11,6 +11,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "ConfigManager.h"
+#include "SemanticChannelButton.h"
 #include <map>
 
 //==============================================================================
@@ -107,6 +108,12 @@ private:
     void updateLayout();
     void updateLayoutWithoutSelectorOverride(); // Layout update without forcing selector choice
     void setUIMode(UIMode newMode);
+    
+    // New semantic UI methods
+    void updateLayoutFromSemanticMapping();
+    void createSemanticChannelButtons();
+    void clearSemanticChannelButtons();
+    void updateAllSemanticButtonsFromState();
 
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
@@ -129,6 +136,9 @@ private:
 
     std::map<int, std::unique_ptr<juce::TextButton>> channelButtons;
     std::map<int, std::unique_ptr<ButtonAttachment>> channelButtonAttachments;
+    
+    // New semantic channel button system (gradually replacing legacy system)
+    std::map<juce::String, std::unique_ptr<SemanticChannelButtonPair>> semanticChannelButtons;
 
     CustomLookAndFeel customLookAndFeel;
 
