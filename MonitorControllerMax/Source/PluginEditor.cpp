@@ -184,19 +184,27 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
     juce::String expectedSpeaker = "2.0";
     juce::String expectedSub = "None";
     
-    // 使用相同的自动选择逻辑
-    switch (currentChannelCount)
+    // 动态最佳匹配算法 - 自动找到最充分利用通道数的配置组合
+    // 使用已定义的变量避免重定义错误
+    
+    int bestChannelUsage = 0;
+    for (const auto& speaker : speakerLayoutNames)
     {
-        case 1: expectedSpeaker = "1.0"; break;
-        case 2: expectedSpeaker = "2.0"; break;
-        case 6: expectedSpeaker = "5.1"; break;
-        case 8: expectedSpeaker = "7.1"; break;
-        case 12: expectedSpeaker = "7.1.4"; break;
-        default:
-            if (currentChannelCount > 12) expectedSpeaker = "7.1.4";
-            else if (currentChannelCount > 8) expectedSpeaker = "7.1.2";
-            else if (currentChannelCount > 6) expectedSpeaker = "7.1";
-            break;
+        int speakerChannels = configManager.getChannelCountForLayout("Speaker", speaker);
+        
+        for (const auto& sub : subLayoutNames)
+        {
+            int subChannels = configManager.getChannelCountForLayout("SUB", sub);
+            int totalChannels = speakerChannels + subChannels;
+            
+            // 找到在可用通道内的最大使用量
+            if (totalChannels <= currentChannelCount && totalChannels > bestChannelUsage)
+            {
+                bestChannelUsage = totalChannels;
+                expectedSpeaker = speaker;
+                expectedSub = sub;
+            }
+        }
     }
     
     // 设置下拉框到期望的值（不触发onChange）

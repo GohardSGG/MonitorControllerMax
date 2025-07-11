@@ -500,65 +500,34 @@ int MonitorControllerMaxAudioProcessor::getAvailableChannels() const
 // 根据通道数自动选择最合适的布局配置
 void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int channelCount)
 {
-    juce::String bestSpeakerLayout = "2.0"; // 默认立体声
+    juce::String bestSpeakerLayout = "2.0"; // 保守的默认值
     juce::String bestSubLayout = "None";     // 默认无低音炮
     
-    // 根据通道数自动匹配最合适的布局
-    switch (channelCount)
+    // 动态最佳匹配算法 - 自动找到最充分利用通道数的配置组合
+    auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
+    auto subLayoutNames = configManager.getSubLayoutNames();
+    
+    int bestChannelUsage = 0;
+    for (const auto& speaker : speakerLayoutNames)
     {
-        case 1:
-            bestSpeakerLayout = "1.0"; // 单声道
-            break;
-        case 2:
-            bestSpeakerLayout = "2.0"; // 立体声
-            break;
-        case 3:
-            bestSpeakerLayout = "2.0"; // 立体声
-            bestSubLayout = "Single Sub"; // 加单个低音炮
-            break;
-        case 4:
-            bestSpeakerLayout = "2.0"; // 立体声  
-            bestSubLayout = "Dual Sub"; // 加双低音炮
-            break;
-        case 5:
-            bestSpeakerLayout = "5.0"; // 5.0环绕声
-            break;
-        case 6:
-            bestSpeakerLayout = "5.1"; // 5.1环绕声
-            break;
-        case 7:
-            bestSpeakerLayout = "7.0"; // 7.0环绕声
-            break;
-        case 8:
-            bestSpeakerLayout = "7.1"; // 7.1环绕声
-            break;
-        case 10:
-            bestSpeakerLayout = "7.1.2"; // 7.1.2杜比全景声
-            break;
-        case 12:
-            bestSpeakerLayout = "7.1.4"; // 7.1.4杜比全景声 (默认12通道配置)
-            break;
-        case 16:
-            bestSpeakerLayout = "7.1.4.4"; // 7.1.4.4杜比全景声
-            break;
-        case 20:
-            bestSpeakerLayout = "7.1.4.4"; // 7.1.4.4杜比全景声
-            bestSubLayout = "4"; // 4个SUB通道
-            break;
-        default:
-            // 对于其他通道数，选择最接近的配置
-            if (channelCount > 20)
-                bestSpeakerLayout = "7.1.4.4";
-            else if (channelCount > 16)
-                bestSpeakerLayout = "7.1.4.4";
-            else if (channelCount > 12)
-                bestSpeakerLayout = "7.1.4";
-            else if (channelCount > 8)
-                bestSpeakerLayout = "7.1.2";
-            else if (channelCount > 6)
-                bestSpeakerLayout = "7.1";
-            break;
+        int speakerChannels = configManager.getChannelCountForLayout("Speaker", speaker);
+        
+        for (const auto& sub : subLayoutNames)
+        {
+            int subChannels = configManager.getChannelCountForLayout("SUB", sub);
+            int totalChannels = speakerChannels + subChannels;
+            
+            // 找到在可用通道内的最大使用量
+            if (totalChannels <= channelCount && totalChannels > bestChannelUsage)
+            {
+                bestChannelUsage = totalChannels;
+                bestSpeakerLayout = speaker;
+                bestSubLayout = sub;
+            }
+        }
     }
+    
+    VST3_DBG("AutoSelect: " + juce::String(channelCount) + " channels -> " + bestSpeakerLayout + " + " + bestSubLayout + " (" + juce::String(bestChannelUsage) + " used)");
     
     // 应用新的布局配置
     setCurrentLayout(bestSpeakerLayout, bestSubLayout);
