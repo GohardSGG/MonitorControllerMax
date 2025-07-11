@@ -314,10 +314,50 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     // 使用APVTS内建的状态保存功能
     auto state = apvts.copyState();
     
-    // 新的状态机已经自动处理Mute记忆的保存
-    // 无需手动保存状态标记
+    // 保存当前布局配置到状态中
+    if (!currentLayout.channels.empty())
+    {
+        // 从当前布局推断speaker和sub配置
+        juce::String currentSpeaker = "7.1.4";  // 默认值
+        juce::String currentSub = "None";       // 默认值
+        
+        // 根据通道数推断配置（简化逻辑）
+        int totalChannels = currentLayout.totalChannelCount;
+        bool hasSUB = false;
+        
+        // 检查是否有SUB通道
+        for (const auto& channel : currentLayout.channels)
+        {
+            if (channel.name.contains("SUB"))
+            {
+                hasSUB = true;
+                break;
+            }
+        }
+        
+        // 推断speaker配置
+        if (totalChannels >= 20 || (totalChannels >= 16 && !hasSUB))
+        {
+            currentSpeaker = "7.1.4.4";
+        }
+        else if (totalChannels >= 12 && !hasSUB)
+        {
+            currentSpeaker = "7.1.4";
+        }
+        
+        // 推断sub配置
+        if (hasSUB)
+        {
+            currentSub = "4";  // 假设是4个SUB
+        }
+        
+        // 添加布局信息到状态
+        state.setProperty("currentSpeakerLayout", currentSpeaker, nullptr);
+        state.setProperty("currentSubLayout", currentSub, nullptr);
+        
+        VST3_DBG("PluginProcessor: Saving layout state - Speaker: " + currentSpeaker + ", Sub: " + currentSub);
+    }
     
-    // 状态机已处理所有必要的状态保存
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
 }
@@ -327,26 +367,47 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     // 使用APVTS内建的状态恢复功能 - 这是JUCE推荐的标准方法
     auto xmlState = getXmlFromBinary(data, sizeInBytes);
     
+    bool layoutRestored = false;
+    
     if (xmlState.get() != nullptr)
     {
         if (xmlState->hasTagName(apvts.state.getType()))
         {
             auto state = juce::ValueTree::fromXml(*xmlState);
             apvts.replaceState(state);
+            
+            // 尝试恢复保存的布局配置
+            if (state.hasProperty("currentSpeakerLayout") && state.hasProperty("currentSubLayout"))
+            {
+                juce::String savedSpeaker = state.getProperty("currentSpeakerLayout", "7.1.4").toString();
+                juce::String savedSub = state.getProperty("currentSubLayout", "None").toString();
+                
+                VST3_DBG("PluginProcessor: Restoring saved layout - Speaker: " + savedSpeaker + ", Sub: " + savedSub);
+                
+                // 恢复保存的布局配置
+                setCurrentLayout(savedSpeaker, savedSub);
+                layoutRestored = true;
+            }
         }
     }
     
     // 重要修复：状态恢复后立即重置到干净状态
-    // 这确保无论REAPER恢复了什么状态，我们都从干净状态开始
-    // Reset semantic state to clean state
     VST3_DBG("Performing post-state-restore clean reset");
     semanticState.clearAllStates();
     
-    // 状态恢复后立即根据当前通道数选择布局
-    int currentChannelCount = getTotalNumInputChannels();
-    if (currentChannelCount > 0)
+    // 只有在没有恢复到保存布局时，才根据通道数自动选择布局
+    if (!layoutRestored)
     {
-        autoSelectLayoutForChannelCount(currentChannelCount);
+        VST3_DBG("PluginProcessor: No saved layout found, auto-selecting based on channel count");
+        int currentChannelCount = getTotalNumInputChannels();
+        if (currentChannelCount > 0)
+        {
+            autoSelectLayoutForChannelCount(currentChannelCount);
+        }
+    }
+    else
+    {
+        VST3_DBG("PluginProcessor: Layout successfully restored from saved state");
     }
 }
 
