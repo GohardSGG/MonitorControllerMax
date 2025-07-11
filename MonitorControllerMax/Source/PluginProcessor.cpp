@@ -17,9 +17,9 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
      : AudioProcessor (BusesProperties()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                       .withInput  ("Input",  juce::AudioChannelSet::discreteChannels(26), true)
                       #endif
-                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                       .withOutput ("Output", juce::AudioChannelSet::discreteChannels(26), true)
                      #endif
                        ),
       apvts (*this, nullptr, "Parameters", createParameterLayout()),

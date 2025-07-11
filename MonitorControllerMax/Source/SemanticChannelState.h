@@ -32,6 +32,11 @@ public:
     bool hasAnySoloActive() const;
     bool hasAnyMuteActive() const;
     bool isGlobalSoloModeActive() const { return globalSoloModeActive; }
+    
+    // SUB channel logic (based on original JSFX script)
+    bool isSUBChannel(const juce::String& channelName) const;
+    bool hasAnyNonSUBSoloActive() const;
+    bool hasAnySUBSoloActive() const;
 
     // Channel management
     void initializeChannel(const juce::String& channelName);

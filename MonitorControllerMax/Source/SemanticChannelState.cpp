@@ -61,25 +61,63 @@ bool SemanticChannelState::getMuteState(const juce::String& channelName) const
 
 bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) const
 {
-    // Core logic: Solo mode auto-mute linkage
+    // SUB channel logic based on original JSFX script
     if (globalSoloModeActive)
     {
-        // In solo mode, channels are muted unless they are solo
+        bool isChannelSUB = isSUBChannel(channelName);
+        bool nonSUBSoloActive = hasAnyNonSUBSoloActive();
+        bool subSoloActive = hasAnySUBSoloActive();
         bool isSolo = getSoloState(channelName);
-        bool finalMute = !isSolo;
         
-        if (finalMute != getMuteState(channelName))
+        if (isChannelSUB)
         {
-            VST3_DBG("SemanticChannelState: Final Mute state calculation - channel: " + channelName + 
-                     ", Solo mode: " + (isSolo ? "ON" : "OFF") + 
-                     ", Final Mute: " + (finalMute ? "ON" : "OFF"));
+            // SUB通道逻辑
+            if (subSoloActive)
+            {
+                // 当SUB Solo激活时，SUB通道遵循Solo逻辑
+                bool finalMute = !isSolo;
+                VST3_DBG("SemanticChannelState: SUB channel with SUB Solo active - channel: " + channelName + 
+                         ", Solo: " + (isSolo ? "ON" : "OFF") + ", Final Mute: " + (finalMute ? "ON" : "OFF"));
+                return finalMute;
+            }
+            else
+            {
+                // 当只有非SUB Solo激活时，SUB通道保持用户Mute设置
+                bool userMute = getMuteState(channelName);
+                VST3_DBG("SemanticChannelState: SUB channel with only non-SUB Solo active - channel: " + channelName + 
+                         ", User Mute: " + (userMute ? "ON" : "OFF"));
+                return userMute;
+            }
         }
-        
-        return finalMute;
+        else
+        {
+            // 非SUB通道逻辑
+            if (subSoloActive && !nonSUBSoloActive)
+            {
+                // 当只有SUB Solo激活时，非SUB通道强制通过（不被Mute）
+                VST3_DBG("SemanticChannelState: Non-SUB channel with only SUB Solo active - channel: " + channelName + 
+                         ", Forced pass (Final Mute: OFF)");
+                return false;
+            }
+            else if (nonSUBSoloActive)
+            {
+                // 当非SUB Solo激活时，遵循正常Solo逻辑
+                bool finalMute = !isSolo;
+                VST3_DBG("SemanticChannelState: Non-SUB channel with non-SUB Solo active - channel: " + channelName + 
+                         ", Solo: " + (isSolo ? "ON" : "OFF") + ", Final Mute: " + (finalMute ? "ON" : "OFF"));
+                return finalMute;
+            }
+            else
+            {
+                // 混合Solo情况，遵循正常Solo逻辑
+                bool finalMute = !isSolo;
+                return finalMute;
+            }
+        }
     }
     else
     {
-        // In normal mode, use direct mute state
+        // 非Solo模式，使用直接的Mute状态
         return getMuteState(channelName);
     }
 }
@@ -110,6 +148,37 @@ bool SemanticChannelState::hasAnySoloActive() const
     for (const auto& [channelName, soloState] : soloStates)
     {
         if (soloState)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// SUB channel logic implementation (based on original JSFX script)
+bool SemanticChannelState::isSUBChannel(const juce::String& channelName) const
+{
+    // SUB通道识别：通道名包含"SUB"
+    return channelName.contains("SUB");
+}
+
+bool SemanticChannelState::hasAnyNonSUBSoloActive() const
+{
+    for (const auto& [channelName, soloState] : soloStates)
+    {
+        if (soloState && !isSUBChannel(channelName))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SemanticChannelState::hasAnySUBSoloActive() const
+{
+    for (const auto& [channelName, soloState] : soloStates)
+    {
+        if (soloState && isSUBChannel(channelName))
         {
             return true;
         }
