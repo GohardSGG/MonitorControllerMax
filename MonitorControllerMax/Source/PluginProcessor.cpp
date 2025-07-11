@@ -317,11 +317,7 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     // 保存当前布局配置到状态中
     if (!currentLayout.channels.empty())
     {
-        // 从当前布局推断speaker和sub配置
-        juce::String currentSpeaker = "7.1.4";  // 默认值
-        juce::String currentSub = "None";       // 默认值
-        
-        // 根据通道数推断配置（简化逻辑）
+        // 根据当前布局分析实际配置
         int totalChannels = currentLayout.totalChannelCount;
         bool hasSUB = false;
         
@@ -335,27 +331,63 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
             }
         }
         
-        // 推断speaker配置
-        if (totalChannels >= 20 || (totalChannels >= 16 && !hasSUB))
-        {
-            currentSpeaker = "7.1.4.4";
-        }
-        else if (totalChannels >= 12 && !hasSUB)
-        {
-            currentSpeaker = "7.1.4";
-        }
+        VST3_DBG("PluginProcessor: Analyzing current layout for saving - totalChannels: " + juce::String(totalChannels) + ", hasSUB: " + (hasSUB ? "true" : "false"));
         
-        // 推断sub配置
+        // 更精确的布局推断
+        juce::String currentSpeaker = "7.1.4";  // 默认值
+        juce::String currentSub = "None";       // 默认值
+        
+        // 推断speaker配置 - 基于实际通道数和SUB存在性
         if (hasSUB)
         {
-            currentSub = "4";  // 假设是4个SUB
+            // 有SUB通道的情况
+            if (totalChannels >= 20)
+            {
+                currentSpeaker = "7.1.4.4";
+                currentSub = "4";
+            }
+            else if (totalChannels >= 16)
+            {
+                currentSpeaker = "7.1.4";
+                currentSub = "4";
+            }
+            else
+            {
+                currentSpeaker = "2.0";
+                currentSub = "Dual Sub";
+            }
+        }
+        else
+        {
+            // 无SUB通道的情况
+            if (totalChannels >= 16)
+            {
+                currentSpeaker = "7.1.4.4";
+            }
+            else if (totalChannels >= 12)
+            {
+                currentSpeaker = "7.1.4";
+            }
+            else if (totalChannels >= 8)
+            {
+                currentSpeaker = "7.1";
+            }
+            else if (totalChannels >= 6)
+            {
+                currentSpeaker = "5.1";
+            }
+            else if (totalChannels >= 2)
+            {
+                currentSpeaker = "2.0";
+            }
+            currentSub = "None";
         }
         
         // 添加布局信息到状态
         state.setProperty("currentSpeakerLayout", currentSpeaker, nullptr);
         state.setProperty("currentSubLayout", currentSub, nullptr);
         
-        VST3_DBG("PluginProcessor: Saving layout state - Speaker: " + currentSpeaker + ", Sub: " + currentSub);
+        VST3_DBG("PluginProcessor: Saving layout state - Speaker: " + currentSpeaker + ", Sub: " + currentSub + " (channels: " + juce::String(totalChannels) + ", SUB: " + (hasSUB ? "yes" : "no") + ")");
     }
     
     auto xml = state.createXml();
@@ -578,7 +610,7 @@ void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int cha
             bestSpeakerLayout = "7.1.2"; // 7.1.2杜比全景声
             break;
         case 12:
-            bestSpeakerLayout = "7.1.4"; // 7.1.4杜比全景声
+            bestSpeakerLayout = "7.1.4"; // 7.1.4杜比全景声 (默认12通道配置)
             break;
         case 16:
             bestSpeakerLayout = "7.1.4.4"; // 7.1.4.4杜比全景声

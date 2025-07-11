@@ -449,10 +449,11 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
     {
         lastKnownChannelCount = currentChannelCount;
         
-        // 安全地触发布局自动选择（在UI线程中）
-        audioProcessor.autoSelectLayoutForChannelCount(currentChannelCount);
+        // UI检测到通道数变化时，只更新显示，不改变布局配置
+        // 布局配置的自动选择应该由processor在适当时机处理
+        VST3_DBG("PluginEditor: Channel count changed to " + juce::String(currentChannelCount) + ", updating UI display only");
         
-        // 总线布局发生变化，重新更新整个UI布局
+        // 总线布局发生变化，重新更新整个UI布局显示
         updateLayout();
     }
     
