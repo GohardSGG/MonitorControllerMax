@@ -144,6 +144,10 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     ConfigManager configManager;
     Layout currentLayout;
+    
+    // 用户实际选择的布局配置 - 用于状态持久化
+    juce::String userSelectedSpeakerLayout = "2.0";
+    juce::String userSelectedSubLayout = "None";
 
     // New semantic state system (gradually replacing VST3 parameter system)
     SemanticChannelState semanticState;

@@ -148,6 +148,7 @@ private:
 
     // Private function declarations
     void updatePluginConfiguration(); // Update plugin configuration and notify host immediately
+    void syncUIFromUserSelection(); // 从用户选择同步UI状态
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };

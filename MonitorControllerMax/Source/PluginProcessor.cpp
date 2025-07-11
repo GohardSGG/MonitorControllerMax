@@ -314,81 +314,12 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     // 使用APVTS内建的状态保存功能
     auto state = apvts.copyState();
     
-    // 保存当前布局配置到状态中
-    if (!currentLayout.channels.empty())
-    {
-        // 根据当前布局分析实际配置
-        int totalChannels = currentLayout.totalChannelCount;
-        bool hasSUB = false;
-        
-        // 检查是否有SUB通道
-        for (const auto& channel : currentLayout.channels)
-        {
-            if (channel.name.contains("SUB"))
-            {
-                hasSUB = true;
-                break;
-            }
-        }
-        
-        VST3_DBG("PluginProcessor: Analyzing current layout for saving - totalChannels: " + juce::String(totalChannels) + ", hasSUB: " + (hasSUB ? "true" : "false"));
-        
-        // 更精确的布局推断
-        juce::String currentSpeaker = "7.1.4";  // 默认值
-        juce::String currentSub = "None";       // 默认值
-        
-        // 推断speaker配置 - 基于实际通道数和SUB存在性
-        if (hasSUB)
-        {
-            // 有SUB通道的情况
-            if (totalChannels >= 20)
-            {
-                currentSpeaker = "7.1.4.4";
-                currentSub = "4";
-            }
-            else if (totalChannels >= 16)
-            {
-                currentSpeaker = "7.1.4";
-                currentSub = "4";
-            }
-            else
-            {
-                currentSpeaker = "2.0";
-                currentSub = "Dual Sub";
-            }
-        }
-        else
-        {
-            // 无SUB通道的情况
-            if (totalChannels >= 16)
-            {
-                currentSpeaker = "7.1.4.4";
-            }
-            else if (totalChannels >= 12)
-            {
-                currentSpeaker = "7.1.4";
-            }
-            else if (totalChannels >= 8)
-            {
-                currentSpeaker = "7.1";
-            }
-            else if (totalChannels >= 6)
-            {
-                currentSpeaker = "5.1";
-            }
-            else if (totalChannels >= 2)
-            {
-                currentSpeaker = "2.0";
-            }
-            currentSub = "None";
-        }
-        
-        // 添加布局信息到状态
-        state.setProperty("currentSpeakerLayout", currentSpeaker, nullptr);
-        state.setProperty("currentSubLayout", currentSub, nullptr);
-        
-        VST3_DBG("PluginProcessor: Saving layout state - Speaker: " + currentSpeaker + ", Sub: " + currentSub + " (channels: " + juce::String(totalChannels) + ", SUB: " + (hasSUB ? "yes" : "no") + ")");
-    }
+    // 重要修复：保存用户实际选择的布局配置，而不是推断的配置
+    // 这样可以保持用户的手动选择，防止界面切换时配置被重置
+    state.setProperty("currentSpeakerLayout", userSelectedSpeakerLayout, nullptr);
+    state.setProperty("currentSubLayout", userSelectedSubLayout, nullptr);
+    
+    VST3_DBG("PluginProcessor: Saving user-selected layout - Speaker: " + userSelectedSpeakerLayout + ", Sub: " + userSelectedSubLayout);
     
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
@@ -399,8 +330,6 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     // 使用APVTS内建的状态恢复功能 - 这是JUCE推荐的标准方法
     auto xmlState = getXmlFromBinary(data, sizeInBytes);
     
-    bool layoutRestored = false;
-    
     if (xmlState.get() != nullptr)
     {
         if (xmlState->hasTagName(apvts.state.getType()))
@@ -408,17 +337,25 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
             auto state = juce::ValueTree::fromXml(*xmlState);
             apvts.replaceState(state);
             
-            // 尝试恢复保存的布局配置
+            // 恢复用户选择的布局配置（如果存在）
             if (state.hasProperty("currentSpeakerLayout") && state.hasProperty("currentSubLayout"))
             {
-                juce::String savedSpeaker = state.getProperty("currentSpeakerLayout", "7.1.4").toString();
+                juce::String savedSpeaker = state.getProperty("currentSpeakerLayout", "2.0").toString();
                 juce::String savedSub = state.getProperty("currentSubLayout", "None").toString();
                 
-                VST3_DBG("PluginProcessor: Restoring saved layout - Speaker: " + savedSpeaker + ", Sub: " + savedSub);
+                VST3_DBG("PluginProcessor: Restoring user-selected layout - Speaker: " + savedSpeaker + ", Sub: " + savedSub);
                 
-                // 恢复保存的布局配置
-                setCurrentLayout(savedSpeaker, savedSub);
-                layoutRestored = true;
+                // 重要修复：只恢复用户选择变量，不立即应用布局
+                // 这样可以避免与UI初始化的冲突
+                userSelectedSpeakerLayout = savedSpeaker;
+                userSelectedSubLayout = savedSub;
+                
+                // 延迟应用布局，让UI有时间初始化
+                juce::MessageManager::callAsync([this, savedSpeaker, savedSub]()
+                {
+                    VST3_DBG("PluginProcessor: Applying restored layout after UI initialization");
+                    setCurrentLayout(savedSpeaker, savedSub);
+                });
             }
         }
     }
@@ -426,21 +363,6 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     // 重要修复：状态恢复后立即重置到干净状态
     VST3_DBG("Performing post-state-restore clean reset");
     semanticState.clearAllStates();
-    
-    // 只有在没有恢复到保存布局时，才根据通道数自动选择布局
-    if (!layoutRestored)
-    {
-        VST3_DBG("PluginProcessor: No saved layout found, auto-selecting based on channel count");
-        int currentChannelCount = getTotalNumInputChannels();
-        if (currentChannelCount > 0)
-        {
-            autoSelectLayoutForChannelCount(currentChannelCount);
-        }
-    }
-    else
-    {
-        VST3_DBG("PluginProcessor: Layout successfully restored from saved state");
-    }
 }
 
 // 动态获取输入通道名称，根据当前音箱布局映射物理通道到逻辑声道名
@@ -526,6 +448,10 @@ const juce::String MonitorControllerMaxAudioProcessor::getOutputChannelName(int 
 void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)
 {
     VST3_DBG("Update config layout - Speaker: " + speaker + ", Sub: " + sub);
+    
+    // 跟踪用户实际选择的布局配置，用于状态持久化
+    userSelectedSpeakerLayout = speaker;
+    userSelectedSubLayout = sub;
     
     // 只更新内部状态，不再尝试改变总线布局
     currentLayout = configManager.getLayoutFor(speaker, sub);

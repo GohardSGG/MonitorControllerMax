@@ -109,7 +109,9 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     // 这解决了关闭/重新打开编辑器时配置重置的问题
     juce::MessageManager::callAsync([this]()
     {
-        updateLayout(); // 强制UI与处理器状态同步
+        // 重要修复：从用户选择的配置同步UI，而不是当前布局
+        // 这确保UI反映用户的实际选择，而不是自动推断的配置
+        syncUIFromUserSelection();
         updateChannelButtonStates(); // 同步按钮状态
     });
 }
@@ -673,4 +675,45 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutFromSemanticMapping()
     createSemanticChannelButtons();
     
     VST3_DBG("PluginEditor: Semantic UI layout update complete");
+}
+
+void MonitorControllerMaxAudioProcessorEditor::syncUIFromUserSelection()
+{
+    VST3_DBG("PluginEditor: Syncing UI from user selection");
+    
+    // 获取用户实际选择的配置
+    juce::String userSpeaker = audioProcessor.userSelectedSpeakerLayout;
+    juce::String userSub = audioProcessor.userSelectedSubLayout;
+    
+    VST3_DBG("PluginEditor: User selected - Speaker: " + userSpeaker + ", Sub: " + userSub);
+    
+    // 更新下拉框选择到用户选择的配置（不触发onChange事件）
+    auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
+    auto subLayoutNames = configManager.getSubLayoutNames();
+    
+    for (int i = 0; i < speakerLayoutNames.size(); ++i)
+    {
+        if (speakerLayoutNames[i] == userSpeaker)
+        {
+            speakerLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+            break;
+        }
+    }
+    
+    for (int i = 0; i < subLayoutNames.size(); ++i)
+    {
+        if (subLayoutNames[i] == userSub)
+        {
+            subLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+            break;
+        }
+    }
+    
+    // 应用用户选择的配置到处理器
+    audioProcessor.setCurrentLayout(userSpeaker, userSub);
+    
+    // 更新UI布局
+    updateLayout();
+    
+    VST3_DBG("PluginEditor: UI sync complete");
 }
