@@ -519,9 +519,20 @@ void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int cha
         case 12:
             bestSpeakerLayout = "7.1.4"; // 7.1.4杜比全景声
             break;
+        case 16:
+            bestSpeakerLayout = "7.1.4.4"; // 7.1.4.4杜比全景声
+            break;
+        case 20:
+            bestSpeakerLayout = "7.1.4.4"; // 7.1.4.4杜比全景声
+            bestSubLayout = "4"; // 4个SUB通道
+            break;
         default:
             // 对于其他通道数，选择最接近的配置
-            if (channelCount > 12)
+            if (channelCount > 20)
+                bestSpeakerLayout = "7.1.4.4";
+            else if (channelCount > 16)
+                bestSpeakerLayout = "7.1.4.4";
+            else if (channelCount > 12)
                 bestSpeakerLayout = "7.1.4";
             else if (channelCount > 8)
                 bestSpeakerLayout = "7.1.2";

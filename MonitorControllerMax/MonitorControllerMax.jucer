@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="sDeyhF" name="MonitorControllerMax" projectType="audioplug"
-              useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
+              useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              pluginChannelsIn="26" pluginChannelsOut="26">
   <MAINGROUP id="fEulgD" name="MonitorControllerMax">
     <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
       <FILE id="l5zTf3" name="OSCCommunicator.cpp" compile="1" resource="0"

@@ -30,7 +30,7 @@ class MonitorControllerMaxAudioProcessor  : public juce::AudioProcessor,
 public:
     //==============================================================================
     // A constant for the number of channels we'll manage.
-    static constexpr int numManagedChannels = 16;
+    static constexpr int numManagedChannels = 26;
     
     // This struct will be used for state synchronization between instances.
     struct MuteSoloState
