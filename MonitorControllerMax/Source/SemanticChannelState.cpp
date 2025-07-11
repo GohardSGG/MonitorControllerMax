@@ -89,19 +89,19 @@ void SemanticChannelState::calculateSoloModeLinkage()
     // Preserve existing complex solo logic
     // When solo mode is active, non-solo channels should be auto-muted
     
+    // 这个函数现在只做逻辑计算，不发送回调
+    // 实际的状态通知由全局模式变化时统一处理
+    
     if (globalSoloModeActive)
     {
-        VST3_DBG("SemanticChannelState: Calculate Solo mode linkage logic");
+        VST3_DBG("SemanticChannelState: Calculate Solo mode linkage logic - mode active");
         
-        // In solo mode, ensure proper linkage
-        for (const auto& [channelName, _] : soloStates)
-        {
-            bool isSolo = getSoloState(channelName);
-            bool shouldBeMuted = !isSolo;
-            
-            // Note: We don't directly set mute state here to preserve existing logic
-            // The getFinalMuteState() method handles the linkage calculation
-        }
+        // Solo模式激活时的逻辑计算
+        // 实际状态同步由notifyGlobalModeChange()处理
+    }
+    else
+    {
+        VST3_DBG("SemanticChannelState: Calculate Solo mode linkage logic - mode inactive");
     }
 }
 
@@ -278,6 +278,24 @@ void SemanticChannelState::notifyStateChange(const juce::String& channelName, co
 void SemanticChannelState::notifyGlobalModeChange()
 {
     stateChangeListeners.call([](StateChangeListener& l) { l.onGlobalModeChanged(); });
+    
+    // 当全局Solo模式变化时，广播所有通道的最终Mute状态
+    // 这确保外部控制器获得正确的状态同步
+    if (globalSoloModeActive)
+    {
+        VST3_DBG("SemanticChannelState: Global Solo mode activated - broadcasting final mute states");
+        
+        // 为所有通道发送最终的Mute状态
+        for (const auto& [channelName, _] : soloStates)
+        {
+            bool finalMuteState = getFinalMuteState(channelName);
+            VST3_DBG("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
+                     ", Final Mute: " + (finalMuteState ? "ON" : "OFF"));
+            
+            // 发送最终的Mute状态
+            notifyStateChange(channelName, "mute", finalMuteState);
+        }
+    }
 }
 
 void SemanticChannelState::updateGlobalSoloMode()

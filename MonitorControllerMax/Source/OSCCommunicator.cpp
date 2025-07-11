@@ -93,8 +93,8 @@ bool OSCCommunicator::isConnected() const
 
 void OSCCommunicator::sendSoloState(const juce::String& channelName, bool state)
 {
-    // 检查是否应该抑制发送（防止循环）
-    if (suppressOSCSend.load() || !isConnected())
+    // 检查连接状态
+    if (!isConnected())
     {
         return;
     }
@@ -114,8 +114,8 @@ void OSCCommunicator::sendSoloState(const juce::String& channelName, bool state)
 
 void OSCCommunicator::sendMuteState(const juce::String& channelName, bool state)
 {
-    // 检查是否应该抑制发送（防止循环）
-    if (suppressOSCSend.load() || !isConnected())
+    // 检查连接状态
+    if (!isConnected())
     {
         return;
     }
@@ -213,10 +213,7 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     
     VST3_DBG("OSCCommunicator: Parsed OSC - action:" << action << " channel:" << channelName << " state:" << (state ? "ON" : "OFF"));
     
-    // 设置抑制标志，防止循环发送
-    suppressOSCSend.store(true);
-    
-    // 调用独立的处理函数来更新对应的状态
+    // 调用处理函数来更新对应的状态
     if (onExternalStateChange)
     {
         if (action == "Solo")
@@ -230,9 +227,6 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
             onExternalStateChange(channelName, false, state);
         }
     }
-    
-    // 重置抑制标志
-    suppressOSCSend.store(false);
 }
 
 juce::String OSCCommunicator::formatOSCAddress(const juce::String& action, const juce::String& channelName) const

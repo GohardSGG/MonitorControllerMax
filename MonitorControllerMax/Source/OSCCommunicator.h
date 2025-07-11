@@ -21,6 +21,11 @@ class PhysicalChannelMapper;
  * 值: 1.0f (ON) / 0.0f (OFF)
  * 示例: /Monitor/Solo/L 1.0, /Monitor/Mute/SUB_B 0.0
  * 注：通道名中的空格会自动转换为下划线
+ * 
+ * 双向同步：
+ * - 接收外部控制消息并更新内部状态
+ * - 对所有状态变化发送确认反馈
+ * - 实现控制器与插件的真正双向状态同步
  */
 class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::RealtimeCallback>
 {
@@ -67,9 +72,6 @@ private:
     juce::String formatOSCAddress(const juce::String& action, const juce::String& channelName) const;
     std::pair<juce::String, juce::String> parseOSCAddress(const juce::String& address) const;
     bool isValidChannelName(const juce::String& channelName) const;
-    
-    // 防止循环发送的标志
-    std::atomic<bool> suppressOSCSend{false};
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OSCCommunicator)
 };
