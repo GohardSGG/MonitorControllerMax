@@ -258,10 +258,16 @@ std::pair<juce::String, juce::String> OSCCommunicator::parseOSCAddress(const juc
 
 bool OSCCommunicator::isValidChannelName(const juce::String& channelName) const
 {
-    // 验证语义通道名称
+    // 验证语义通道名称 - 更新为匹配配置文件中的实际通道名
     static const std::vector<juce::String> validChannels = {
+        // 主声道
         "L", "R", "C", "LFE", "LR", "RR",
-        "LTF", "RTF", "LTR", "RTR",
+        "LSS", "RSS", "LRS", "RRS",
+        "LTF", "RTF", "LTB", "RTB",
+        "LBF", "RBF", "LBB", "RBB",
+        // SUB通道 (匹配Speaker_Config.json中的名称)
+        "SUB F", "SUB B", "SUB L", "SUB R",
+        // 旧版SUB通道名（保持兼容性）
         "SUB_L", "SUB_R", "SUB_M"
     };
     
