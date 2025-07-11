@@ -216,16 +216,8 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     // 调用处理函数来更新对应的状态
     if (onExternalStateChange)
     {
-        if (action == "Solo")
-        {
-            // 只传递Solo状态，Mute状态用false占位
-            onExternalStateChange(channelName, state, false);
-        }
-        else if (action == "Mute") 
-        {
-            // 只传递Mute状态，Solo状态用false占位
-            onExternalStateChange(channelName, false, state);
-        }
+        // 传递action类型、通道名和状态值
+        onExternalStateChange(action, channelName, state);
     }
 }
 

@@ -100,7 +100,7 @@ public:
     void onGlobalModeChanged() override;
     
     // OSC external control handler
-    void handleExternalOSCControl(const juce::String& channelName, bool soloState, bool muteState);
+    void handleExternalOSCControl(const juce::String& action, const juce::String& channelName, bool state);
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;

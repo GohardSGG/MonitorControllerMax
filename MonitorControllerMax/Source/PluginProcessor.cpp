@@ -55,10 +55,10 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     VST3_DBG("Initialize OSC communication system");
     
     // 设置OSC外部控制回调
-    oscCommunicator.onExternalStateChange = [this](const juce::String& channelName, bool soloState, bool muteState) 
+    oscCommunicator.onExternalStateChange = [this](const juce::String& action, const juce::String& channelName, bool state) 
     {
         // 处理外部OSC控制，更新语义状态
-        handleExternalOSCControl(channelName, soloState, muteState);
+        handleExternalOSCControl(action, channelName, state);
     };
     
     // 尝试初始化OSC连接
@@ -896,10 +896,10 @@ void MonitorControllerMaxAudioProcessor::onGlobalModeChanged()
 // OSC external control handler
 //==============================================================================
 
-void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::String& channelName, bool soloState, bool muteState)
+void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::String& action, const juce::String& channelName, bool state)
 {
-    VST3_DBG("PluginProcessor: Handle external OSC control - channel: " + channelName + 
-             ", solo: " + (soloState ? "ON" : "OFF") + ", mute: " + (muteState ? "ON" : "OFF"));
+    VST3_DBG("PluginProcessor: Handle external OSC control - action: " + action + 
+             ", channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
     // 验证通道名称是否在当前映射中存在
     if (!physicalMapper.hasSemanticChannel(channelName))
@@ -908,32 +908,20 @@ void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::St
         return;
     }
     
-    // 更新语义状态 - 这些调用会自动触发状态变化回调
-    // 但OSCCommunicator会通过suppressOSCSend标志防止循环发送
-    
-    // 注意：OSC消息是分别发送Solo和Mute状态的，所以需要智能处理
-    // 这个回调是针对单个Solo或Mute消息的，不是同时更新两个状态
-    
-    if (soloState)
+    // 根据action类型和state值更新对应的语义状态
+    if (action == "Solo")
     {
-        // Solo状态激活
-        semanticState.setSoloState(channelName, true);
-        VST3_DBG("PluginProcessor: External OSC activated Solo for channel " + channelName);
+        semanticState.setSoloState(channelName, state);
+        VST3_DBG("PluginProcessor: External OSC " + juce::String(state ? "activated" : "deactivated") + " Solo for channel " + channelName);
     }
-    else if (muteState)
+    else if (action == "Mute")
     {
-        // Mute状态激活  
-        semanticState.setMuteState(channelName, true);
-        VST3_DBG("PluginProcessor: External OSC activated Mute for channel " + channelName);
+        semanticState.setMuteState(channelName, state);
+        VST3_DBG("PluginProcessor: External OSC " + juce::String(state ? "activated" : "deactivated") + " Mute for channel " + channelName);
     }
     else
     {
-        // 状态关闭 - 这里实际上不会同时收到soloState=false和muteState=false
-        // OSCCommunicator会分别调用这个函数来处理Solo OFF或Mute OFF
-        VST3_DBG("PluginProcessor: External OSC deactivated state for channel " + channelName);
-        
-        // 由于这是从OSC解析来的，我们知道具体是哪个操作
-        // 这个逻辑需要在OSCCommunicator中改进，分别处理Solo和Mute消息
+        VST3_DBG("PluginProcessor: Unknown OSC action - " + action);
     }
 }
 

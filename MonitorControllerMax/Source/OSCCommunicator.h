@@ -50,7 +50,7 @@ public:
     void oscMessageReceived(const juce::OSCMessage& message) override;
     
     // 设置状态更新回调 (用于接收外部OSC控制时更新语义状态)
-    std::function<void(const juce::String& channelName, bool soloState, bool muteState)> onExternalStateChange;
+    std::function<void(const juce::String& action, const juce::String& channelName, bool state)> onExternalStateChange;
 
 private:
     // OSC通信组件
