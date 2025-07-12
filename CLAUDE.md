@@ -2,6 +2,21 @@
 
 该文件为 Claude Code (claude.ai/code) 在此代码库中工作时提供指导。
 
+## 🚨 **重要编码标准**
+
+**⚡ 全局文件格式要求：所有文件必须保存为 UTF-8 with BOM 格式**
+
+- ✅ **新建文件**: 必须使用 UTF-8 with BOM 编码
+- ✅ **修改文件**: 保持原有编码格式，如是UTF-8 with BOM则保持
+- ✅ **中文注释**: 确保中文字符正确显示和保存
+- ✅ **跨平台兼容**: UTF-8 with BOM保证Windows/Linux一致性
+
+**重要性说明：**
+- 防止中文注释乱码问题
+- 确保Visual Studio正确识别文件编码
+- 保证跨平台开发环境一致性
+- 避免编译时的字符编码错误
+
 ## 项目概述
 
 该代码库包含用于 REAPER（数字音频工作站）的音频效果，主要专注于 **监听控制器插件**。项目包括两个主要部分：
@@ -38,21 +53,32 @@ JSFX 文件 (`.jsfx`) 是基于脚本的，无需编译。它们可以直接加�
 该 JUCE 插件为专业监听控制实现了一个复杂的 **主从通信系统**：
 
 **核心组件:**
-- `PluginProcessor` - 管理多达26个通道的主音频处理引擎
-- `PluginEditor` - 能够适应不同扬声器配置的动态用户界面
+- `PluginProcessor` - 管理多达26个通道的主音频处理引擎，支持角色化处理
+- `PluginEditor` - 动态UI，支持主从模式和角色选择下拉框
 - `ConfigManager` - 从 JSON 文件中解析扬声器布局配置
 - `InterPluginCommunicator` - 处理主从设置的插件间通信
+- `SemanticChannelState` - 语义通道状态管理系统
+- `OSCCommunicator` - 双向OSC通信系统（仅主插件和独立插件发送）
 
 **关键设计模式:**
-- **基于角色的处理**: 插件可以作为独立、主或从实例运行
-- **动态参数管理**: 参数根据加载的扬声器配置动态生成
-- **状态同步**: 主实例通过 IPC 控制从实例
-- **UI驱动逻辑**: 复杂的状态变更在 UI 回调中处理，而非参数变更事件
+- **基于角色的处理**: 插件可以作为独立(Standalone)、主(Master)或从(Slave)实例运行
+- **语义状态系统**: 使用声道名称而非物理通道索引进行状态管理
+- **角色化OSC通信**: 只有主插件和独立插件发送OSC消息，从插件只接收状态
+- **动态布局适应**: UI和处理逻辑根据当前扬声器配置自动调整
+- **主从状态同步**: 主实例通过IPC向从实例广播Solo/Mute状态
 
 **音频处理流程:**
-1.  **从插件** (校准前): 对原始音频应用静音/独奏滤波
+1.  **从插件** (校准前): 应用Solo/Mute滤波，不发送OSC消息
 2.  **外部校准软件**: 处理滤波后的音频
-3.  **主插件** (校准后): 应用最终的静音/独奏/增益处理
+3.  **主插件** (校准后): 应用最终处理，负责OSC通信和界面控制
+
+**主从角色分工 (v3.0新架构):**
+
+| 角色 | OSC发送 | OSC接收 | 音频处理 | 界面控制 | 主从同步 |
+|------|---------|---------|----------|----------|----------|
+| **独立(Standalone)** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **主插件(Master)** | ✅ | ✅ | ✅ | ✅ | ✅发送 |
+| **从插件(Slave)** | ❌ | ❌ | ✅ | ✅显示 | ✅接收 |
 
 ### 扬声器配置系统
 
@@ -84,15 +110,25 @@ JSFX 文件 (`.jsfx`) 是基于脚本的，无需编译。它们可以直接加�
 ```
 MonitorControllerMax/
 ├── Source/
-│   ├── PluginProcessor.h/cpp     # 主音频处理器
-│   ├── PluginEditor.h/cpp        # 动态UI实现
-│   ├── ConfigManager.h/cpp       # 配置解析
-│   ├── ConfigModels.h            # 数据结构
+│   ├── PluginProcessor.h/cpp          # 主音频处理器和OSC回调
+│   ├── PluginProcessor_StateSync.cpp  # 主从状态同步实现
+│   ├── PluginEditor.h/cpp             # 动态UI和角色选择器
+│   ├── ConfigManager.h/cpp            # 配置解析
+│   ├── ConfigModels.h                 # 数据结构
 │   ├── InterPluginCommunicator.h/cpp  # IPC 系统
+│   ├── SemanticChannelState.h/cpp     # 语义状态管理
+│   ├── SemanticChannelButton.h        # 语义UI组件
+│   ├── OSCCommunicator.h/cpp          # OSC双向通信
+│   ├── PhysicalChannelMapper.h/cpp    # 物理通道映射
+│   ├── DebugLogger.h                  # VST3调试日志系统
 │   └── Config/
-│       └── Speaker_Config.json   # 扬声器布局定义
-├── Builds/VisualStudio2022/      # Visual Studio 项目文件
-└── JuceLibraryCode/              # 自动生成的 JUCE 代码
+│       └── Speaker_Config.json        # 扬声器布局定义
+├── Builds/VisualStudio2022/           # Visual Studio 项目文件
+├── JuceLibraryCode/                   # 自动生成的 JUCE 代码
+└── Debug/                             # Claude Code 自动化工具套件
+    ├── claude_auto_build.sh           # 一键编译运行脚本
+    ├── README.md                      # 工具使用说明
+    └── logs.txt                       # 构建和运行日志
 ```
 
 ## 开发工作流
@@ -420,11 +456,18 @@ const String MonitorControllerMaxAudioProcessor::getInputChannelName(int channel
 3. **参数**: 如果需要，扩展 `createParameterLayout()`
 4. **通信**: 修改 `InterPluginCommunicator` 以实现跨实例功能
 
-### 测试主从设置
+### 测试主从设置 (v3.0新流程)
 1. 在 DAW 中加载两个插件实例
-2. 在期望的主实例上点击 "Link" 按钮
-3. 从实例的 UI 变为只读，并镜像主实例的状态
-4. 将从实例放置在校准软件之前，主实例放置在之后
+2. 在第一个插件中，使用角色选择下拉框选择 "Master"
+3. 在第二个插件中，使用角色选择下拉框选择 "Slave"
+4. 从插件的 UI 会显示灰色遮罩，显示主插件的状态但不可操作
+5. 只有主插件会发送OSC消息，从插件专注于音频处理
+6. 将从插件放置在校准软件之前，主插件放置在之后
+
+**角色分工验证:**
+- **主插件**: 操作Solo/Mute按钮时发送OSC消息
+- **从插件**: 显示相同状态但不发送OSC消息
+- **状态同步**: 主插件状态自动同步到从插件
 
 ## 关键实现细节
 
@@ -433,16 +476,25 @@ const String MonitorControllerMaxAudioProcessor::getInputChannelName(int channel
 - 通道映射在运行时根据活动布局进行
 - 未使用的参数会自动绕过
 
-### 状态同步
-- 只有静音/独奏状态在实例之间同步
-- 增益/音量参数保持在每个实例本地
-- 通信使用 `juce::InterprocessConnection` 实现低延迟
+### 状态同步 (v3.0新实现)
+- **语义状态同步**: 使用声道名称进行Solo/Mute状态同步
+- **角色化处理**: 只有主插件向从插件广播状态
+- **增益参数本地化**: 增益/音量参数保持在每个实例本地
+- **IPC通信**: 使用 `juce::InterprocessConnection` 实现低延迟同步
+- **状态序列化**: 完整的状态序列化/反序列化系统
 
-### UI 行为
-- **普通模式**: 所有控件均可操作
-- **主模式**: 完全控制，向从实例发送状态
-- **从模式**: UI 锁定，仅显示主实例状态
-- **独奏逻辑**: 自动静音非独奏通道，并缓存状态
+### UI 行为 (v3.0新架构)
+- **独立模式(Standalone)**: 所有控件可操作，发送OSC消息
+- **主模式(Master)**: 完全控制，向从实例发送状态，负责OSC通信
+- **从模式(Slave)**: UI显示灰色遮罩，只读显示主实例状态，不发送OSC
+- **角色选择器**: 下拉框手动选择插件角色，替代自动连接逻辑
+- **独奏逻辑**: 自动静音非独奏通道，支持复杂的Solo模式联动
+
+### OSC通信系统 (v3.0关键特性)
+- **角色化发送**: 只有主插件和独立插件发送OSC消息
+- **从插件限制**: 从插件完全不发送OSC，避免消息重复
+- **双向通信**: 支持外部OSC控制和状态广播
+- **实时同步**: 状态变化立即通过OSC广播
 
 ### 动态主机集成
 - `getParameterName()`: 返回与布局相关的参数名称 (例如 "Mute LFE" vs "Mute 4")
