@@ -162,7 +162,7 @@ public:
     // 角色和UI状态持久化
     PluginRole savedRole = PluginRole::Standalone;
     juce::String savedSelectedChannels;
-    juce::ValueTree savedSemanticStateData;
+    juce::ValueTree savedSemanticStateData; // DEPRECATED: Solo/Mute状态不再持久化
 
     // New semantic state system (gradually replacing VST3 parameter system)
     SemanticChannelState semanticState;

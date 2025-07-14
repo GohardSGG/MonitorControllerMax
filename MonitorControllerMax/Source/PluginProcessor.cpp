@@ -389,21 +389,13 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     // 保存角色信息
     state.setProperty("pluginRole", static_cast<int>(currentRole), nullptr);
     
-    // 保存语义状态系统的所有状态
-    auto semanticStateData = juce::ValueTree("SemanticStates");
-    auto activeChannels = physicalMapper.getActiveSemanticChannels();
-    for (const auto& channelName : activeChannels) {
-        auto channelState = juce::ValueTree("Channel");
-        channelState.setProperty("name", channelName, nullptr);
-        channelState.setProperty("solo", semanticState.getSoloState(channelName), nullptr);
-        channelState.setProperty("mute", semanticState.getMuteState(channelName), nullptr);
-        semanticStateData.addChild(channelState, -1, nullptr);
-    }
-    state.addChild(semanticStateData, -1, nullptr);
+    // 🎯 用户需求：完全移除Solo/Mute状态的持久化保存
+    // 只保留Gain参数、角色、布局配置的持久化，确保插件重新加载时Solo/Mute状态为干净初始状态
+    // Note: Solo/Mute状态在DAW会话期间（窗口关闭/重开）仍然通过内存对象维持
     
     VST3_DBG("PluginProcessor: Saving complete state - Layout: " + userSelectedSpeakerLayout + " + " + userSelectedSubLayout + 
              ", Role: " + juce::String(static_cast<int>(currentRole)) + 
-             ", Channels: " + juce::String(activeChannels.size()));
+             " (Solo/Mute states NOT saved - clean startup policy)");
     
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
@@ -464,19 +456,15 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
                     VST3_DBG_ROLE(this, "Applying restored layout after UI initialization");
                     setCurrentLayout(savedSpeaker, savedSub);
                     
-                    // 恢复语义状态（在布局设置后）
-                    restoreSemanticStates();
+                    // 🎯 用户需求：不再恢复Solo/Mute状态，确保干净启动
+                    VST3_DBG_ROLE(this, "Layout restored - Solo/Mute states remain clean for fresh start");
                 });
             }
-            
-            // 保存语义状态数据用于延迟恢复
-            savedSemanticStateData = state.getChildWithName("SemanticStates");
         }
     }
     
-    // 重要修复：完全移除状态清空逻辑，保持JUCE插件状态持久化的最佳实践
-    VST3_DBG_ROLE(this, "State restoration complete - preserving user states");
-    // 删除: semanticState.clearAllStates(); // 这行破坏了状态持久化！
+    // 🎯 状态恢复策略更新：保留Gain、角色、布局配置，Solo/Mute状态始终干净启动
+    VST3_DBG_ROLE(this, "State restoration complete - Gain/Role/Layout restored, Solo/Mute clean");
     
     // 角色确定后初始化OSC系统
     initializeOSCForRole();
@@ -1204,47 +1192,14 @@ void MonitorControllerMaxAudioProcessor::restoreUIState() {
 }
 
 void MonitorControllerMaxAudioProcessor::restoreSemanticStates() {
-    if (!savedSemanticStateData.isValid()) {
-        VST3_DBG_ROLE(this, "No semantic state data to restore");
-        return;
-    }
+    // 🎯 方法已弃用：根据用户需求，完全移除Solo/Mute状态的持久化
+    // 插件重新加载时，Solo/Mute状态始终保持干净的初始状态
+    // 只有Gain参数、角色选择、布局配置会被持久化保存和恢复
     
-    VST3_DBG_ROLE(this, "PluginProcessor: Restoring semantic states");
+    VST3_DBG_ROLE(this, "restoreSemanticStates() called but DEPRECATED - clean startup policy active");
+    VST3_DBG_ROLE(this, "Solo/Mute states remain in clean initial state for fresh plugin load");
     
-    // 首先清空当前状态
-    semanticState.clearAllStates();
-    
-    // 恢复每个通道的状态
-    for (int i = 0; i < savedSemanticStateData.getNumChildren(); ++i) {
-        auto channelState = savedSemanticStateData.getChild(i);
-        if (channelState.hasType("Channel")) {
-            juce::String channelName = channelState.getProperty("name").toString();
-            bool soloState = channelState.getProperty("solo", false);
-            bool muteState = channelState.getProperty("mute", false);
-            
-            VST3_DBG_ROLE(this, "Restoring channel " + channelName + 
-                     " - Solo: " + (soloState ? "ON" : "OFF") + 
-                     ", Mute: " + (muteState ? "ON" : "OFF"));
-            
-            // 应用状态（这会自动触发回调和同步）
-            if (soloState) {
-                semanticState.setSoloState(channelName, true);
-            }
-            if (muteState) {
-                semanticState.setMuteState(channelName, true);
-            }
-        }
-    }
-    
-    // 清空保存的数据
-    savedSemanticStateData = juce::ValueTree();
-    
-    // 更新UI显示
-    if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
-        editor->updateChannelButtonStates();
-    }
-    
-    VST3_DBG_ROLE(this, "Semantic state restoration complete");
+    // Note: 如果将来需要恢复部分状态持久化，可以在这里重新实现
 }
 
 void MonitorControllerMaxAudioProcessor::onSemanticStateChanged(const juce::String& channelName, const juce::String& action, bool state) {
