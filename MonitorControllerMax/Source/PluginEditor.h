@@ -94,6 +94,7 @@ public:
     
     // Public UI update methods
     void updateChannelButtonStates();
+    void updateUIBasedOnRole(); // Master-Slave UI状态更新
 
 private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -128,6 +129,15 @@ private:
     
     juce::ComboBox speakerLayoutSelector;
     juce::ComboBox subLayoutSelector;
+    
+    // Master-Slave角色选择器
+    juce::ComboBox roleSelector;
+    juce::Label roleLabel;
+    
+    // Debug连接日志窗口
+    juce::TextEditor debugLogDisplay;
+    juce::Label debugLogLabel;
+    juce::TextButton clearLogButton{ "Clear" };
 
     juce::FlexBox sidebar;
     juce::FlexBox selectorBox;
@@ -149,6 +159,12 @@ private:
     // Private function declarations
     void updatePluginConfiguration(); // Update plugin configuration and notify host immediately
     void syncUIFromUserSelection(); // 从用户选择同步UI状态
+    
+    // Master-Slave UI管理  
+    void setupRoleSelector();
+    void handleRoleChange();
+    void updateDebugLogDisplay();
+    void clearDebugLog();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };

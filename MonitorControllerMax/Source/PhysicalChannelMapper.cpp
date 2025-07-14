@@ -13,7 +13,7 @@ PhysicalChannelMapper::~PhysicalChannelMapper()
 
 void PhysicalChannelMapper::updateMapping(const Layout& layout)
 {
-    VST3_DBG("PhysicalChannelMapper: Update mapping configuration");
+    // 删除垃圾日志 - 高频映射配置更新
     
     // Clear existing mappings
     clearMapping();
@@ -29,7 +29,7 @@ void PhysicalChannelMapper::updateMapping(const Layout& layout)
         int gridX = gridPos % 5;                      // Column (0-4)
         int gridY = gridPos / 5;                      // Row (0-4)
         
-        VST3_DBG("PhysicalChannelMapper: Map channel - " + semanticName + " -> physical pin " + juce::String(physicalPin) + 
+        VST3_DBG_DETAIL("PhysicalChannelMapper: Map channel - " + semanticName + " -> physical pin " + juce::String(physicalPin) + 
                  " (grid position: " + juce::String(gridX) + "," + juce::String(gridY) + ")");
         
         addMapping(semanticName, physicalPin, gridX, gridY);
@@ -38,13 +38,13 @@ void PhysicalChannelMapper::updateMapping(const Layout& layout)
         channelInfoMap[semanticName] = channelInfo;
     }
     
-    VST3_DBG("PhysicalChannelMapper: Mapping update complete - total " + juce::String(semanticToPhysical.size()) + " channels");
+    // 删除垃圾日志 - 重复的映射统计
     logCurrentMapping();
 }
 
 void PhysicalChannelMapper::updateFromConfig(const juce::String& speakerLayout, const juce::String& subLayout)
 {
-    VST3_DBG("PhysicalChannelMapper: Update mapping from config - Speaker: " + speakerLayout + ", Sub: " + subLayout);
+    // 删除垃圾日志 - 配置更新高频调用
     
     // This method would be called by the main processor when configuration changes
     // For now, we'll log the intent - the actual implementation will be integrated later
@@ -115,7 +115,7 @@ std::vector<juce::String> PhysicalChannelMapper::getActiveSemanticChannels() con
         channels.push_back(semanticName);
     }
     
-    VST3_DBG("PhysicalChannelMapper: Active semantic channels count: " + juce::String(channels.size()));
+    // 删除垃圾日志 - 高频统计调用
     
     return channels;
 }
@@ -157,18 +157,19 @@ bool PhysicalChannelMapper::hasGridPosition(const juce::String& semanticName) co
 
 void PhysicalChannelMapper::logCurrentMapping() const
 {
-    VST3_DBG("PhysicalChannelMapper: === Current mapping overview ===");
-    VST3_DBG("  Total channels: " + juce::String(semanticToPhysical.size()));
+    // 使用DETAIL级别 - 重复内容会被智能过滤
+    VST3_DBG_DETAIL("PhysicalChannelMapper: === Current mapping overview ===");
+    VST3_DBG_DETAIL("  Total channels: " + juce::String(semanticToPhysical.size()));
     
-    VST3_DBG("  Semantic -> physical mapping:");
+    VST3_DBG_DETAIL("  Semantic -> physical mapping:");
     for (const auto& [semanticName, physicalPin] : semanticToPhysical)
     {
         auto gridPos = getGridPosition(semanticName);
-        VST3_DBG("    " + semanticName + " -> Pin " + juce::String(physicalPin) + 
+        VST3_DBG_DETAIL("    " + semanticName + " -> Pin " + juce::String(physicalPin) + 
                  " (grid: " + juce::String(gridPos.first) + "," + juce::String(gridPos.second) + ")");
     }
     
-    VST3_DBG("================================");
+    VST3_DBG_DETAIL("================================");
 }
 
 juce::String PhysicalChannelMapper::getMappingDescription() const
@@ -182,7 +183,7 @@ juce::String PhysicalChannelMapper::getMappingDescription() const
 
 void PhysicalChannelMapper::clearMapping()
 {
-    VST3_DBG("PhysicalChannelMapper: Clear all mappings");
+    // 删除垃圾日志 - 映射清理高频调用
     
     semanticToPhysical.clear();
     physicalToSemantic.clear();

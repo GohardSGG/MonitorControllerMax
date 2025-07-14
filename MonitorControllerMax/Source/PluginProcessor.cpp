@@ -8,7 +8,6 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "InterPluginCommunicator.h"
 #include "DebugLogger.h"
 
 //==============================================================================
@@ -22,20 +21,20 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
                        .withOutput ("Output", juce::AudioChannelSet::discreteChannels(26), true)
                      #endif
                        ),
-      apvts (*this, nullptr, "Parameters", createParameterLayout()),
-      currentRole(standalone)
+      apvts (*this, nullptr, "Parameters", createParameterLayout())
 #endif
 {
-    // 初始化VST3调试日志系统
-    DebugLogger::getInstance().initialize("MonitorControllerMax");
-    VST3_DBG("=== MonitorControllerMax Plugin Constructor ===");
+    // 初始化智能VST3调试日志系统 - INFO级别，过滤重复内容
+    DebugLogger::getInstance().initialize("MonitorControllerMax", LogLevel::INFO);
+    VST3_DBG_CRITICAL("=== MonitorControllerMax Plugin Constructor ===");
     
-    communicator.reset(new InterPluginCommunicator(*this));
+    // 注册到GlobalPluginState
+    registerToGlobalState();
     
     // Initialize semantic state system
     semanticState.addStateChangeListener(this);
     
-    VST3_DBG("Initialize semantic state system");
+    VST3_DBG_ROLE(this, "Initialize semantic state system");
     
     // Initialize with default layout if available
     if (!currentLayout.channels.empty())
@@ -49,26 +48,30 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
         }
     }
     
-    VST3_DBG("Semantic state system initialization complete");
+    VST3_DBG_ROLE(this, "Semantic state system initialization complete");
     
     // Initialize OSC communication system
-    VST3_DBG("Initialize OSC communication system");
+    VST3_DBG_ROLE(this, "Initialize OSC communication system");
     
-    // 设置OSC外部控制回调
+    // 设置OSC外部控制回调（所有角色都设置，但只有Master/Standalone处理）
     oscCommunicator.onExternalStateChange = [this](const juce::String& action, const juce::String& channelName, bool state) 
     {
-        // 处理外部OSC控制，更新语义状态
-        handleExternalOSCControl(action, channelName, state);
+        // 只有Master和Standalone处理外部OSC控制
+        if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+            handleExternalOSCControl(action, channelName, state);
+        } else {
+            VST3_DBG_ROLE(this, "OSC control ignored - Slave mode does not process OSC");
+        }
     };
     
-    // 尝试初始化OSC连接
+    // 初始化OSC连接（暂时所有角色都初始化，但处理时会过滤）
     if (oscCommunicator.initialize())
     {
-        VST3_DBG("OSC communication system initialized successfully");
+        VST3_DBG_ROLE(this, "OSC communication system initialized successfully");
     }
     else
     {
-        VST3_DBG("OSC communication system initialization failed - continuing without OSC");
+        VST3_DBG_ROLE(this, "OSC communication system initialization failed - continuing without OSC");
     }
     
     // Initialize legacy StateManager (will be phased out)
@@ -78,7 +81,7 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
 
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
-    VST3_DBG("PluginProcessor: Destructor - cleaning up resources");
+    VST3_DBG_ROLE(this, "Destructor - cleaning up resources");
     
     // Shutdown OSC communication
     oscCommunicator.shutdown();
@@ -90,6 +93,12 @@ MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
         auto gainId = "GAIN_" + juce::String(i + 1);
         apvts.removeParameterListener(gainId, this);
     }
+    
+    // 注销GlobalPluginState
+    unregisterFromGlobalState();
+    
+    // 手动关闭日志系统并清理日志文件
+    DebugLogger::getInstance().shutdown();
 }
 
 //==============================================================================
@@ -157,7 +166,7 @@ void MonitorControllerMaxAudioProcessor::changeProgramName (int index, const juc
 //==============================================================================
 void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    VST3_DBG("PluginProcessor: prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
+    VST3_DBG_ROLE(this, "prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
     
     // 只处理保留的Gain参数
     const int maxChannels = 26;
@@ -176,7 +185,7 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
     }
     
     // 插件准备就绪后，广播所有当前状态到OSC
-    VST3_DBG("PluginProcessor: Broadcasting initial states to OSC");
+    VST3_DBG_ROLE(this, "Broadcasting initial states to OSC");
     oscCommunicator.broadcastAllStates(semanticState, physicalMapper);
 }
 
@@ -255,10 +264,9 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     // =================================================================================
 
     bool anySoloEngaged = false;
-    const auto role = getRole();
 
     // 检查是否有任何一个 *语义通道* 被 solo
-    anySoloEngaged = (role == Role::slave) ? false : semanticState.hasAnySoloActive();
+    anySoloEngaged = (currentRole == PluginRole::Slave) ? false : semanticState.hasAnySoloActive();
 
     // =================================================================================
     // 2. 将处理逻辑应用到物理音频缓冲区 (全新逻辑)
@@ -279,7 +287,7 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
         // --- 从这里开始，我们确认了 physicalChannel 对应一个有效的语义通道 ---
 
         // 获取这个语义通道的最终Mute状态（已包含Solo模式联动逻辑）
-        const bool shouldBeSilent = (role == Role::slave) ? false : semanticState.getFinalMuteState(semanticChannelName);
+        const bool shouldBeSilent = (currentRole == PluginRole::Slave) ? false : semanticState.getFinalMuteState(semanticChannelName);
 
         if (shouldBeSilent)
         {
@@ -319,7 +327,24 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     state.setProperty("currentSpeakerLayout", userSelectedSpeakerLayout, nullptr);
     state.setProperty("currentSubLayout", userSelectedSubLayout, nullptr);
     
-    VST3_DBG("PluginProcessor: Saving user-selected layout - Speaker: " + userSelectedSpeakerLayout + ", Sub: " + userSelectedSubLayout);
+    // 保存角色信息
+    state.setProperty("pluginRole", static_cast<int>(currentRole), nullptr);
+    
+    // 保存语义状态系统的所有状态
+    auto semanticStateData = juce::ValueTree("SemanticStates");
+    auto activeChannels = physicalMapper.getActiveSemanticChannels();
+    for (const auto& channelName : activeChannels) {
+        auto channelState = juce::ValueTree("Channel");
+        channelState.setProperty("name", channelName, nullptr);
+        channelState.setProperty("solo", semanticState.getSoloState(channelName), nullptr);
+        channelState.setProperty("mute", semanticState.getMuteState(channelName), nullptr);
+        semanticStateData.addChild(channelState, -1, nullptr);
+    }
+    state.addChild(semanticStateData, -1, nullptr);
+    
+    VST3_DBG("PluginProcessor: Saving complete state - Layout: " + userSelectedSpeakerLayout + " + " + userSelectedSubLayout + 
+             ", Role: " + juce::String(static_cast<int>(currentRole)) + 
+             ", Channels: " + juce::String(activeChannels.size()));
     
     auto xml = state.createXml();
     copyXmlToBinary(*xml, destData);
@@ -337,13 +362,24 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
             auto state = juce::ValueTree::fromXml(*xmlState);
             apvts.replaceState(state);
             
+            // 恢复角色信息
+            if (state.hasProperty("pluginRole")) {
+                int savedRoleInt = state.getProperty("pluginRole", 0);
+                PluginRole savedRole = static_cast<PluginRole>(savedRoleInt);
+                VST3_DBG_ROLE(this, "PluginProcessor: Restoring plugin role - " + juce::String(savedRoleInt));
+                
+                // 应用角色（会自动处理GlobalPluginState注册）
+                currentRole = savedRole;
+                savedRole = savedRole;  // 更新保存的角色
+            }
+            
             // 恢复用户选择的布局配置（如果存在）
             if (state.hasProperty("currentSpeakerLayout") && state.hasProperty("currentSubLayout"))
             {
                 juce::String savedSpeaker = state.getProperty("currentSpeakerLayout", "2.0").toString();
                 juce::String savedSub = state.getProperty("currentSubLayout", "None").toString();
                 
-                VST3_DBG("PluginProcessor: Restoring user-selected layout - Speaker: " + savedSpeaker + ", Sub: " + savedSub);
+                VST3_DBG_ROLE(this, "Restoring user-selected layout - Speaker: " + savedSpeaker + ", Sub: " + savedSub);
                 
                 // 重要修复：只恢复用户选择变量，不立即应用布局
                 // 这样可以避免与UI初始化的冲突
@@ -353,15 +389,21 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
                 // 延迟应用布局，让UI有时间初始化
                 juce::MessageManager::callAsync([this, savedSpeaker, savedSub]()
                 {
-                    VST3_DBG("PluginProcessor: Applying restored layout after UI initialization");
+                    VST3_DBG_ROLE(this, "Applying restored layout after UI initialization");
                     setCurrentLayout(savedSpeaker, savedSub);
+                    
+                    // 恢复语义状态（在布局设置后）
+                    restoreSemanticStates();
                 });
             }
+            
+            // 保存语义状态数据用于延迟恢复
+            savedSemanticStateData = state.getChildWithName("SemanticStates");
         }
     }
     
     // 重要修复：状态恢复后立即重置到干净状态
-    VST3_DBG("Performing post-state-restore clean reset");
+    VST3_DBG_ROLE(this, "Performing post-state-restore clean reset");
     semanticState.clearAllStates();
 }
 
@@ -447,7 +489,7 @@ const juce::String MonitorControllerMaxAudioProcessor::getOutputChannelName(int 
 
 void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub)
 {
-    VST3_DBG("Update config layout - Speaker: " + speaker + ", Sub: " + sub);
+    // 删除重复的配置更新日志 - 会被多次调用产生垃圾信息
     
     // 跟踪用户实际选择的布局配置，用于状态持久化
     userSelectedSpeakerLayout = speaker;
@@ -457,7 +499,7 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
     currentLayout = configManager.getLayoutFor(speaker, sub);
 
     // Update semantic state system mapping
-    VST3_DBG("Update physical channel mapping");
+    VST3_DBG_ROLE(this, "Update physical channel mapping");
     physicalMapper.updateMapping(currentLayout);
     
     // Clear and reinitialize semantic channels
@@ -465,7 +507,7 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
     for (const auto& channelInfo : currentLayout.channels)
     {
         semanticState.initializeChannel(channelInfo.name);
-        VST3_DBG("Initialize semantic channel: " + channelInfo.name + " -> physical pin " + juce::String(channelInfo.channelIndex));
+        VST3_DBG_DETAIL("Initialize semantic channel: " + channelInfo.name + " -> physical pin " + juce::String(channelInfo.channelIndex));
     }
     
     // Log current mapping
@@ -527,7 +569,7 @@ void MonitorControllerMaxAudioProcessor::autoSelectLayoutForChannelCount(int cha
         }
     }
     
-    VST3_DBG("AutoSelect: " + juce::String(channelCount) + " channels -> " + bestSpeakerLayout + " + " + bestSubLayout + " (" + juce::String(bestChannelUsage) + " used)");
+    VST3_DBG_ROLE(this, "AutoSelect: " + juce::String(channelCount) + " channels -> " + bestSpeakerLayout + " + " + bestSubLayout + " (" + juce::String(bestChannelUsage) + " used)");
     
     // 应用新的布局配置
     setCurrentLayout(bestSpeakerLayout, bestSubLayout);
@@ -572,48 +614,16 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
     return new MonitorControllerMaxAudioProcessor();
 }
 
-void MonitorControllerMaxAudioProcessor::setRole(Role newRole)
-{
-    currentRole = newRole;
-}
-
-MonitorControllerMaxAudioProcessor::Role MonitorControllerMaxAudioProcessor::getRole() const
-{
-    return currentRole;
-}
-
-void MonitorControllerMaxAudioProcessor::setRemoteMuteSoloState(const MuteSoloState& state)
-{
-    for (int i = 0; i < currentLayout.totalChannelCount; ++i)
-    {
-        remoteMutes[i] = state.mutes[i];
-        remoteSolos[i] = state.solos[i];
-    }
-}
-
-bool MonitorControllerMaxAudioProcessor::getRemoteMuteState(int channel) const
-{
-    if (juce::isPositiveAndBelow(channel, configManager.getMaxChannelIndex()))
-        return remoteMutes[channel].load();
-    return false;
-}
-
-bool MonitorControllerMaxAudioProcessor::getRemoteSoloState(int channel) const
-{
-    if (juce::isPositiveAndBelow(channel, configManager.getMaxChannelIndex()))
-        return remoteSolos[channel].load();
-    return false;
-}
 
 void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
-    VST3_DBG("Parameter changed: " << parameterID << " = " << newValue);
+    // 删除垃圾日志 - 参数变化高频调用
     
     // Only handle Gain parameters now - Solo/Mute are managed by semantic state system
     if (parameterID.startsWith("GAIN_"))
     {
         // Gain parameter changes can be logged or processed if needed
-        VST3_DBG("Gain parameter updated: " << parameterID << " = " << newValue << " dB");
+        // 删除垃圾日志 - 增益参数更新高频调用
     }
     
     // Note: Solo/Mute parameters no longer exist in VST3 parameter system
@@ -626,11 +636,11 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
 
 void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 {
-    VST3_DBG("Solo button clicked - using semantic state system");
+    VST3_DBG_ROLE(this, "Solo button clicked - using semantic state system");
     
     if (semanticState.hasAnySoloActive()) {
         // 状态1：有Solo状态激活 - 清除所有Solo状态并恢复Mute记忆
-        VST3_DBG("Clearing all Solo states and restoring Mute memory");
+        VST3_DBG_ROLE(this, "Clearing all Solo states and restoring Mute memory");
         
         // 清除选择模式
         pendingSoloSelection.store(false);
@@ -647,7 +657,7 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
         
     } else if (pendingSoloSelection.load()) {
         // 状态2：无Solo状态，但在Solo选择模式 - 退出选择模式并恢复记忆
-        VST3_DBG("Exiting Solo selection mode and restoring Mute memory");
+        VST3_DBG_ROLE(this, "Exiting Solo selection mode and restoring Mute memory");
         
         // 恢复之前保存的Mute记忆状态
         semanticState.restoreMuteMemory();
@@ -658,7 +668,7 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
     } else {
         // 状态3：初始状态 - 进入Solo选择模式
         // → 保存当前Mute记忆 + 清空所有当前Mute状态 + 进入Solo选择模式
-        VST3_DBG("Entering Solo selection mode - saving Mute memory and clearing current Mute states");
+        VST3_DBG_ROLE(this, "Entering Solo selection mode - saving Mute memory and clearing current Mute states");
         
         // 保存当前Mute记忆并清空现场，让UI显示干净状态
         semanticState.saveCurrentMuteMemory();
@@ -674,17 +684,17 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 
 void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
 {
-    VST3_DBG("Mute button clicked - using semantic state system");
+    VST3_DBG_ROLE(this, "Mute button clicked - using semantic state system");
     
     // Solo Priority Rule: If any Solo state is active, Mute button is disabled
     if (semanticState.hasAnySoloActive()) {
-        VST3_DBG("Mute button ignored - Solo priority rule active");
+        VST3_DBG_ROLE(this, "Mute button ignored - Solo priority rule active");
         return;
     }
     
     if (semanticState.hasAnyMuteActive()) {
         // 状态1：有Mute状态激活 - 清除所有Mute状态
-        VST3_DBG("Clearing all Mute states");
+        VST3_DBG_ROLE(this, "Clearing all Mute states");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
         
@@ -693,12 +703,12 @@ void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
         
     } else if (pendingMuteSelection.load()) {
         // 状态2：无Mute状态，但在Mute选择模式 - 退出选择模式
-        VST3_DBG("Exiting Mute selection mode - returning to initial state");
+        VST3_DBG_ROLE(this, "Exiting Mute selection mode - returning to initial state");
         pendingSoloSelection.store(false);
         pendingMuteSelection.store(false);
     } else {
         // 状态3：初始状态 - 进入Mute选择模式
-        VST3_DBG("Entering Mute selection mode - waiting for channel clicks");
+        VST3_DBG_ROLE(this, "Entering Mute selection mode - waiting for channel clicks");
         pendingMuteSelection.store(true);
         pendingSoloSelection.store(false);  // 切换到Mute选择模式会取消Solo选择模式
     }
@@ -722,7 +732,7 @@ bool MonitorControllerMaxAudioProcessor::isInSoloSelectionMode() const
 {
     // Solo选择模式：待定Solo选择或已有Solo参数激活时
     bool result = pendingSoloSelection.load() || semanticState.hasAnySoloActive();
-    VST3_DBG("isInSoloSelectionMode: pending=" << (pendingSoloSelection.load() ? "true" : "false") << " active=" << (semanticState.hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
+    // 删除垃圾日志 - 选择模式状态检查高频调用
     return result;
 }
 
@@ -730,7 +740,7 @@ bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 {
     // Mute选择模式：待定Mute选择或已有Mute参数激活时（且没有Solo优先级干扰）
     bool result = (pendingMuteSelection.load() || semanticState.hasAnyMuteActive()) && !semanticState.hasAnySoloActive();
-    VST3_DBG("isInMuteSelectionMode: pending=" << (pendingMuteSelection.load() ? "true" : "false") << " active=" << (semanticState.hasAnyMuteActive() ? "true" : "false") << " soloActive=" << (semanticState.hasAnySoloActive() ? "true" : "false") << " result=" << (result ? "true" : "false"));
+    // 删除垃圾日志 - 选择模式状态检查高频调用
     return result;
 }
 
@@ -751,18 +761,18 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
 {
     // Validate channel index
     if (channelIndex < 0 || channelIndex >= 26) {
-        VST3_DBG("Invalid channel index: " << channelIndex);
+        VST3_DBG_ROLE(this, "Invalid channel index: " + juce::String(channelIndex));
         return;
     }
     
-    VST3_DBG("Channel click: " << channelIndex);
+    VST3_DBG_ROLE(this, "Channel click: " << channelIndex);
     
     // Get semantic channel name from physical channel index
     juce::String semanticChannelName = physicalMapper.getSemanticName(channelIndex);
     
     // Skip unmapped channels
     if (semanticChannelName.isEmpty()) {
-        VST3_DBG("Channel " << channelIndex << " has no semantic mapping - no effect");
+        VST3_DBG_ROLE(this, "Channel " + juce::String(channelIndex) + " has no semantic mapping - no effect");
         return;
     }
     
@@ -770,14 +780,14 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
     bool inSoloSelection = isInSoloSelectionMode();
     bool inMuteSelection = isInMuteSelectionMode();
     
-    VST3_DBG("Channel click state - SoloSel:" << (inSoloSelection ? "true" : "false") << " MuteSel:" << (inMuteSelection ? "true" : "false"));
+    // 删除垃圾日志 - 内部状态检查
     
     if (inSoloSelection) {
         // Solo选择模式 -> 切换该语义通道的Solo状态
         bool currentSolo = semanticState.getSoloState(semanticChannelName);
         bool newSolo = !currentSolo;
         semanticState.setSoloState(semanticChannelName, newSolo);
-        VST3_DBG("Channel " << channelIndex << " (" << semanticChannelName << ") Solo toggled: " << (newSolo ? "ON" : "OFF"));
+        // 删除垃圾日志 - 重复的状态变更信息
         
         // CRITICAL FIX: 不再自动清除待定选择状态，保持在选择模式中
         // pendingSoloSelection.store(false);  // 移除这行
@@ -786,13 +796,13 @@ void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
         bool currentMute = semanticState.getMuteState(semanticChannelName);
         bool newMute = !currentMute;
         semanticState.setMuteState(semanticChannelName, newMute);
-        VST3_DBG("Channel " << channelIndex << " (" << semanticChannelName << ") Mute toggled: " << (newMute ? "ON" : "OFF"));
+        // 删除垃圾日志 - 重复的状态变更信息
         
         // CRITICAL FIX: 不再自动清除待定选择状态，保持在选择模式中
         // pendingMuteSelection.store(false);  // 移除这行
     } else {
         // 初始状态: 通道点击无效果
-        VST3_DBG("Channel clicked in Initial state - no effect");
+        // 删除垃圾日志 - 无意义的状态提示
     }
 }
 
@@ -830,12 +840,11 @@ void MonitorControllerMaxAudioProcessor::validateStateConsistency()
     bool muteSelection = pendingMuteSelection.load();
     
     // 记录状态用于调试
-    VST3_DBG("State check - Solo:" << (soloActive ? "true" : "false") << " Mute:" << (muteActive ? "true" : "false") 
-             << " SoloSel:" << (soloSelection ? "true" : "false") << " MuteSel:" << (muteSelection ? "true" : "false"));
+    // 删除垃圾日志 - 状态检查高频调用
     
     // CRITICAL FIX: 只修复真正不合理的状态组合
     if (soloActive && muteSelection) {
-        VST3_DBG("WARNING: Inconsistent state - Solo active but Mute selection pending - auto-fixing");
+        VST3_DBG_ROLE(this, "WARNING: Inconsistent state - Solo active but Mute selection pending - auto-fixing");
         pendingMuteSelection.store(false);
     }
     
@@ -850,36 +859,24 @@ void MonitorControllerMaxAudioProcessor::validateStateConsistency()
 
 void MonitorControllerMaxAudioProcessor::onSoloStateChanged(const juce::String& channelName, bool state)
 {
-    VST3_DBG("PluginProcessor: Solo state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
+    VST3_DBG_ROLE(this, "Solo state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
     
-    // Log the change for debugging
-    semanticState.logCurrentState();
-    
-    // Send OSC state change notification
-    oscCommunicator.sendSoloState(channelName, state);
-    
-    // Trigger UI updates if needed
-    // (UI should use timer-based updates to poll semantic state)
+    // 使用新的统一状态处理方法
+    onSemanticStateChanged(channelName, "solo", state);
 }
 
 void MonitorControllerMaxAudioProcessor::onMuteStateChanged(const juce::String& channelName, bool state)
 {
-    VST3_DBG("PluginProcessor: Mute state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
+    VST3_DBG_ROLE(this, "Mute state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
     
-    // Log the change for debugging
-    semanticState.logCurrentState();
-    
-    // Send OSC state change notification
-    oscCommunicator.sendMuteState(channelName, state);
-    
-    // Trigger UI updates if needed
-    // (UI should use timer-based updates to poll semantic state)
+    // 使用新的统一状态处理方法
+    onSemanticStateChanged(channelName, "mute", state);
 }
 
 void MonitorControllerMaxAudioProcessor::onGlobalModeChanged()
 {
     bool isGlobalSoloModeActive = semanticState.isGlobalSoloModeActive();
-    VST3_DBG("PluginProcessor: Global mode change callback - Solo mode: " + juce::String(isGlobalSoloModeActive ? "ACTIVE" : "OFF"));
+    VST3_DBG_ROLE(this, "Global mode change callback - Solo mode: " + juce::String(isGlobalSoloModeActive ? "ACTIVE" : "OFF"));
     
     // Log complete state for debugging
     semanticState.logCurrentState();
@@ -897,13 +894,13 @@ void MonitorControllerMaxAudioProcessor::onGlobalModeChanged()
 
 void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::String& action, const juce::String& channelName, bool state)
 {
-    VST3_DBG("PluginProcessor: Handle external OSC control - action: " + action + 
+    VST3_DBG_ROLE(this, "Handle external OSC control - action: " + action + 
              ", channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
     // 验证通道名称是否在当前映射中存在
     if (!physicalMapper.hasSemanticChannel(channelName))
     {
-        VST3_DBG("PluginProcessor: OSC control for unmapped channel ignored - " + channelName);
+        VST3_DBG_ROLE(this, "OSC control for unmapped channel ignored - " + channelName);
         return;
     }
     
@@ -911,16 +908,281 @@ void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::St
     if (action == "Solo")
     {
         semanticState.setSoloState(channelName, state);
-        VST3_DBG("PluginProcessor: External OSC " + juce::String(state ? "activated" : "deactivated") + " Solo for channel " + channelName);
+        VST3_DBG_ROLE(this, "External OSC " + juce::String(state ? "activated" : "deactivated") + " Solo for channel " + channelName);
     }
     else if (action == "Mute")
     {
         semanticState.setMuteState(channelName, state);
-        VST3_DBG("PluginProcessor: External OSC " + juce::String(state ? "activated" : "deactivated") + " Mute for channel " + channelName);
+        VST3_DBG_ROLE(this, "External OSC " + juce::String(state ? "activated" : "deactivated") + " Mute for channel " + channelName);
     }
     else
     {
-        VST3_DBG("PluginProcessor: Unknown OSC action - " + action);
+        VST3_DBG_ROLE(this, "Unknown OSC action - " + action);
+    }
+}
+
+//==============================================================================
+// Master-Slave角色管理实现
+
+void MonitorControllerMaxAudioProcessor::registerToGlobalState() {
+    if (!isRegisteredToGlobalState) {
+        GlobalPluginState::getInstance().registerPlugin(this);
+        isRegisteredToGlobalState = true;
+        VST3_DBG_ROLE(this, "Plugin registered to GlobalPluginState");
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::unregisterFromGlobalState() {
+    if (isRegisteredToGlobalState) {
+        GlobalPluginState::getInstance().unregisterPlugin(this);
+        isRegisteredToGlobalState = false;
+        VST3_DBG_ROLE(this, "Plugin unregistered from GlobalPluginState");
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::switchToStandalone() {
+    if (currentRole == PluginRole::Standalone) return;
+    
+    auto& globalState = GlobalPluginState::getInstance();
+    
+    if (currentRole == PluginRole::Master) {
+        globalState.removeMaster(this);
+    } else if (currentRole == PluginRole::Slave) {
+        globalState.removeSlavePlugin(this);
+    }
+    
+    handleRoleTransition(PluginRole::Standalone);
+    VST3_DBG_ROLE(this, "Successfully switched to Standalone mode");
+}
+
+void MonitorControllerMaxAudioProcessor::switchToMaster() {
+    if (currentRole == PluginRole::Master) return;
+    
+    auto& globalState = GlobalPluginState::getInstance();
+    
+    if (globalState.setAsMaster(this)) {
+        if (currentRole == PluginRole::Slave) {
+            globalState.removeSlavePlugin(this);
+        }
+        
+        handleRoleTransition(PluginRole::Master);
+        VST3_DBG_ROLE(this, "Successfully switched to Master mode");
+        
+        // 同步当前状态到所有Slave
+        auto activeChannels = physicalMapper.getActiveSemanticChannels();
+        for (const auto& channelName : activeChannels) {
+            bool soloState = semanticState.getSoloState(channelName);
+            bool muteState = semanticState.getMuteState(channelName);
+            
+            globalState.setGlobalSoloState(channelName, soloState);
+            globalState.setGlobalMuteState(channelName, muteState);
+            globalState.broadcastStateToSlaves(channelName, "solo", soloState);
+            globalState.broadcastStateToSlaves(channelName, "mute", muteState);
+        }
+    } else {
+        VST3_DBG_ROLE(this, "Failed to switch to Master - another Master exists");
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::switchToSlave() {
+    auto& globalState = GlobalPluginState::getInstance();
+    
+    if (currentRole == PluginRole::Master) {
+        globalState.removeMaster(this);
+    }
+    
+    if (globalState.addSlavePlugin(this)) {
+        handleRoleTransition(PluginRole::Slave);
+        
+        // 同步Master状态到本地
+        globalState.syncAllStatesToSlave(this);
+        VST3_DBG_ROLE(this, "Successfully switched to Slave mode");
+    } else {
+        VST3_DBG_ROLE(this, "Failed to switch to Slave - no Master available");
+        switchToStandalone();
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::handleRoleTransition(PluginRole newRole) {
+    currentRole = newRole;
+    savedRole = newRole;  // 保存角色用于状态持久化
+    
+    // 异步更新UI
+    juce::MessageManager::callAsync([this]() {
+        updateUIFromRole();
+    });
+}
+
+void MonitorControllerMaxAudioProcessor::updateUIFromRole() {
+    if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
+        editor->updateUIBasedOnRole();
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::receiveMasterState(const juce::String& channelName, const juce::String& action, bool state) {
+    if (currentRole != PluginRole::Slave) return;
+    
+    // 防止循环回调
+    suppressStateChange = true;
+    
+    try {
+        // 应用Master状态到本地语义状态
+        if (action == "solo") {
+            semanticState.setSoloState(channelName, state);
+        } else if (action == "mute") {
+            semanticState.setMuteState(channelName, state);
+        }
+        
+        VST3_DBG_ROLE(this, "Slave received Master state: " + action + " " + channelName + " = " + (state ? "true" : "false"));
+        
+        // 异步通知UI更新
+        juce::MessageManager::callAsync([this]() {
+            if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
+                editor->updateChannelButtonStates();
+            }
+        });
+        
+    } catch (const std::exception& e) {
+        VST3_DBG_ROLE(this, "Error receiving Master state: " + juce::String(e.what()));
+    }
+    
+    // 重新启用回调
+    suppressStateChange = false;
+}
+
+void MonitorControllerMaxAudioProcessor::onMasterDisconnected() {
+    if (currentRole == PluginRole::Slave) {
+        VST3_DBG_ROLE(this, "Master disconnected - switching to Standalone");
+        switchToStandalone();
+    }
+}
+
+bool MonitorControllerMaxAudioProcessor::isMasterWithSlaves() const {
+    return currentRole == PluginRole::Master && GlobalPluginState::getInstance().getSlaveCount() > 0;
+}
+
+bool MonitorControllerMaxAudioProcessor::isSlaveConnected() const {
+    return currentRole == PluginRole::Slave && GlobalPluginState::getInstance().hasMaster();
+}
+
+int MonitorControllerMaxAudioProcessor::getConnectedSlaveCount() const {
+    if (currentRole == PluginRole::Master) {
+        return GlobalPluginState::getInstance().getSlaveCount();
+    }
+    return 0;
+}
+
+juce::String MonitorControllerMaxAudioProcessor::getConnectionStatusText() const {
+    auto& globalState = GlobalPluginState::getInstance();
+    
+    switch (currentRole) {
+        case PluginRole::Standalone:
+            return "Standalone";
+            
+        case PluginRole::Master:
+            if (globalState.getSlaveCount() > 0) {
+                return "Master (" + juce::String(globalState.getSlaveCount()) + " slaves)";
+            } else {
+                return "Master (no slaves)";
+            }
+            
+        case PluginRole::Slave:
+            if (globalState.hasMaster()) {
+                return "Slave (connected)";
+            } else {
+                return "Slave (no master)";
+            }
+    }
+    
+    return "Unknown";
+}
+
+void MonitorControllerMaxAudioProcessor::saveCurrentUIState() {
+    // 保存当前选中的通道信息用于UI刷新时恢复
+    // 这里可以添加更多需要保存的UI状态
+    savedSelectedChannels = "";  // 实际实现中需要从UI获取选中状态
+}
+
+void MonitorControllerMaxAudioProcessor::restoreUIState() {
+    // 恢复UI状态
+    if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
+        editor->updateUIBasedOnRole();
+        editor->updateChannelButtonStates();
+        // 恢复选中的通道状态等
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::restoreSemanticStates() {
+    if (!savedSemanticStateData.isValid()) {
+        VST3_DBG_ROLE(this, "No semantic state data to restore");
+        return;
+    }
+    
+    VST3_DBG_ROLE(this, "PluginProcessor: Restoring semantic states");
+    
+    // 首先清空当前状态
+    semanticState.clearAllStates();
+    
+    // 恢复每个通道的状态
+    for (int i = 0; i < savedSemanticStateData.getNumChildren(); ++i) {
+        auto channelState = savedSemanticStateData.getChild(i);
+        if (channelState.hasType("Channel")) {
+            juce::String channelName = channelState.getProperty("name").toString();
+            bool soloState = channelState.getProperty("solo", false);
+            bool muteState = channelState.getProperty("mute", false);
+            
+            VST3_DBG_ROLE(this, "Restoring channel " + channelName + 
+                     " - Solo: " + (soloState ? "ON" : "OFF") + 
+                     ", Mute: " + (muteState ? "ON" : "OFF"));
+            
+            // 应用状态（这会自动触发回调和同步）
+            if (soloState) {
+                semanticState.setSoloState(channelName, true);
+            }
+            if (muteState) {
+                semanticState.setMuteState(channelName, true);
+            }
+        }
+    }
+    
+    // 清空保存的数据
+    savedSemanticStateData = juce::ValueTree();
+    
+    // 更新UI显示
+    if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
+        editor->updateChannelButtonStates();
+    }
+    
+    VST3_DBG_ROLE(this, "Semantic state restoration complete");
+}
+
+void MonitorControllerMaxAudioProcessor::onSemanticStateChanged(const juce::String& channelName, const juce::String& action, bool state) {
+    // 防止循环回调
+    if (suppressStateChange) return;
+    
+    // 现有OSC通信（保持不变）
+    if (currentRole != PluginRole::Slave) {
+        // 只有非Slave角色才发送OSC消息
+        if (action == "solo") {
+            oscCommunicator.sendSoloState(channelName, state);
+        } else if (action == "mute") {
+            oscCommunicator.sendMuteState(channelName, state);
+        }
+    }
+    
+    // 新增主从同步（最小侵入）
+    if (currentRole == PluginRole::Master) {
+        auto& globalState = GlobalPluginState::getInstance();
+        
+        // 更新全局状态
+        if (action == "solo") {
+            globalState.setGlobalSoloState(channelName, state);
+        } else if (action == "mute") {
+            globalState.setGlobalMuteState(channelName, state);
+        }
+        
+        // 广播给所有Slave
+        globalState.broadcastStateToSlaves(channelName, action, state);
     }
 }
 

@@ -19,6 +19,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalMuteButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalMuteButton.onClick = [this]
     {
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Mute button click ignored - Slave mode");
+            return;
+        }
         // 新的强大状态机逻辑 - 基于6大观点设计
         audioProcessor.handleMuteButtonClick();
     };
@@ -28,6 +33,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     globalSoloButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
     globalSoloButton.onClick = [this]
     {
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Solo button click ignored - Slave mode");
+            return;
+        }
         // 新的强大状态机逻辑 - 基于6大观点设计
         audioProcessor.handleSoloButtonClick();
     };
@@ -42,6 +52,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     speakerLayoutSelector.setSelectedId(1);
     speakerLayoutSelector.onChange = [this] 
     { 
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Speaker layout change ignored - Slave mode");
+            return;
+        }
         // 用户手动选择时，直接更新配置，不强制验证选择
         updatePluginConfiguration();
         
@@ -54,12 +69,37 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     subLayoutSelector.setSelectedId(1);
     subLayoutSelector.onChange = [this] 
     { 
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Sub layout change ignored - Slave mode");
+            return;
+        }
         // 用户手动选择时，直接更新配置，不强制验证选择
         updatePluginConfiguration();
         
         // 重新布局UI，但跳过下拉框的强制选择逻辑
         updateLayoutWithoutSelectorOverride();
     };
+    
+    // 设置角色选择器
+    setupRoleSelector();
+    
+    // 设置debug日志窗口
+    addAndMakeVisible(debugLogLabel);
+    debugLogLabel.setText("Connection Debug:", juce::dontSendNotification);
+    debugLogLabel.setFont(juce::Font(12.0f));
+    
+    addAndMakeVisible(debugLogDisplay);
+    debugLogDisplay.setMultiLine(true);
+    debugLogDisplay.setReadOnly(true);
+    debugLogDisplay.setScrollbarsShown(true);
+    debugLogDisplay.setCaretVisible(false);
+    debugLogDisplay.setPopupMenuEnabled(false);
+    debugLogDisplay.setFont(juce::Font(10.0f));
+    debugLogDisplay.setText("Debug logs will appear here...");
+    
+    addAndMakeVisible(clearLogButton);
+    clearLogButton.onClick = [this] { clearDebugLog(); };
     
     addAndMakeVisible(channelGridContainer);
 
@@ -151,18 +191,31 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
 
     // 3. 在主区域内进一步划分布局
     auto selectorBounds = mainAreaBounds.removeFromTop(40);
+    auto debugLogBounds = mainAreaBounds.removeFromBottom(120); // Debug日志区域
+    mainAreaBounds.removeFromBottom(5); // 间隙
     auto gridContainerBounds = mainAreaBounds; // 剩下的就是网格容器的区域
 
-    // 3a. 布局顶部的下拉选择器
+    // 3a. 布局顶部的下拉选择器 - 增加角色选择器
     juce::FlexBox selectorFlex;
     selectorFlex.flexDirection = juce::FlexBox::Direction::row;
     selectorFlex.justifyContent = juce::FlexBox::JustifyContent::flexEnd; // 靠右对齐
+    selectorFlex.items.add(juce::FlexItem(roleLabel).withWidth(40).withHeight(30).withMargin(5));
+    selectorFlex.items.add(juce::FlexItem(roleSelector).withWidth(100).withHeight(30).withMargin(5));
     selectorFlex.items.add(juce::FlexItem(speakerLayoutSelector).withWidth(150).withHeight(30).withMargin(5));
     selectorFlex.items.add(juce::FlexItem(subLayoutSelector).withWidth(100).withHeight(30).withMargin(5));
     selectorFlex.performLayout(selectorBounds);
     
     // 3b. 为网格容器设置正确的边界
     channelGridContainer.setBounds(gridContainerBounds);
+    
+    // 3c. 布局底部的Debug日志区域
+    auto labelBounds = debugLogBounds.removeFromTop(20);
+    auto buttonBounds = debugLogBounds.removeFromBottom(25);
+    auto logDisplayBounds = debugLogBounds;
+    
+    debugLogLabel.setBounds(labelBounds.removeFromLeft(120));
+    clearLogButton.setBounds(buttonBounds.removeFromRight(60));
+    debugLogDisplay.setBounds(logDisplayBounds);
 
     // 4. 在所有容器的边界都确定后，再调用updateLayout来填充网格内容
     updateLayout();
@@ -461,7 +514,7 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
         
         // UI检测到通道数变化时，只更新显示，不改变布局配置
         // 布局配置的自动选择应该由processor在适当时机处理
-        VST3_DBG("PluginEditor: Channel count changed to " + juce::String(currentChannelCount) + ", updating UI display only");
+        VST3_DBG_ROLE(&audioProcessor, "Channel count changed to " + juce::String(currentChannelCount) + ", updating UI display only");
         
         // 总线布局发生变化，重新更新整个UI布局显示
         updateLayout();
@@ -470,6 +523,13 @@ void MonitorControllerMaxAudioProcessorEditor::timerCallback()
     // Update button states to reflect current parameter values
     // This is essential since parameter listener mechanism isn't working properly
     updateChannelButtonStates();
+    
+    // 减少Debug日志更新频率 - 仅在角色变化或连接状态变化时更新
+    static int debugUpdateCounter = 0;
+    if (++debugUpdateCounter >= 30) { // 每秒更新一次而不是30次
+        debugUpdateCounter = 0;
+        updateDebugLogDisplay();
+    }
     
     // NEW: Update semantic buttons from semantic state - TEMPORARILY DISABLED
     // TODO: Re-enable after basic compilation works  
@@ -687,13 +747,13 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutFromSemanticMapping()
 
 void MonitorControllerMaxAudioProcessorEditor::syncUIFromUserSelection()
 {
-    VST3_DBG("PluginEditor: Syncing UI from user selection");
+    VST3_DBG_ROLE(&audioProcessor, "Syncing UI from user selection");
     
     // 获取用户实际选择的配置
     juce::String userSpeaker = audioProcessor.userSelectedSpeakerLayout;
     juce::String userSub = audioProcessor.userSelectedSubLayout;
     
-    VST3_DBG("PluginEditor: User selected - Speaker: " + userSpeaker + ", Sub: " + userSub);
+    VST3_DBG_ROLE(&audioProcessor, "User selected - Speaker: " + userSpeaker + ", Sub: " + userSub);
     
     // 更新下拉框选择到用户选择的配置（不触发onChange事件）
     auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
@@ -723,5 +783,155 @@ void MonitorControllerMaxAudioProcessorEditor::syncUIFromUserSelection()
     // 更新UI布局
     updateLayout();
     
-    VST3_DBG("PluginEditor: UI sync complete");
+    VST3_DBG_ROLE(&audioProcessor, "UI sync complete");
+}
+
+//==============================================================================
+// Master-Slave UI管理方法实现
+
+void MonitorControllerMaxAudioProcessorEditor::setupRoleSelector()
+{
+    addAndMakeVisible(roleLabel);
+    roleLabel.setText("Role:", juce::dontSendNotification);
+    roleLabel.setFont(juce::Font(12.0f));
+    
+    addAndMakeVisible(roleSelector);
+    roleSelector.addItem("Standalone", 1);
+    roleSelector.addItem("Master", 2);
+    roleSelector.addItem("Slave", 3);
+    
+    // 设置当前角色
+    PluginRole currentRole = audioProcessor.getCurrentRole();
+    roleSelector.setSelectedId(static_cast<int>(currentRole) + 1, juce::dontSendNotification);
+    
+    roleSelector.onChange = [this] { handleRoleChange(); };
+    
+    VST3_DBG_ROLE(&audioProcessor, "Role selector setup complete");
+}
+
+void MonitorControllerMaxAudioProcessorEditor::handleRoleChange()
+{
+    int selectedIndex = roleSelector.getSelectedId() - 1;
+    PluginRole newRole = static_cast<PluginRole>(selectedIndex);
+    
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Role change requested - " + juce::String(selectedIndex));
+    
+    // 调用处理器的角色切换方法
+    switch (newRole)
+    {
+        case PluginRole::Standalone:
+            audioProcessor.switchToStandalone();
+            break;
+        case PluginRole::Master:
+            audioProcessor.switchToMaster();
+            break;
+        case PluginRole::Slave:
+            audioProcessor.switchToSlave();
+            break;
+    }
+    
+    // 更新UI状态
+    updateUIBasedOnRole();
+    
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Role change completed");
+}
+
+void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
+{
+    PluginRole currentRole = audioProcessor.getCurrentRole();
+    
+    // 根据角色调整UI可用性
+    bool isSlaveMode = (currentRole == PluginRole::Slave);
+    
+    // Slave模式时，完全禁用所有交互控件
+    globalSoloButton.setEnabled(!isSlaveMode);
+    globalMuteButton.setEnabled(!isSlaveMode);
+    dimButton.setEnabled(!isSlaveMode);
+    
+    // 禁用布局选择器（Slave不能更改布局）
+    speakerLayoutSelector.setEnabled(!isSlaveMode);
+    subLayoutSelector.setEnabled(!isSlaveMode);
+    
+    // 禁用所有通道按钮
+    for (auto& [index, button] : channelButtons) {
+        if (button) {
+            button->setEnabled(!isSlaveMode);
+        }
+    }
+    
+    // 禁用语义通道按钮
+    for (auto& [name, buttonPair] : semanticChannelButtons) {
+        if (buttonPair) {
+            buttonPair->setButtonsEnabled(!isSlaveMode);
+        }
+    }
+    
+    // Slave模式时添加视觉指示
+    if (isSlaveMode) {
+        // 设置半透明效果表示只读状态
+        globalSoloButton.setAlpha(0.6f);
+        globalMuteButton.setAlpha(0.6f);
+        dimButton.setAlpha(0.6f);
+        speakerLayoutSelector.setAlpha(0.6f);
+        subLayoutSelector.setAlpha(0.6f);
+    } else {
+        // 恢复正常透明度
+        globalSoloButton.setAlpha(1.0f);
+        globalMuteButton.setAlpha(1.0f);
+        dimButton.setAlpha(1.0f);
+        speakerLayoutSelector.setAlpha(1.0f);
+        subLayoutSelector.setAlpha(1.0f);
+    }
+    
+    // 通道按钮的启用状态会在updateChannelButtonStates中处理
+    updateChannelButtonStates();
+    
+    // 更新调试日志显示角色状态
+    updateDebugLogDisplay();
+    
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: UI updated for role - " + juce::String(static_cast<int>(currentRole)) + 
+             (isSlaveMode ? " (LOCKED)" : " (INTERACTIVE)"));
+}
+
+void MonitorControllerMaxAudioProcessorEditor::updateDebugLogDisplay()
+{
+    // 获取连接日志
+    auto& globalState = GlobalPluginState::getInstance();
+    auto logs = globalState.getConnectionLogs();
+    
+    juce::String logText;
+    
+    // 添加当前连接状态摘要
+    logText += "=== Connection Status ===\n";
+    logText += globalState.getConnectionInfo() + "\n";
+    logText += "Current Role: ";
+    
+    switch (audioProcessor.getCurrentRole())
+    {
+        case PluginRole::Standalone: logText += "Standalone"; break;
+        case PluginRole::Master: logText += "Master"; break;
+        case PluginRole::Slave: logText += "Slave"; break;
+    }
+    
+    logText += "\n\n=== Connection Logs ===\n";
+    
+    // 显示最新的日志条目
+    for (const auto& log : logs)
+    {
+        logText += log + "\n";
+    }
+    
+    debugLogDisplay.setText(logText);
+    debugLogDisplay.moveCaretToEnd();
+    
+    // 移除无意义的日志输出 - 避免垃圾日志
+}
+
+void MonitorControllerMaxAudioProcessorEditor::clearDebugLog()
+{
+    auto& globalState = GlobalPluginState::getInstance();
+    globalState.clearConnectionLogs();
+    updateDebugLogDisplay();
+    
+    // 移除无意义的日志输出
 }

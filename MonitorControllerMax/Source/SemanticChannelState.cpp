@@ -71,45 +71,41 @@ bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) co
         
         if (isChannelSUB)
         {
-            // SUB通道逻辑
+            // SUB channel logic
             if (subSoloActive)
             {
-                // 当SUB Solo激活时，SUB通道遵循Solo逻辑
+                // When SUB Solo is active, SUB channels follow Solo logic
                 bool finalMute = !isSolo;
-                VST3_DBG("SemanticChannelState: SUB channel with SUB Solo active - channel: " + channelName + 
-                         ", Solo: " + (isSolo ? "ON" : "OFF") + ", Final Mute: " + (finalMute ? "ON" : "OFF"));
+                // 删除垃圾日志 - 音频处理高频调用
                 return finalMute;
             }
             else
             {
-                // 当只有非SUB Solo激活时，SUB通道保持用户Mute设置
+                // When only non-SUB Solo is active, SUB channels keep user Mute setting
                 bool userMute = getMuteState(channelName);
-                VST3_DBG("SemanticChannelState: SUB channel with only non-SUB Solo active - channel: " + channelName + 
-                         ", User Mute: " + (userMute ? "ON" : "OFF"));
+                // 删除垃圾日志 - 音频处理高频调用
                 return userMute;
             }
         }
         else
         {
-            // 非SUB通道逻辑
+            // Non-SUB channel logic
             if (subSoloActive && !nonSUBSoloActive)
             {
-                // 当只有SUB Solo激活时，非SUB通道强制通过（不被Mute）
-                VST3_DBG("SemanticChannelState: Non-SUB channel with only SUB Solo active - channel: " + channelName + 
-                         ", Forced pass (Final Mute: OFF)");
+                // When only SUB Solo is active, non-SUB channels are forced through (not muted)
+                // 删除垃圾日志 - 音频处理高频调用
                 return false;
             }
             else if (nonSUBSoloActive)
             {
-                // 当非SUB Solo激活时，遵循正常Solo逻辑
+                // When non-SUB Solo is active, follow normal Solo logic
                 bool finalMute = !isSolo;
-                VST3_DBG("SemanticChannelState: Non-SUB channel with non-SUB Solo active - channel: " + channelName + 
-                         ", Solo: " + (isSolo ? "ON" : "OFF") + ", Final Mute: " + (finalMute ? "ON" : "OFF"));
+                // 删除垃圾日志 - 这会在每次音频处理时调用
                 return finalMute;
             }
             else
             {
-                // 混合Solo情况，遵循正常Solo逻辑
+                // Mixed Solo case, follow normal Solo logic
                 bool finalMute = !isSolo;
                 return finalMute;
             }
@@ -117,7 +113,7 @@ bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) co
     }
     else
     {
-        // 非Solo模式，使用直接的Mute状态
+        // Non-Solo mode, use direct Mute state
         return getMuteState(channelName);
     }
 }
@@ -127,19 +123,19 @@ void SemanticChannelState::calculateSoloModeLinkage()
     // Preserve existing complex solo logic
     // When solo mode is active, non-solo channels should be auto-muted
     
-    // 这个函数现在只做逻辑计算，不发送回调
-    // 实际的状态通知由全局模式变化时统一处理
+    // This function now only does logic calculation, no callbacks sent
+    // Actual state notification handled by global mode change
     
     if (globalSoloModeActive)
     {
-        VST3_DBG("SemanticChannelState: Calculate Solo mode linkage logic - mode active");
+        // 删除垃圾日志 - Solo模式计算高频调用
         
-        // Solo模式激活时的逻辑计算
-        // 实际状态同步由notifyGlobalModeChange()处理
+        // Logic calculation when Solo mode is active
+        // Actual state sync handled by notifyGlobalModeChange()
     }
     else
     {
-        VST3_DBG("SemanticChannelState: Calculate Solo mode linkage logic - mode inactive");
+        // 删除垃圾日志 - Solo模式计算高频调用
     }
 }
 
@@ -158,7 +154,7 @@ bool SemanticChannelState::hasAnySoloActive() const
 // SUB channel logic implementation (based on original JSFX script)
 bool SemanticChannelState::isSUBChannel(const juce::String& channelName) const
 {
-    // SUB通道识别：通道名包含"SUB"
+    // SUB channel identification: channel name contains "SUB"
     return channelName.contains("SUB");
 }
 
@@ -200,7 +196,7 @@ bool SemanticChannelState::hasAnyMuteActive() const
 
 void SemanticChannelState::initializeChannel(const juce::String& channelName)
 {
-    VST3_DBG("SemanticChannelState: Initialize channel - " + channelName);
+    VST3_DBG_DETAIL("SemanticChannelState: Initialize channel - " + channelName);
     
     // Initialize with default states
     soloStates[channelName] = false;
@@ -210,7 +206,7 @@ void SemanticChannelState::initializeChannel(const juce::String& channelName)
 
 void SemanticChannelState::clearAllStates()
 {
-    VST3_DBG("SemanticChannelState: Clear all states");
+    // 删除垃圾日志 - 状态清理高频调用
     
     soloStates.clear();
     muteStates.clear();
@@ -296,29 +292,30 @@ void SemanticChannelState::removeStateChangeListener(StateChangeListener* listen
 
 void SemanticChannelState::logCurrentState() const
 {
-    VST3_DBG("SemanticChannelState: === Current state overview ===");
-    VST3_DBG("  Global Solo mode: " + juce::String(globalSoloModeActive ? "ACTIVE" : "OFF"));
+    // 使用DETAIL级别 - 重复内容会被智能过滤
+    VST3_DBG_DETAIL("SemanticChannelState: === Current state overview ===");
+    VST3_DBG_DETAIL("  Global Solo mode: " + juce::String(globalSoloModeActive ? "ACTIVE" : "OFF"));
     
-    VST3_DBG("  Solo states:");
+    VST3_DBG_DETAIL("  Solo states:");
     for (const auto& [channelName, soloState] : soloStates)
     {
-        VST3_DBG("    " + channelName + ": " + (soloState ? "ON" : "OFF"));
+        VST3_DBG_DETAIL("    " + channelName + ": " + (soloState ? "ON" : "OFF"));
     }
     
-    VST3_DBG("  Mute states:");
+    VST3_DBG_DETAIL("  Mute states:");
     for (const auto& [channelName, muteState] : muteStates)
     {
-        VST3_DBG("    " + channelName + ": " + (muteState ? "ON" : "OFF"));
+        VST3_DBG_DETAIL("    " + channelName + ": " + (muteState ? "ON" : "OFF"));
     }
     
-    VST3_DBG("  Final Mute states:");
+    VST3_DBG_DETAIL("  Final Mute states:");
     for (const auto& [channelName, _] : soloStates)
     {
         bool finalMute = getFinalMuteState(channelName);
-        VST3_DBG("    " + channelName + ": " + (finalMute ? "MUTED" : "ACTIVE"));
+        VST3_DBG_DETAIL("    " + channelName + ": " + (finalMute ? "MUTED" : "ACTIVE"));
     }
     
-    VST3_DBG("=========================");
+    VST3_DBG_DETAIL("=========================");
 }
 
 juce::String SemanticChannelState::getStateDescription() const
@@ -348,20 +345,20 @@ void SemanticChannelState::notifyGlobalModeChange()
 {
     stateChangeListeners.call([](StateChangeListener& l) { l.onGlobalModeChanged(); });
     
-    // 当全局Solo模式变化时，广播所有通道的最终Mute状态
-    // 这确保外部控制器获得正确的状态同步
+    // When global Solo mode changes, broadcast all channels' final Mute states
+    // This ensures external controllers get correct state sync
     if (globalSoloModeActive)
     {
         VST3_DBG("SemanticChannelState: Global Solo mode activated - broadcasting final mute states");
         
-        // 为所有通道发送最终的Mute状态
+        // Send final Mute state for all channels
         for (const auto& [channelName, _] : soloStates)
         {
             bool finalMuteState = getFinalMuteState(channelName);
             VST3_DBG("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
                      ", Final Mute: " + (finalMuteState ? "ON" : "OFF"));
             
-            // 发送最终的Mute状态
+            // Send final Mute state
             notifyStateChange(channelName, "mute", finalMuteState);
         }
     }

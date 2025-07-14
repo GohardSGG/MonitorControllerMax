@@ -1,509 +1,488 @@
-# 监听控制器插件开发文档 - 语义化状态系统
+# MonitorControllerMax 监听控制器插件 - 完整开发文档
 
-## 📋 项目当前状态 (2025-01-11)
+## 📋 项目当前状态 (2025-01-13)
 
-### ✅ **重大架构迁移完成**：语义化状态系统全面接管
+### ✅ **稳定基础架构 - 早期工作版本**
 
-**迁移成果**：经过完整的架构重构，成功实现了从VST3参数联动到语义化状态系统的完全切换：
-- ✅ **VST3限制完全绕过** - 彻底解决"No automated parameter must influence another automated parameter"限制
-- ✅ **语义状态系统运行稳定** - Solo/Mute状态完全由内部语义系统管理
-- ✅ **所有复杂逻辑保留** - 选择模式、记忆管理、状态联动逻辑完整保留
-- ✅ **编译运行成功** - 程序稳定运行，所有功能正常工作
+基于commit 5f04077f51a34e59794a805abe8ea46d5a42cf5c的稳定版本，MonitorControllerMax具备了所有核心功能的坚实基础：
 
-### 🚨 **历史问题背景**：VST3协议根本性限制
+**已完成的核心功能**：
+- ✅ **语义化状态系统** - 完全绕过VST3参数联动限制的核心架构
+- ✅ **动态配置系统** - 基于Speaker_Config.json的智能布局选择
+- ✅ **OSC双向通信** - 外部设备集成的完整通信协议
+- ✅ **物理映射系统** - 语义通道到物理Pin的动态映射
+- ✅ **Solo/Mute控制** - 包含复杂状态机和记忆管理的完整逻辑
+- ✅ **稳定编译运行** - 无错误的代码基础，经过验证的架构
 
-**背景**：经过深入研究VST3协议限制，发现了根本性约束：
-- ❌ **VST3铁律**：`"No automated parameter must influence another automated parameter!"`
-- ❌ **参数联动在VST3中从协议层面被禁止**
-- ❌ **所有尝试的参数间联动都会被宿主阻止**
+### 🚀 **v4.0新目标 - 主从插件系统**
 
-**解决方案**：✅ **已完成**语义化内部状态系统 + 未来OSC外部通信架构
-**核心原则**：保留现有所有工作逻辑，只替换底层数据源
+基于稳定的基础架构，下一个重大目标是实现专业级的主从插件通信系统
 
-## ✅ **语义化状态系统架构** (已完成实现)
+## 🏗️ **现有核心架构系统**
 
-### 实现成果：完全替换 + 完美保留
+### 1. 语义化状态管理系统
 
-**核心理念**：
-```
-✅ 现有逻辑完全保留 + ✅ 数据源完全切换 + 🔜 OSC通信附加 = 成功的渐进式升级
-```
-
-**当前架构流程**：
-```
-用户操作 → ✅ 语义状态更新(已替换VST3参数) → ✅ 现有逻辑保留 → 🔜 OSC状态广播 → 🔜 外部设备同步
-```
-
-### 🎯 关键设计决策
-
-1. **动态UI创建**：根据配置创建按钮，但保持网格位置系统
-2. **现有逻辑完全保留**：所有Solo/Mute复杂逻辑、记忆管理、选择模式保持不变
-3. **数据源渐进切换**：从VST3参数逐步切换到语义状态
-4. **OSC简单集成**：在现有状态变化处添加OSC发送，不改变架构
-5. **音频处理安全**：继续处理最大26通道，未映射通道使用默认值
-6. **配置驱动映射**：语义通道动态映射到物理音频pin，但保持配置方法
-7. **OSC标准通信**：127.0.0.1:7444，地址格式 `/Monitor/Solo_L/`
-
-## 🏗️ 三层渐进式架构设计
-
-### Layer 1: 语义化内部状态系统（新增，不影响现有系统）
 ```cpp
+// 完全替代VST3参数的内部状态系统
 class SemanticChannelState {
-private:
-    // 语义通道状态存储 - 作为VST3参数的替代数据源
-    std::map<String, bool> soloStates;  // "L", "R", "C", "LFE", "LR", "RR", ...
-    std::map<String, bool> muteStates;  // "L", "R", "C", "LFE", "LR", "RR", ...
-    bool globalSoloModeActive = false;
+    std::map<String, bool> soloStates;    // "L", "R", "C", "LFE", "SUB F" 等
+    std::map<String, bool> muteStates;    
+    std::map<String, bool> muteMemory;    // Solo模式记忆管理
+    bool globalSoloModeActive;
     
-public:
-    // 语义化操作接口 - 完全兼容现有调用方式
-    void setSoloState(const String& channelName, bool state);
-    void setMuteState(const String& channelName, bool state);
-    bool getSoloState(const String& channelName) const;
-    bool getMuteState(const String& channelName) const;
-    bool getFinalMuteState(const String& channelName) const;
-    
-    // **保留现有ParameterLinkageEngine的所有逻辑**
-    // 只是把底层数据源从VST3参数换成这个语义状态
-    void calculateSoloModeLinkage();
-    
-    // OSC通信接口（新增，不影响现有功能）
-    ListenerList<StateChangeListener> onStateChanged;
-};
+    // SUB通道特殊逻辑（基于原始JSFX）
+    bool isSUBChannel(channelName);
+    bool hasAnyNonSUBSoloActive();
+    bool hasAnySUBSoloActive();
+    bool getFinalMuteState(channelName);  // 复杂SUB逻辑
+}
 ```
 
-### Layer 2: 配置驱动物理映射系统（增强现有ConfigManager）
+### 2. 动态布局选择算法
+
 ```cpp
-class PhysicalChannelMapper {
-private:
-    // 语义名称 ↔ 物理Pin映射（继承现有配置系统）
-    std::map<String, int> semanticToPhysical;  // "L" → 1, "R" → 5, etc.
-    std::map<int, String> physicalToSemantic;  // 1 → "L", 5 → "R", etc.
-    std::map<String, std::pair<int, int>> gridPositions; // "L" → {gridX, gridY}
-    
-public:
-    // **完全兼容现有配置系统**
-    void updateMapping(const Layout& layout);
-    
-    // 映射转换（保持现有调用方式）
-    int getPhysicalPin(const String& semanticName) const;
-    String getSemanticName(int physicalPin) const;
-    
-    // 获取当前激活的语义通道列表（用于动态UI创建）
-    std::vector<String> getActiveSemanticChannels() const;
-    
-    // **保留现有网格位置系统**
-    std::pair<int, int> getGridPosition(const String& semanticName) const;
-    
-    // 安全处理：未映射通道返回默认值
-    String getSemanticNameSafe(int physicalPin) const;
-};
+// 智能最佳匹配 - 无需硬编码分支
+for (const auto& speaker : speakerLayoutNames) {
+    for (const auto& sub : subLayoutNames) {
+        int totalChannels = speakerChannels + subChannels;
+        if (totalChannels <= availableChannels && totalChannels > bestChannelUsage) {
+            bestChannelUsage = totalChannels;
+            expectedSpeaker = speaker;
+            expectedSub = sub;
+        }
+    }
+}
 ```
 
-### Layer 3: OSC通信系统（纯附加功能）
+### 3. 物理通道映射系统
+
+```cpp
+// 语义通道到物理Pin的动态映射
+class PhysicalChannelMapper {
+    std::map<String, int> semanticToPhysical;  // "L" → Pin 0
+    std::map<int, String> physicalToSemantic;  // Pin 0 → "L"
+    void updateMapping(const Layout& layout);   // 配置驱动更新
+}
+```
+
+### 4. OSC双向通信系统
+
 ```cpp
 class OSCCommunicator {
+    // 地址格式: /Monitor/Solo/L, /Monitor/Mute/SUB_F
+    void sendSoloState(channelName, state);
+    void sendMuteState(channelName, state);
+    void broadcastAllStates();               // 状态反馈机制
+    void handleIncomingOSCMessage();         // 外部控制接收
+}
+```
+
+### 5. 配置驱动系统
+
+基于 `Speaker_Config.json` 的完全动态配置：
+- 自动适应任何新增的Speaker/SUB配置
+- 动态最佳匹配算法自动选择最优组合
+- 网格位置系统支持灵活UI布局
+
+## 🚀 **v4.0重大目标：主从插件系统设计**
+
+### 🎯 **新架构设计原则 - 稳定可靠优先**
+
+基于早期稳定版本，v4.0主从插件系统将采用**进程内静态全局状态管理器架构**：
+
+**核心设计原则**：
+- 🎯 **最小侵入性** - 不破坏现有语义化状态系统的稳定性
+- 🎯 **同进程优化** - 使用静态全局状态，专为DAW同进程插件设计
+- 🎯 **维持逻辑** - 完全保持现有Solo/Mute、OSC通信等核心逻辑
+- 🎯 **角色明确** - Master完全控制，Slave只读显示，职责清晰
+- 🎯 **渐进实施** - 分阶段实现，每个阶段都保持系统稳定
+- 🎯 **零依赖** - 无需网络、端口、序列化，纯内存操作
+
+### v4.0主从系统新架构
+
+#### 核心概念：静态全局状态管理器
+
+```
+[从插件Instance] ←→ [GlobalPluginState静态单例] ←→ [主插件Instance]
+
+       ↓                    内存直接共享                    ↑
+
+   只读状态显示                                        完全状态控制
+
+(UI灰色锁定)                                      (Solo/Mute操作)
+
+       ↓                                                  ↑  
+
+       └─────────── 实时状态同步 (零延迟) ──────────────┘
+```
+
+#### v4.0分工原则 - 简单高效
+
+```cpp
+// 新的简化分工策略
+Master插件：完全控制所有状态变化，发送OSC消息
+Slave插件：只读显示Master状态，UI锁定为灰色
+Standalone插件：独立工作，与Master/Slave无关
+
+// 状态同步机制：
+Master操作 → GlobalPluginState.setState() → 直接调用Slave.updateUI()
+```
+
+#### 三种角色定义
+
+**Standalone模式（默认）**
+```cpp
+- 完全独立工作
+- 所有控件可操作
+- 发送OSC消息
+- 不参与主从通信
+```
+
+**Master模式**
+```cpp
+- 注册为GlobalPluginState的主控插件
+- 完全控制所有状态变化
+- 向所有Slave直接广播状态
+- 负责OSC通信
+- UI显示连接的Slave数量
+```
+
+**Slave模式**
+```cpp
+- 注册到GlobalPluginState为从属插件
+- UI完全锁定为灰色
+- 只读显示Master状态
+- 不发送OSC消息
+- 显示Master连接状态
+```
+
+### v4.0核心实现架构
+
+#### 1. GlobalPluginState设计
+
+```cpp
+class GlobalPluginState {
 private:
-    OSCSender sender;
-    OSCReceiver receiver;
-    const String targetIP = "127.0.0.1";
-    const int targetPort = 7444;
+    static std::unique_ptr<GlobalPluginState> instance;
+    static std::mutex stateMutex;
+    
+    // 全局状态存储
+    std::map<juce::String, bool> globalSoloStates;
+    std::map<juce::String, bool> globalMuteStates;
+    
+    // 插件实例管理
+    MonitorControllerMaxAudioProcessor* masterPlugin = nullptr;
+    std::vector<MonitorControllerMaxAudioProcessor*> slavePlugins;
+    std::vector<MonitorControllerMaxAudioProcessor*> allPlugins;
     
 public:
-    void initialize();
-    void shutdown();
+    static GlobalPluginState& getInstance();
     
-    // **简单集成模式**：在现有状态变化处调用
-    void sendSoloState(const String& channelName, bool state) {
-        if (!sender.isConnected()) return;
-        String address = "/Monitor/Solo_" + channelName + "/";
-        sender.send(address, state ? 1.0f : 0.0f);
-    }
+    // 插件生命周期管理
+    void registerPlugin(MonitorControllerMaxAudioProcessor* plugin);
+    void unregisterPlugin(MonitorControllerMaxAudioProcessor* plugin);
     
-    void sendMuteState(const String& channelName, bool state) {
-        if (!sender.isConnected()) return;
-        String address = "/Monitor/Mute_" + channelName + "/";
-        sender.send(address, state ? 1.0f : 0.0f);
-    }
+    // Master插件管理
+    bool setAsMaster(MonitorControllerMaxAudioProcessor* plugin);
+    void removeMaster(MonitorControllerMaxAudioProcessor* plugin);
+    bool isMasterPlugin(MonitorControllerMaxAudioProcessor* plugin) const;
     
-    // 状态反馈机制 - 广播所有当前状态
-    void broadcastAllStates(const SemanticChannelState& state);
+    // Slave插件管理
+    bool addSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
+    void removeSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
+    std::vector<MonitorControllerMaxAudioProcessor*> getSlavePlugins() const;
     
-    // 接收外部控制（更新内部语义状态）
-    void oscMessageReceived(const OSCMessage& message) override;
+    // 状态同步机制
+    void setGlobalSoloState(const juce::String& channelName, bool state);
+    void setGlobalMuteState(const juce::String& channelName, bool state);
+    bool getGlobalSoloState(const juce::String& channelName) const;
+    bool getGlobalMuteState(const juce::String& channelName) const;
     
-    // **不改变现有状态管理架构**
-    bool isConnected() const { return sender.isConnected(); }
+    // 广播机制
+    void broadcastStateToSlaves(const juce::String& channelName, const juce::String& action, bool state);
+    void syncAllStatesToSlave(MonitorControllerMaxAudioProcessor* slavePlugin);
+    
+    // 状态查询
+    int getSlaveCount() const;
+    bool hasMaster() const;
+    juce::String getConnectionInfo() const;
 };
 ```
 
-## 🎯 **实际完成的系统架构** (2025-01-11)
+#### 2. 角色管理系统
 
-### ✅ **核心系统完全实现并稳定运行**
-
-**1. 语义化状态系统** (`SemanticChannelState.h/cpp`) - ✅ 完成
 ```cpp
-class SemanticChannelState {
-    // ✅ 完全替代VST3参数的状态存储
-    std::map<String, bool> soloStates;    // "L", "R", "C", "LFE" 等语义通道
-    std::map<String, bool> muteStates;    // 独立的Mute状态管理
-    std::map<String, bool> muteMemory;    // 复杂Solo逻辑的记忆管理
-    bool globalSoloModeActive = false;    // 全局Solo模式跟踪
-    
-    // ✅ 核心功能全部实现并测试通过
-    void setSoloState(channelName, state);     // 设置Solo状态 + 自动联动
-    void setMuteState(channelName, state);     // 设置Mute状态
-    bool getFinalMuteState(channelName);       // 获取最终Mute状态（考虑Solo联动）
-    void saveCurrentMuteMemory();              // 保存Mute记忆
-    void restoreMuteMemory();                  // 恢复Mute记忆
-    void clearAllSoloStates();                 // 清除所有Solo状态
-    void clearAllMuteStates();                 // 清除所有Mute状态
+enum class PluginRole {
+    Standalone = 0,  // 默认独立模式
+    Master = 1,      // 主控制模式
+    Slave = 2        // 从属显示模式
 };
-```
 
-**2. 物理通道映射系统** (`PhysicalChannelMapper.h/cpp`) - ✅ 完成
-```cpp
-class PhysicalChannelMapper {
-    // ✅ 语义通道到物理Pin的动态映射
-    std::map<String, int> semanticToPhysical;  // "L" → Pin 0, "R" → Pin 1
-    std::map<int, String> physicalToSemantic;  // Pin 0 → "L", Pin 1 → "R"
-    
-    // ✅ 配置驱动的映射更新
-    void updateMapping(const Layout& layout);   // 根据Speaker_Config.json更新映射
-    String getSemanticName(int physicalPin);    // Pin → 语义名转换
-    int getPhysicalPin(String semanticName);    // 语义名 → Pin转换
-};
-```
-
-**3. 主处理器完全重构** (`PluginProcessor.h/cpp`) - ✅ 完成
-```cpp
 class MonitorControllerMaxAudioProcessor {
-    // ✅ 新语义系统完全接管
-    SemanticChannelState semanticState;        // 状态管理核心
-    PhysicalChannelMapper physicalMapper;      // 映射管理
+private:
+    PluginRole currentRole = PluginRole::Standalone;
+    bool isRegisteredToGlobalState = false;
     
-    // ✅ 关键功能重写完成
-    void handleSoloButtonClick();              // 基于语义状态的Solo逻辑
-    void handleMuteButtonClick();              // 基于语义状态的Mute逻辑  
-    void handleChannelClick(int channelIndex); // 通道点击处理
-    bool hasAnySoloActive();                   // 语义状态查询
-    bool hasAnyMuteActive();                   // 语义状态查询
-    bool isSoloButtonActive();                 // UI按钮状态
-    bool isMuteButtonActive();                 // UI按钮状态
+public:
+    // 角色管理接口
+    void switchToStandalone();
+    void switchToMaster();
+    void switchToSlave();
+    PluginRole getCurrentRole() const { return currentRole; }
     
-    // ✅ 音频处理重写
-    void processBlock(AudioBuffer<float>& buffer, MidiBuffer&) {
-        for (int pin = 0; pin < buffer.getNumChannels(); ++pin) {
-            String semanticName = physicalMapper.getSemanticName(pin);
-            if (semanticState.getFinalMuteState(semanticName)) {
-                buffer.clear(pin, 0, buffer.getNumSamples());  // 语义状态驱动的静音
-            }
-        }
-    }
+    // 状态同步接口（供GlobalPluginState调用）
+    void receiveMasterState(const juce::String& channelName, const juce::String& action, bool state);
+    void notifyMasterStatusChanged();
+    
+    // 连接状态查询
+    bool isMasterWithSlaves() const;
+    bool isSlaveConnected() const;
+    int getConnectedSlaveCount() const;
+    juce::String getConnectionStatusText() const;
+    
+private:
+    void registerToGlobalState();
+    void unregisterFromGlobalState();
+    void handleRoleTransition(PluginRole newRole);
 };
 ```
 
-**4. UI系统完全迁移** (`PluginEditor.h/cpp`) - ✅ 完成
+#### 3. UI角色适配
+
 ```cpp
-// ✅ UI状态读取完全切换到语义系统
-void updateChannelButtonStates() {
-    for (auto const& [index, button] : channelButtons) {
-        String semanticChannelName = audioProcessor.getPhysicalMapper().getSemanticName(index);
+class MonitorControllerMaxAudioProcessorEditor {
+private:
+    juce::ComboBox roleSelector;
+    juce::Label connectionStatusLabel;
+    std::unique_ptr<juce::Component> slaveOverlay;
+    
+public:
+    void setupRoleSelector();
+    void updateUIForRole();
+    void updateConnectionStatus();
+    void enableAllControls(bool enabled);
+    void updateFromMasterState();
+    
+private:
+    void onRoleSelectionChanged();
+    void createSlaveOverlay();
+    void removeSlaveOverlay();
+};
+```
+
+## 📋 **v4.0主从插件实施计划**
+
+### 实施阶段概览
+
+**总预估工作量**: 4-6小时
+
+#### Phase 1: GlobalPluginState核心类 ⏱️ 2小时
+
+1. **静态单例实现**
+   - 线程安全的单例模式
+   - 插件实例注册/注销机制
+   - Master/Slave角色管理
+
+2. **状态存储和同步**
+   - 全局Solo/Mute状态存储
+   - 直接内存访问，零延迟同步
+   - 广播机制实现
+
+#### Phase 2: 角色管理集成 ⏱️ 1-2小时
+
+1. **PluginProcessor扩展**
+   - 角色切换方法实现
+   - 与GlobalPluginState集成
+   - 状态变化回调修改
+
+2. **状态同步逻辑**
+   - Master状态广播
+   - Slave状态接收
+   - 循环防护机制
+
+#### Phase 3: UI集成和测试 ⏱️ 1-2小时
+
+1. **UI角色适配**
+   - 角色选择下拉框
+   - Slave模式UI锁定
+   - 连接状态显示
+
+2. **完整测试验证**
+   - Master-Slave角色切换
+   - 状态同步验证
+   - 多实例并发测试
+
+### 技术实施要点
+
+#### 核心优势
+
+**同进程内优化**：
+- 无网络连接需求
+- 零序列化开销
+- 直接内存访问
+- 纳秒级同步延迟
+
+**线程安全**：
+- std::mutex保护共享状态
+- 原子操作保证一致性
+- 无竞争条件风险
+
+#### 与现有系统集成
+
+```cpp
+// 在SemanticChannelState回调中添加主从同步
+void MonitorControllerMaxAudioProcessor::onSemanticStateChanged(
+    const juce::String& channelName, const juce::String& action, bool state) {
+    
+    // 现有OSC通信（保持不变）
+    if (currentRole != PluginRole::Slave) {
+        // 只有非Slave角色才发送OSC消息
+        if (action == "solo") {
+            oscCommunicator.sendSoloState(channelName, state);
+        } else if (action == "mute") {
+            oscCommunicator.sendMuteState(channelName, state);
+        }
+    }
+    
+    // 新增主从同步（最小侵入）
+    if (currentRole == PluginRole::Master) {
+        auto& globalState = GlobalPluginState::getInstance();
         
-        // ✅ 完全基于语义状态的UI更新
-        bool soloState = audioProcessor.getSemanticState().getSoloState(semanticChannelName);
-        bool finalMuteState = audioProcessor.getSemanticState().getFinalMuteState(semanticChannelName);
+        if (action == "solo") {
+            globalState.setGlobalSoloState(channelName, state);
+        } else if (action == "mute") {
+            globalState.setGlobalMuteState(channelName, state);
+        }
         
-        // 按钮外观和状态更新...
+        globalState.broadcastStateToSlaves(channelName, action, state);
     }
 }
 ```
 
-### ✅ **VST3参数系统简化**
+## 🎯 **验收标准**
 
-**移除的参数** - ✅ 完成：
+### 核心功能验收
+
+1. **角色管理**
+   - ✅ 三种角色正确切换
+   - ✅ Standalone模式不受影响
+   - ✅ 角色状态正确保存
+
+2. **Master功能**
+   - ✅ 全局状态正确管理
+   - ✅ 状态变化实时广播
+   - ✅ 多Slave连接支持
+
+3. **Slave功能**
+   - ✅ 自动注册到GlobalPluginState
+   - ✅ UI正确锁定为灰色
+   - ✅ 状态同步实时更新
+
+4. **系统稳定性**
+   - ✅ 插件加载/卸载正确处理
+   - ✅ 多实例并发稳定
+   - ✅ 无内存泄漏
+
+### 集成兼容性验收
+
+1. **现有功能保持**
+   - ✅ Solo/Mute逻辑完全不变
+   - ✅ OSC通信功能不受影响
+   - ✅ 配置系统正常工作
+
+2. **性能要求**
+   - ✅ 状态同步延迟 < 1ms
+   - ✅ CPU占用增量 < 2%
+   - ✅ 内存占用增量 < 1MB
+
+## 🔧 **与现有系统集成点**
+
+### 最小影响集成
+
 ```cpp
-// ❌ 完全移除：所有Solo/Mute VST3参数
-// "SOLO_1" ~ "SOLO_26" - 已删除
-// "MUTE_1" ~ "MUTE_26" - 已删除
-
-// ✅ 保留：只有Gain参数用于宿主自动化
-"GAIN_1" ~ "GAIN_26" - 保留用于音量控制
-```
-
-### ✅ **复杂逻辑完全保留**
-
-**1. Solo模式记忆管理** - ✅ 完美工作：
-```
-进入Solo选择模式: 保存Mute记忆 → 清空当前Mute状态 → 等待Solo选择
-激活Solo通道: Solo通道 → 其他通道Auto-Mute
-清除Solo状态: 清除所有Solo → 恢复之前的Mute记忆
-```
-
-**2. 选择模式状态机** - ✅ 完美工作：
-```
-初始状态 ←→ Solo选择模式 ←→ 实际Solo状态
-    ↕              ↕
-Mute选择模式 ←→ 实际Mute状态
-```
-
-**3. 状态优先级规则** - ✅ 完美工作：
-```
-Solo优先级: Solo激活时，Mute按钮自动禁用
-记忆恢复: Solo模式结束后，完美恢复之前的Mute状态
-```
-
-## 🎵 音频处理集成（已完成重构）
-
-### 主处理器架构（保留现有架构，添加语义化支持）
-```cpp
-class MonitorControllerProcessor : public AudioProcessor {
-private:
-    // **新增语义化系统（不影响现有功能）**
+class MonitorControllerMaxAudioProcessor : public SemanticChannelState::StateChangeListener {
+    // 现有系统（保持不变）
     SemanticChannelState semanticState;
-    PhysicalChannelMapper physicalMapper;
-    OSCCommunicator oscComm;
+    PhysicalChannelMapper physicalMapper;  
+    OSCCommunicator oscCommunicator;
     
-    // **保留现有系统**
-    AudioProcessorValueTreeState apvts;  // 继续保留所有VST3参数
-    ConfigManager configManager;         // 现有配置管理
-    // 暂时保留ParameterLinkageEngine直到完全切换
+    // 新增主从系统（最小侵入）
+    PluginRole currentRole = PluginRole::Standalone;
     
-public:
-    void processBlock(AudioBuffer<float>& buffer, MidiBuffer&) override {
-        // **向下兼容的安全处理**
-        for (int physicalPin = 0; physicalPin < buffer.getNumChannels(); ++physicalPin) {
-            // 获取语义通道名（如果有映射）
-            String semanticName = physicalMapper.getSemanticNameSafe(physicalPin);
-            
-            // 应用语义状态到物理音频
-            if (!semanticName.isEmpty() && semanticState.getFinalMuteState(semanticName)) {
-                buffer.clear(physicalPin, 0, buffer.getNumSamples());
-            } else {
-                // **保留现有增益处理逻辑**
-                applyGainFromVST3Parameter(buffer, physicalPin);
-            }
+    // 构造函数中添加注册
+    MonitorControllerMaxAudioProcessor() {
+        // ... 现有初始化代码 ...
+        GlobalPluginState::getInstance().registerPlugin(this);
+    }
+    
+    // 析构函数中添加注销
+    ~MonitorControllerMaxAudioProcessor() {
+        GlobalPluginState::getInstance().unregisterPlugin(this);
+        // ... 现有清理代码 ...
+    }
+    
+    // 现有回调中添加主从同步
+    void onSemanticStateChanged(const String& channelName, const String& action, bool state) override {
+        // 现有OSC通信（保持不变）
+        if (currentRole != PluginRole::Slave) {
+            oscCommunicator.sendStateUpdate(action, channelName, state);
+        }
+        
+        // 新增主从同步（最小添加）
+        if (currentRole == PluginRole::Master) {
+            auto& globalState = GlobalPluginState::getInstance();
+            globalState.setGlobalState(action, channelName, state);
+            globalState.broadcastStateToSlaves(channelName, action, state);
         }
     }
-    
-    // **保留现有接口，添加语义化接口**
-    SemanticChannelState& getSemanticState() { return semanticState; }
-    PhysicalChannelMapper& getPhysicalMapper() { return physicalMapper; }
-    OSCCommunicator& getOSCCommunicator() { return oscComm; }
-};
-```
-
-## 🎮 UI组件设计（最小改动）
-
-### 动态语义化按钮组件（保留现有交互逻辑）
-```cpp
-class SemanticSoloButton : public TextButton {
-private:
-    MonitorControllerProcessor& processor;
-    String semanticChannelName;  // "L", "R", "C", etc.
-    
-public:
-    SemanticSoloButton(MonitorControllerProcessor& proc, const String& channelName)
-        : processor(proc), semanticChannelName(channelName) 
-    {
-        setButtonText("Solo " + channelName);
-        setClickingTogglesState(true);
-    }
-    
-    void clicked() override {
-        bool newState = getToggleState();
-        
-        // **保留现有复杂逻辑调用**
-        // 只是把底层数据源从VST3参数换成语义状态
-        processor.getSemanticState().setSoloState(semanticChannelName, newState);
-        
-        // **OSC通信作为附加功能**
-        processor.getOSCCommunicator().sendSoloState(semanticChannelName, newState);
-    }
-    
-    void updateFromSemanticState() {
-        bool currentState = processor.getSemanticState().getSoloState(semanticChannelName);
-        setToggleState(currentState, dontSendNotification);
-        
-        // **保留现有颜色和视觉反馈逻辑**
-        updateButtonAppearance(currentState);
-    }
-    
-private:
-    void updateButtonAppearance(bool state) {
-        // 现有的按钮外观逻辑保持不变
-        if (state) {
-            setColour(TextButton::buttonOnColourId, Colours::green);
-        } else {
-            setColour(TextButton::buttonOnColourId, Colours::grey);
-        }
-    }
-};
-```
-
-## 📡 OSC通信协议（简单集成）
-
-### OSC地址格式
-```
-发送地址格式：/Monitor/{Action}_{Channel}/
-取值范围：1.0f (On) / 0.0f (Off)
-
-示例：
-/Monitor/Solo_L/     1.0    // 左声道Solo开启
-/Monitor/Mute_R/     0.0    // 右声道Mute关闭
-/Monitor/Solo_C/     1.0    // 中置声道Solo开启
-/Monitor/Mute_LFE/   1.0    // 低频声道Mute开启
-```
-
-### 状态反馈机制（在现有逻辑上添加）
-```cpp
-void OSCCommunicator::broadcastAllStates(const SemanticChannelState& state) {
-    if (!isConnected()) return;
-    
-    // 遍历当前配置的活跃语义通道
-    auto activeChannels = physicalMapper.getActiveSemanticChannels();
-    for (const String& channelName : activeChannels) {
-        // 发送Solo状态
-        bool soloState = state.getSoloState(channelName);
-        sendSoloState(channelName, soloState);
-        
-        // 发送Mute状态
-        bool muteState = state.getMuteState(channelName);
-        sendMuteState(channelName, muteState);
-    }
-}
-
-// **简单集成触发时机**
-void SemanticChannelState::setSoloState(const String& channelName, bool state) {
-    soloStates[channelName] = state;
-    
-    // **保留现有的复杂Solo逻辑**
-    calculateSoloModeLinkage(); // 现有方法保持不变
-    
-    // **添加OSC通信（不影响现有逻辑）**
-    onStateChanged.call([this, channelName, state](StateChangeListener* l) {
-        l->onSoloStateChanged(channelName, state);
-    });
 }
 ```
 
-## 🔧 配置系统集成（增强现有系统）
+### 最小影响原则
 
-### 动态映射更新（保留现有接口）
-```cpp
-void MonitorControllerProcessor::setCurrentLayout(const String& speaker, const String& sub) {
-    // **保留现有配置系统调用**
-    Layout newLayout = configManager.getLayout(speaker, sub);
-    currentLayout = newLayout;
-    
-    // **添加物理映射更新**
-    physicalMapper.updateMapping(newLayout);
-    
-    // **保留现有UI更新逻辑**
-    updateUIChannelList(newLayout);
-    
-    // **添加OSC状态广播（不影响现有功能）**
-    if (oscComm.isConnected()) {
-        oscComm.broadcastAllStates(semanticState);
-    }
-}
+- **不修改现有语义状态系统**
+- **不影响OSC通信功能**  
+- **不改变用户现有操作习惯**
+- **主从功能作为可选增强特性**
 
-// 示例映射更新（兼容现有配置格式）
-void PhysicalChannelMapper::updateMapping(const Layout& layout) {
-    semanticToPhysical.clear();
-    physicalToSemantic.clear();
-    gridPositions.clear();
-    
-    // **完全兼容现有配置文件格式**
-    for (const auto& channelInfo : layout.channels) {
-        String semanticName = channelInfo.name;     // "L", "R", "C"
-        int physicalPin = channelInfo.channelIndex; // 1, 5, 3
-        
-        semanticToPhysical[semanticName] = physicalPin;
-        physicalToSemantic[physicalPin] = semanticName;
-        
-        // **保留网格位置信息**
-        gridPositions[semanticName] = {channelInfo.gridX, channelInfo.gridY};
-    }
-}
-```
+## 🎵 **专业应用场景**
 
-## 🎯 架构优势
+### 典型工作流
 
-### ✅ 完全绕过VST3限制
-- 内部状态不是VST3参数，可以任意联动
-- Solo/Mute逻辑完全在内部实现
-- 无需担心宿主参数面板同步问题
+1. **录音室监听链路**
+   ```
+   DAW → 从插件(过滤) → 房间校正 → 主插件(最终) → 监听音箱
+   ```
 
-### ✅ 最小改动风险
-- **保留所有现有工作逻辑**
-- **保留现有UI交互体验**
-- **保留现有配置系统**
-- **保留现有复杂状态管理**
-- **渐进式数据源切换**
+2. **现场监听系统**
+   ```
+   调音台 → 从插件组(通道过滤) → DSP处理器 → 主插件(总控) → 多路监听
+   ```
 
-### ✅ 语义一致性
-- Solo_L永远表示左声道，不管物理pin是几
-- 配置切换不影响OSC控制协议
-- 外部设备控制协议统一稳定
+3. **后期制作工作流**
+   ```
+   时间线 → 从插件(预处理) → 外部处理器 → 主插件(监听控制) → 参考监听
+   ```
 
-### ✅ 完美外部集成
-- OSC协议提供完整的双向通信
-- 状态反馈确保外部设备同步
-- 标准化地址格式便于集成
+---
 
-### ✅ 保持VST3兼容
-- 继续保留所有VST3参数
-- 不会触发参数联动冲突
-- 宿主可以正常保存/加载插件
+## 🏆 **项目总结**
 
-### ✅ 音频处理安全
-- 继续处理最大26通道
-- 未映射通道使用安全默认值
-- 向下兼容：少配置不影响多输入
+MonitorControllerMax基于稳定的早期版本，拥有坚实的技术基础：
 
-## ✅ **实施进度报告** (2025-01-11 已完成)
+**现有优势**：
+- 🔥 **语义化架构** - 彻底解决VST3限制的根本性突破
+- 🚀 **动态配置系统** - 支持任意配置组合的扩展性  
+- 🌐 **OSC双向通信** - 专业外部集成标准
+- 🎛️ **稳定可靠基础** - 经过验证的核心功能
 
-### ✅ **第一阶段：核心架构实现** - 100% 完成
-1. ✅ 实现SemanticChannelState类 - 完整功能，稳定运行
-2. ✅ 实现PhysicalChannelMapper类 - 动态映射，配置驱动
-3. ✅ 集成到主处理器processBlock - 音频处理重写完成
-4. ✅ **已移除所有VST3 Solo/Mute参数** - 只保留Gain参数
+**v4.0新优势**：
+- ⚡ **同进程优化** - 专为DAW设计的零延迟通信
+- 🔒 **线程安全** - 多实例并发稳定运行
+- 📦 **零依赖** - 无需外部网络或序列化
+- 🎯 **最小侵入** - 不破坏任何现有功能
 
-### ✅ **第二阶段：UI数据源切换** - 100% 完成
-1. ✅ UI按钮保持现有创建方式 - 网格布局系统保留
-2. ✅ 完全保留现有按钮交互逻辑 - 用户体验无变化
-3. ✅ 按钮数据源完全切换：VST3参数 → 语义状态 - 迁移成功
-4. ✅ 完全保留现有颜色、布局、网格位置系统 - 视觉效果不变
+**下一步目标**：
+完成v4.0主从插件系统，打造完整的专业监听控制解决方案！
 
-### ✅ **第二阶段Plus：ParameterLinkageEngine完全移除** - 100% 完成
-1. ✅ 移除所有linkageEngine代码引用 - 清理完成
-2. ✅ 重写所有Solo/Mute按钮处理逻辑 - 基于语义状态
-3. ✅ 重写所有状态查询函数 - 语义状态驱动
-4. ✅ 修复记忆管理逻辑 - Solo模式记忆恢复完美工作
-
-### 🔜 **第三阶段：OSC通信实现** - 待实施
-1. 🔜 实现OSCCommunicator类
-2. 🔜 集成OSC发送/接收功能  
-3. 🔜 在现有状态变化处添加OSC调用
-4. 🔜 测试OSC通信协议
-
-### ✅ **第四阶段：核心功能测试和优化** - 已验证
-1. ✅ 测试不同配置下的物理映射 - 2.0立体声配置测试通过
-2. ✅ 验证语义状态系统功能 - Solo/Mute/记忆管理全部正常
-3. ✅ 测试状态联动机制 - 复杂逻辑保留完整
-4. ✅ 实际用户交互测试 - 按钮点击、状态切换流畅
-5. ✅ **VST3 Solo/Mute参数完全移除** - 架构突破成功
-
-## 🔥 关键突破
-
-**这个保守式架构彻底解决了VST3参数联动限制，同时保持最小风险！**
-
-- **不再对抗VST3协议** - 拥抱约束而不是对抗
-- **完全的控制权** - 内部状态完全自主控制
-- **最小改动风险** - 保留所有现有工作逻辑
-- **渐进式升级** - 可以逐步切换，随时回滚
-- **标准化通信** - OSC协议提供工业级外部集成
-- **语义化一致性** - 控制协议不受配置影响
-
-**这就是专业监听控制器的正确渐进式升级路径！** 🎵
+**这标志着在稳定基础上的高效发展，使用最适合DAW环境的技术方案，实现可靠的专业级功能扩展！** 🎵✨

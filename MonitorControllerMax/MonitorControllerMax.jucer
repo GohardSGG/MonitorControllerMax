@@ -5,6 +5,10 @@
               pluginChannelsIn="26" pluginChannelsOut="26">
   <MAINGROUP id="fEulgD" name="MonitorControllerMax">
     <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
+      <FILE id="PfztzT" name="GlobalPluginState.cpp" compile="1" resource="0"
+            file="Source/GlobalPluginState.cpp"/>
+      <FILE id="nBxO0T" name="GlobalPluginState.h" compile="0" resource="0"
+            file="Source/GlobalPluginState.h"/>
       <FILE id="l5zTf3" name="OSCCommunicator.cpp" compile="1" resource="0"
             file="Source/OSCCommunicator.cpp"/>
       <FILE id="JnvGwl" name="OSCCommunicator.h" compile="0" resource="0"
@@ -30,10 +34,6 @@
             file="Source/ConfigManager.cpp"/>
       <FILE id="GTs46V" name="ConfigManager.h" compile="0" resource="0" file="Source/ConfigManager.h"/>
       <FILE id="LJC5NX" name="ConfigModels.h" compile="0" resource="0" file="Source/ConfigModels.h"/>
-      <FILE id="uvm7aN" name="InterPluginCommunicator.cpp" compile="1" resource="0"
-            file="Source/InterPluginCommunicator.cpp"/>
-      <FILE id="aLCsdB" name="InterPluginCommunicator.h" compile="0" resource="0"
-            file="Source/InterPluginCommunicator.h"/>
       <FILE id="P6ewaS" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
       <FILE id="MlHfy7" name="PluginProcessor.h" compile="0" resource="0"

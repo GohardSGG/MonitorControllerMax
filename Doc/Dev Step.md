@@ -1,613 +1,663 @@
-# 语义化OSC架构实施计划
+# v4.0主从插件系统实施计划
 
 ## 🎯 总体目标
 
-**从VST3参数联动架构彻底转向语义化OSC架构**
+**基于稳定基础架构实现同进程主从插件通信系统**
 
-基于VST3协议根本限制的发现，我们需要完全重构架构：
-- **问题根源**：VST3协议铁律 `"No automated parameter must influence another automated parameter!"`
-- **解决方案**：语义化内部状态 + OSC外部通信 + 最小VST3参数系统
-- **目标**：实现完全功能的专业监听控制器，同时完美外部集成
+基于commit 5f04077f51a34e59794a805abe8ea46d5a42cf5c的稳定版本，使用静态全局状态管理器实现同进程内插件间的高效通信：
+
+- **技术基础**：现有语义化状态系统、OSC通信、动态配置等核心功能稳定运行
+- **实施原则**：最小侵入性、同进程优化、完全向后兼容
+- **技术方案**：静态全局状态管理器 + 直接内存访问 + 零延迟同步
 
 ## 📋 实施阶段
 
-### Phase 1: 核心架构重构
+### Phase 1: GlobalPluginState核心类实现
 
-#### 1.1 实现语义化内部状态系统
-**文件**: `Source/SemanticChannelState.h/cpp` (新建)
+#### 1.1 创建GlobalPluginState基础类
+**文件**: `Source/GlobalPluginState.h/cpp` (新建)
 
-**核心状态管理**：
+**核心状态管理器**：
 ```cpp
-class SemanticChannelState {
+class GlobalPluginState {
 private:
-    // 语义通道状态存储
-    std::map<juce::String, bool> soloStates;    // "L", "R", "C", "LFE", "LR", "RR", ...
-    std::map<juce::String, bool> muteStates;    // "L", "R", "C", "LFE", "LR", "RR", ...
-    bool globalSoloModeActive = false;
+    // 单例模式 - 线程安全
+    static std::unique_ptr<GlobalPluginState> instance;
+    static std::mutex instanceMutex;
     
-    // 状态变化通知
-    juce::ListenerList<StateChangeListener> stateChangeListeners;
+    // 全局状态存储
+    std::map<juce::String, bool> globalSoloStates;
+    std::map<juce::String, bool> globalMuteStates;
+    std::mutex stateMutex;
+    
+    // 插件实例管理
+    MonitorControllerMaxAudioProcessor* masterPlugin = nullptr;
+    std::vector<MonitorControllerMaxAudioProcessor*> slavePlugins;
+    std::vector<MonitorControllerMaxAudioProcessor*> allPlugins;
+    std::mutex pluginsMutex;
     
 public:
-    // 语义化操作接口
-    void setSoloState(const juce::String& channelName, bool state);
-    void setMuteState(const juce::String& channelName, bool state);
-    bool getSoloState(const juce::String& channelName) const;
-    bool getMuteState(const juce::String& channelName) const;
+    // 单例访问
+    static GlobalPluginState& getInstance();
     
-    // Solo模式联动逻辑
-    bool getFinalMuteState(const juce::String& channelName) const;
-    void calculateSoloModeLinkage();
-    bool hasAnySoloActive() const;
-    bool hasAnyMuteActive() const;
+    // 插件生命周期管理
+    void registerPlugin(MonitorControllerMaxAudioProcessor* plugin);
+    void unregisterPlugin(MonitorControllerMaxAudioProcessor* plugin);
     
-    // 初始化和状态管理
-    void initializeChannel(const juce::String& channelName);
-    void clearAllStates();
-    std::vector<juce::String> getActiveChannels() const;
+    // Master插件管理
+    bool setAsMaster(MonitorControllerMaxAudioProcessor* plugin);
+    void removeMaster(MonitorControllerMaxAudioProcessor* plugin);
+    bool isMasterPlugin(MonitorControllerMaxAudioProcessor* plugin) const;
     
-    // 状态变化监听
-    void addStateChangeListener(StateChangeListener* listener);
-    void removeStateChangeListener(StateChangeListener* listener);
+    // Slave插件管理
+    bool addSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
+    void removeSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
+    std::vector<MonitorControllerMaxAudioProcessor*> getSlavePlugins() const;
     
-private:
-    void notifyStateChange(const juce::String& channelName, const juce::String& action, bool state);
-};
-```
-
-**实现要点**：
-- 完全脱离VST3参数系统
-- 语义通道名固定："L", "R", "C", "LFE", "LR", "RR", "LTF", "RTF", "LTR", "RTR", "SUB_L", "SUB_R", "SUB_M"
-- Solo模式自动联动：`getFinalMuteState() = globalSoloModeActive ? !soloStates[channel] : muteStates[channel]`
-
-#### 1.2 实现物理映射系统
-**文件**: `Source/PhysicalChannelMapper.h/cpp` (新建)
-
-**映射管理**：
-```cpp
-class PhysicalChannelMapper {
-private:
-    std::map<juce::String, int> semanticToPhysical;  // "L" → 1, "R" → 5, etc.
-    std::map<int, juce::String> physicalToSemantic;  // 1 → "L", 5 → "R", etc.
+    // 状态同步机制
+    void setGlobalSoloState(const juce::String& channelName, bool state);
+    void setGlobalMuteState(const juce::String& channelName, bool state);
+    bool getGlobalSoloState(const juce::String& channelName) const;
+    bool getGlobalMuteState(const juce::String& channelName) const;
     
-public:
-    // 配置驱动映射更新
-    void updateMapping(const Layout& layout);
-    void updateFromConfig(const juce::String& speakerLayout, const juce::String& subLayout);
-    
-    // 映射转换接口
-    int getPhysicalPin(const juce::String& semanticName) const;
-    juce::String getSemanticName(int physicalPin) const;
-    bool hasSemanticChannel(const juce::String& semanticName) const;
-    
-    // 获取映射信息
-    std::vector<juce::String> getActiveSemanticChannels() const;
-    std::vector<std::pair<juce::String, int>> getAllMappings() const;
-    int getChannelCount() const;
-    
-private:
-    SemanticChannel parseSemanticChannel(const juce::String& name) const;
-};
-```
-
-**配置集成示例**：
-```cpp
-void PhysicalChannelMapper::updateMapping(const Layout& layout) {
-    semanticToPhysical.clear();
-    physicalToSemantic.clear();
-    
-    // 从Speaker_Config.json解析映射
-    for (const auto& channelInfo : layout.channels) {
-        juce::String semanticName = channelInfo.name;     // "L", "R", "C"
-        int physicalPin = channelInfo.channelIndex;       // 1, 5, 3 (从配置文件)
-        
-        semanticToPhysical[semanticName] = physicalPin;
-        physicalToSemantic[physicalPin] = semanticName;
-    }
-}
-```
-
-#### 1.3 最小化VST3参数系统
-**文件**: `Source/PluginProcessor.cpp` (修改)
-
-**移除所有Solo/Mute参数，只保留Gain**：
-```cpp
-juce::AudioProcessorValueTreeState::ParameterLayout 
-MonitorControllerMaxAudioProcessor::createParameterLayout() {
-    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
-    
-    // 只保留Gain参数用于自动化
-    for (int i = 1; i <= 26; ++i) {
-        params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            "GAIN_" + juce::String(i), 
-            "Gain " + juce::String(i),
-            juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f, 3.0f), 
-            0.0f, "dB"
-        ));
-    }
-    
-    // 其他必要的独立参数
-    params.push_back(std::make_unique<juce::AudioParameterBool>("BYPASS", "Bypass", false));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("OUTPUT_GAIN", "Output Gain", -12.0f, 12.0f, 0.0f));
-    
-    return { params.begin(), params.end() };
-}
-```
-
-### Phase 2: OSC通信系统实现
-
-#### 2.1 实现OSC通信组件
-**文件**: `Source/OSCCommunicator.h/cpp` (新建)
-
-**OSC通信系统**：
-```cpp
-class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::RealtimeCallback> {
-private:
-    juce::OSCSender sender;
-    juce::OSCReceiver receiver;
-    
-    // 硬编码配置
-    const juce::String targetIP = "127.0.0.1";
-    const int targetPort = 7444;
-    const int receivePort = 7445;
-    
-public:
-    bool initialize();
-    void shutdown();
-    
-    // 发送状态到外部设备
-    void sendSoloState(const juce::String& channelName, bool state);
-    void sendMuteState(const juce::String& channelName, bool state);
-    
-    // 状态反馈机制 - 广播所有当前状态
-    void broadcastAllStates(const SemanticChannelState& state);
-    
-    // 接收外部控制
-    void oscMessageReceived(const juce::OSCMessage& message) override;
+    // 广播机制 - 直接调用，零延迟
+    void broadcastStateToSlaves(const juce::String& channelName, const juce::String& action, bool state);
+    void syncAllStatesToSlave(MonitorControllerMaxAudioProcessor* slavePlugin);
     
     // 状态查询
-    bool isConnected() const;
+    int getSlaveCount() const;
+    bool hasMaster() const;
+    juce::String getConnectionInfo() const;
     
 private:
-    void handleIncomingOSCMessage(const juce::OSCMessage& message);
-    juce::String formatOSCAddress(const juce::String& action, const juce::String& channelName) const;
-    std::pair<juce::String, juce::String> parseOSCAddress(const juce::String& address) const;
+    GlobalPluginState() = default;
+    ~GlobalPluginState() = default;
+    
+    // 防止复制
+    GlobalPluginState(const GlobalPluginState&) = delete;
+    GlobalPluginState& operator=(const GlobalPluginState&) = delete;
 };
 ```
 
-**OSC协议实现**：
+**关键实现要点**：
+- 线程安全的单例模式，支持多线程DAW环境
+- 分离的互斥锁：状态锁定和插件列表锁定
+- 直接内存访问，无序列化/反序列化开销
+- RAII管理插件生命周期
+
+#### 1.2 GlobalPluginState核心方法实现
+
+**单例模式实现**：
 ```cpp
-void OSCCommunicator::sendSoloState(const juce::String& channelName, bool state) {
-    juce::String address = "/Monitor/Solo_" + channelName + "/";
-    sender.send(address, state ? 1.0f : 0.0f);
-}
+std::unique_ptr<GlobalPluginState> GlobalPluginState::instance = nullptr;
+std::mutex GlobalPluginState::instanceMutex;
 
-void OSCCommunicator::sendMuteState(const juce::String& channelName, bool state) {
-    juce::String address = "/Monitor/Mute_" + channelName + "/";
-    sender.send(address, state ? 1.0f : 0.0f);
+GlobalPluginState& GlobalPluginState::getInstance() {
+    std::lock_guard<std::mutex> lock(instanceMutex);
+    if (!instance) {
+        instance = std::unique_ptr<GlobalPluginState>(new GlobalPluginState());
+    }
+    return *instance;
 }
+```
 
-void OSCCommunicator::broadcastAllStates(const SemanticChannelState& state) {
-    // 遍历所有可能的语义通道
-    const std::vector<juce::String> allChannels = {
-        "L", "R", "C", "LFE", "LR", "RR",
-        "LTF", "RTF", "LTR", "RTR",
-        "SUB_L", "SUB_R", "SUB_M"
-    };
+**插件注册管理**：
+```cpp
+void GlobalPluginState::registerPlugin(MonitorControllerMaxAudioProcessor* plugin) {
+    std::lock_guard<std::mutex> lock(pluginsMutex);
     
-    for (const auto& channelName : allChannels) {
-        // 发送Solo状态
-        bool soloState = state.getSoloState(channelName);
-        sendSoloState(channelName, soloState);
-        
-        // 发送Mute状态
-        bool muteState = state.getMuteState(channelName);
-        sendMuteState(channelName, muteState);
+    auto it = std::find(allPlugins.begin(), allPlugins.end(), plugin);
+    if (it == allPlugins.end()) {
+        allPlugins.push_back(plugin);
+        VST3_DBG("Plugin registered to GlobalPluginState, total: " + juce::String(allPlugins.size()));
+    }
+}
+
+void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plugin) {
+    std::lock_guard<std::mutex> lock(pluginsMutex);
+    
+    // 从所有列表中移除
+    auto it = std::find(allPlugins.begin(), allPlugins.end(), plugin);
+    if (it != allPlugins.end()) {
+        allPlugins.erase(it);
+    }
+    
+    // 如果是Master，清除Master状态
+    if (masterPlugin == plugin) {
+        masterPlugin = nullptr;
+        VST3_DBG("Master plugin unregistered");
+    }
+    
+    // 如果是Slave，从Slave列表移除
+    auto slaveIt = std::find(slavePlugins.begin(), slavePlugins.end(), plugin);
+    if (slaveIt != slavePlugins.end()) {
+        slavePlugins.erase(slaveIt);
+        VST3_DBG("Slave plugin unregistered");
     }
 }
 ```
 
-#### 2.2 状态反馈机制
-**触发时机**：
+**状态同步和广播**：
 ```cpp
-// 插件加载时
-void MonitorControllerMaxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
-    // 初始化完成后广播状态
-    if (oscComm.isConnected()) {
-        oscComm.broadcastAllStates(semanticState);
+void GlobalPluginState::broadcastStateToSlaves(const juce::String& channelName, const juce::String& action, bool state) {
+    std::lock_guard<std::mutex> lock(pluginsMutex);
+    
+    for (auto* slave : slavePlugins) {
+        if (slave != nullptr) {
+            // 直接调用Slave的状态接收方法 - 零延迟
+            slave->receiveMasterState(channelName, action, state);
+        }
+    }
+    
+    VST3_DBG("Broadcast to " + juce::String(slavePlugins.size()) + " slaves: " + action + " " + channelName);
+}
+```
+
+### Phase 2: 角色管理系统集成
+
+#### 2.1 PluginProcessor角色管理扩展
+**文件**: `Source/PluginProcessor.h/cpp` (扩展现有文件)
+
+**角色定义和管理**：
+```cpp
+enum class PluginRole {
+    Standalone = 0,  // 默认独立模式
+    Master = 1,      // 主控制模式
+    Slave = 2        // 从属显示模式
+};
+
+class MonitorControllerMaxAudioProcessor : public SemanticChannelState::StateChangeListener {
+private:
+    // 新增成员变量
+    PluginRole currentRole = PluginRole::Standalone;
+    bool isRegisteredToGlobalState = false;
+    bool suppressStateChange = false;  // 防止循环回调
+    
+public:
+    // 角色管理接口
+    void switchToStandalone();
+    void switchToMaster();
+    void switchToSlave();
+    PluginRole getCurrentRole() const { return currentRole; }
+    
+    // 状态同步接口（供GlobalPluginState调用）
+    void receiveMasterState(const juce::String& channelName, const juce::String& action, bool state);
+    void notifyMasterStatusChanged();
+    
+    // 连接状态查询
+    bool isMasterWithSlaves() const;
+    bool isSlaveConnected() const;
+    int getConnectedSlaveCount() const;
+    juce::String getConnectionStatusText() const;
+    
+private:
+    void registerToGlobalState();
+    void unregisterFromGlobalState();
+    void handleRoleTransition(PluginRole newRole);
+    void updateUIFromRole();
+};
+```
+
+**角色切换实现**：
+```cpp
+void MonitorControllerMaxAudioProcessor::switchToMaster() {
+    if (currentRole == PluginRole::Master) return;
+    
+    auto& globalState = GlobalPluginState::getInstance();
+    
+    if (globalState.setAsMaster(this)) {
+        handleRoleTransition(PluginRole::Master);
+        VST3_DBG("Successfully switched to Master mode");
+        
+        // 同步当前状态到所有Slave
+        auto activeChannels = physicalMapper.getActiveSemanticChannels();
+        for (const auto& channelName : activeChannels) {
+            bool soloState = semanticState.getSoloState(channelName);
+            bool muteState = semanticState.getMuteState(channelName);
+            
+            globalState.setGlobalSoloState(channelName, soloState);
+            globalState.setGlobalMuteState(channelName, muteState);
+            globalState.broadcastStateToSlaves(channelName, "solo", soloState);
+            globalState.broadcastStateToSlaves(channelName, "mute", muteState);
+        }
+    } else {
+        VST3_DBG("Failed to switch to Master - another Master exists");
+        // 保持当前角色不变
     }
 }
 
-// 状态改变时
-void SemanticChannelState::setSoloState(const juce::String& channelName, bool state) {
-    soloStates[channelName] = state;
-    globalSoloModeActive = hasAnySoloActive();
-    calculateSoloModeLinkage();
+void MonitorControllerMaxAudioProcessor::switchToSlave() {
+    auto& globalState = GlobalPluginState::getInstance();
     
-    // 通知状态变化
-    notifyStateChange(channelName, "solo", state);
+    if (currentRole == PluginRole::Master) {
+        globalState.removeMaster(this);
+    }
     
-    // 如果Solo模式变化，需要重新广播所有状态
-    if (globalSoloModeActive != previousGlobalSoloMode) {
-        stateChangeListeners.call([this](StateChangeListener* l) {
-            l->onGlobalModeChanged();
+    if (globalState.addSlavePlugin(this)) {
+        handleRoleTransition(PluginRole::Slave);
+        
+        // 同步Master状态到本地
+        globalState.syncAllStatesToSlave(this);
+        VST3_DBG("Successfully switched to Slave mode");
+    } else {
+        VST3_DBG("Failed to switch to Slave - no Master available");
+        switchToStandalone();
+    }
+}
+```
+
+#### 2.2 状态同步逻辑实现
+
+**Master状态广播集成**：
+```cpp
+void MonitorControllerMaxAudioProcessor::onSemanticStateChanged(
+    const juce::String& channelName, const juce::String& action, bool state) {
+    
+    // 防止循环回调
+    if (suppressStateChange) return;
+    
+    // 现有OSC通信（保持不变）
+    if (currentRole != PluginRole::Slave) {
+        // 只有非Slave角色才发送OSC消息
+        if (action == "solo") {
+            oscCommunicator.sendSoloState(channelName, state);
+        } else if (action == "mute") {
+            oscCommunicator.sendMuteState(channelName, state);
+        }
+    }
+    
+    // 新增主从同步（最小侵入）
+    if (currentRole == PluginRole::Master) {
+        auto& globalState = GlobalPluginState::getInstance();
+        
+        // 更新全局状态
+        if (action == "solo") {
+            globalState.setGlobalSoloState(channelName, state);
+        } else if (action == "mute") {
+            globalState.setGlobalMuteState(channelName, state);
+        }
+        
+        // 广播给所有Slave
+        globalState.broadcastStateToSlaves(channelName, action, state);
+    }
+}
+```
+
+**Slave状态接收实现**：
+```cpp
+void MonitorControllerMaxAudioProcessor::receiveMasterState(
+    const juce::String& channelName, const juce::String& action, bool state) {
+    
+    if (currentRole != PluginRole::Slave) return;
+    
+    // 防止循环回调
+    suppressStateChange = true;
+    
+    try {
+        // 应用Master状态到本地语义状态
+        if (action == "solo") {
+            semanticState.setSoloState(channelName, state);
+        } else if (action == "mute") {
+            semanticState.setMuteState(channelName, state);
+        }
+        
+        VST3_DBG("Slave received Master state: " + action + " " + channelName + " = " + (state ? "true" : "false"));
+        
+        // 异步通知UI更新
+        juce::MessageManager::callAsync([this]() {
+            if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
+                editor->updateFromSemanticState();
+            }
         });
+        
+    } catch (const std::exception& e) {
+        VST3_DBG("Error receiving Master state: " + juce::String(e.what()));
     }
+    
+    // 重新启用回调
+    suppressStateChange = false;
 }
 ```
 
-### Phase 3: 音频处理集成
+### Phase 3: UI集成适配
 
-#### 3.1 重构主处理器
-**文件**: `Source/PluginProcessor.h/cpp` (重大修改)
+#### 3.1 角色选择UI组件
+**文件**: `Source/PluginEditor.h/cpp` (扩展现有UI)
 
-**新的主处理器架构**：
+**UI组件声明**：
 ```cpp
-class MonitorControllerMaxAudioProcessor : public juce::AudioProcessor,
-                                         public SemanticChannelState::StateChangeListener {
+class MonitorControllerMaxAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                               public juce::Timer {
 private:
-    SemanticChannelState semanticState;
-    PhysicalChannelMapper physicalMapper;
-    OSCCommunicator oscComm;
-    ConfigManager configManager;
+    // 现有UI组件 ...
     
-    // 最小VST3参数系统 - 只包含Gain
-    juce::AudioProcessorValueTreeState apvts;
+    // 新增角色管理UI组件
+    juce::ComboBox roleSelector;
+    juce::Label roleLabel;
+    juce::Label connectionStatusLabel;
+    std::unique_ptr<juce::Component> slaveOverlay;
+    
+    // UI状态
+    bool isUILockedForSlave = false;
     
 public:
-    MonitorControllerMaxAudioProcessor();
-    ~MonitorControllerMaxAudioProcessor() override;
-    
-    // 音频处理 - 核心功能
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override;
-    
-    // 配置管理
-    void setCurrentLayout(const juce::String& speaker, const juce::String& sub) override;
-    const Layout& getCurrentLayout() const override;
-    
-    // UI访问接口
-    SemanticChannelState& getSemanticState() { return semanticState; }
-    PhysicalChannelMapper& getPhysicalMapper() { return physicalMapper; }
-    OSCCommunicator& getOSCCommunicator() { return oscComm; }
-    
-    // 状态变化监听
-    void onSemanticStateChanged() override;
-    void onGlobalModeChanged() override;
+    // 新增方法
+    void setupRoleManagementUI();
+    void updateUIForRole();
+    void updateConnectionStatus();
+    void enableAllControls(bool enabled);
+    void updateFromSemanticState();
     
 private:
-    void updatePhysicalMapping();
-    void applyGainFromVST3Parameter(juce::AudioBuffer<float>& buffer, int physicalPin);
-    
-    // 移除所有原有的参数联动相关方法
-    // 移除所有Solo/Mute参数相关代码
+    void onRoleSelectionChanged();
+    void createSlaveOverlay();
+    void removeSlaveOverlay();
+    void layoutRoleManagementComponents();
 };
 ```
 
-**新的processBlock实现**：
+**角色选择器实现**：
 ```cpp
-void MonitorControllerMaxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
-    juce::ScopedNoDenormals noDenormals;
+void MonitorControllerMaxAudioProcessorEditor::setupRoleManagementUI() {
+    // 角色标签
+    roleLabel.setText("Role:", juce::dontSendNotification);
+    roleLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(roleLabel);
     
-    int totalNumChannels = buffer.getNumChannels();
+    // 角色选择器
+    roleSelector.addItem("Standalone", static_cast<int>(PluginRole::Standalone) + 1);
+    roleSelector.addItem("Master", static_cast<int>(PluginRole::Master) + 1);
+    roleSelector.addItem("Slave", static_cast<int>(PluginRole::Slave) + 1);
     
-    // 遍历所有物理输出通道
-    for (int physicalPin = 0; physicalPin < totalNumChannels; ++physicalPin) {
-        // 获取对应的语义通道名
-        juce::String semanticName = physicalMapper.getSemanticName(physicalPin);
-        
-        // 应用语义状态到物理音频
-        if (!semanticName.isEmpty() && semanticState.getFinalMuteState(semanticName)) {
-            // 该语义通道被mute - 清除音频
-            buffer.clear(physicalPin, 0, buffer.getNumSamples());
-        } else {
-            // 应用Gain（来自VST3参数系统）
-            applyGainFromVST3Parameter(buffer, physicalPin);
-        }
+    roleSelector.setSelectedId(static_cast<int>(audioProcessor.getCurrentRole()) + 1, juce::dontSendNotification);
+    roleSelector.onChange = [this] { onRoleSelectionChanged(); };
+    addAndMakeVisible(roleSelector);
+    
+    // 连接状态标签
+    connectionStatusLabel.setText("Standalone", juce::dontSendNotification);
+    connectionStatusLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(connectionStatusLabel);
+    
+    // 初始UI状态
+    updateUIForRole();
+}
+
+void MonitorControllerMaxAudioProcessorEditor::onRoleSelectionChanged() {
+    int selectedId = roleSelector.getSelectedId();
+    PluginRole selectedRole = static_cast<PluginRole>(selectedId - 1);
+    
+    switch (selectedRole) {
+        case PluginRole::Standalone:
+            audioProcessor.switchToStandalone();
+            break;
+        case PluginRole::Master:
+            audioProcessor.switchToMaster();
+            break;
+        case PluginRole::Slave:
+            audioProcessor.switchToSlave();
+            break;
+    }
+    
+    // 确保选择器反映实际状态（切换可能失败）
+    roleSelector.setSelectedId(static_cast<int>(audioProcessor.getCurrentRole()) + 1, juce::dontSendNotification);
+    updateUIForRole();
+}
+```
+
+#### 3.2 UI状态控制机制
+
+**角色UI适配**：
+```cpp
+void MonitorControllerMaxAudioProcessorEditor::updateUIForRole() {
+    auto role = audioProcessor.getCurrentRole();
+    
+    switch (role) {
+        case PluginRole::Standalone:
+            enableAllControls(true);
+            removeSlaveOverlay();
+            connectionStatusLabel.setText("Standalone", juce::dontSendNotification);
+            roleSelector.setEnabled(true);
+            isUILockedForSlave = false;
+            break;
+            
+        case PluginRole::Master:
+            enableAllControls(true);
+            removeSlaveOverlay();
+            updateConnectionStatus();
+            roleSelector.setEnabled(true);
+            isUILockedForSlave = false;
+            break;
+            
+        case PluginRole::Slave:
+            enableAllControls(false);
+            createSlaveOverlay();
+            connectionStatusLabel.setText("Slave (syncing with Master)", juce::dontSendNotification);
+            roleSelector.setEnabled(false);  // Slave不能切换角色
+            isUILockedForSlave = true;
+            break;
+    }
+    
+    repaint();
+}
+
+void MonitorControllerMaxAudioProcessorEditor::createSlaveOverlay() {
+    if (slaveOverlay != nullptr) return;
+    
+    slaveOverlay = std::make_unique<juce::Component>();
+    slaveOverlay->setBounds(getLocalBounds());
+    slaveOverlay->setAlpha(0.5f);
+    slaveOverlay->setInterceptsMouseClicks(true, true);
+    
+    // 添加到最顶层
+    addAndMakeVisible(*slaveOverlay);
+    slaveOverlay->toFront(false);
+}
+
+void MonitorControllerMaxAudioProcessorEditor::removeSlaveOverlay() {
+    if (slaveOverlay != nullptr) {
+        slaveOverlay.reset();
     }
 }
 ```
 
-### Phase 4: UI重构
-
-#### 4.1 语义化UI组件
-**文件**: `Source/PluginEditor.h/cpp` (重大修改)
-
-**语义化按钮组件**：
+**连接状态更新**：
 ```cpp
-class SemanticSoloButton : public juce::TextButton {
-private:
-    MonitorControllerMaxAudioProcessor& processor;
-    juce::String semanticChannelName;
-    
-public:
-    SemanticSoloButton(MonitorControllerMaxAudioProcessor& proc, const juce::String& channelName)
-        : processor(proc), semanticChannelName(channelName) 
-    {
-        setButtonText("Solo " + channelName);
-        setClickingTogglesState(true);
-    }
-    
-    void clicked() override {
-        bool newState = getToggleState();
-        
-        // 直接操作语义状态 - 完全绕过VST3参数系统
-        processor.getSemanticState().setSoloState(semanticChannelName, newState);
-    }
-    
-    void updateFromSemanticState() {
-        bool currentState = processor.getSemanticState().getSoloState(semanticChannelName);
-        setToggleState(currentState, juce::dontSendNotification);
-        
-        // 更新颜色显示
-        if (currentState) {
-            setColour(juce::TextButton::buttonOnColourId, juce::Colours::green);
-        }
-    }
-};
-
-class SemanticMuteButton : public juce::TextButton {
-    // 类似实现，使用红色显示
-};
-```
-
-#### 4.2 动态UI布局
-**配置驱动的UI更新**：
-```cpp
-void MonitorControllerMaxAudioProcessorEditor::updateLayoutFromConfig() {
-    // 清除现有按钮
-    clearExistingChannelButtons();
-    
-    // 获取当前配置的语义通道列表
-    auto activeChannels = audioProcessor.getPhysicalMapper().getActiveSemanticChannels();
-    
-    // 为每个语义通道创建按钮
-    for (const auto& channelName : activeChannels) {
-        auto soloButton = std::make_unique<SemanticSoloButton>(audioProcessor, channelName);
-        auto muteButton = std::make_unique<SemanticMuteButton>(audioProcessor, channelName);
-        
-        // 添加到UI布局
-        addChannelButtonPair(channelName, std::move(soloButton), std::move(muteButton));
-    }
-    
-    // 重新布局UI
-    updateChannelGridLayout();
-    resized();
+void MonitorControllerMaxAudioProcessorEditor::updateConnectionStatus() {
+    juce::String statusText = audioProcessor.getConnectionStatusText();
+    connectionStatusLabel.setText(statusText, juce::dontSendNotification);
 }
-```
 
-#### 4.3 实时状态更新
-**替换参数驱动为状态驱动**：
-```cpp
 void MonitorControllerMaxAudioProcessorEditor::timerCallback() {
-    // 不再监听VST3参数变化，直接从语义状态更新UI
-    updateAllChannelButtonsFromSemanticState();
-    updateMainButtonStates();
-}
-
-void MonitorControllerMaxAudioProcessorEditor::updateAllChannelButtonsFromSemanticState() {
-    for (auto& [channelName, buttonPair] : channelButtons) {
-        buttonPair.soloButton->updateFromSemanticState();
-        buttonPair.muteButton->updateFromSemanticState();
+    // 现有计时器逻辑 ...
+    
+    // 新增连接状态更新
+    if (audioProcessor.getCurrentRole() == PluginRole::Master) {
+        updateConnectionStatus();
+    }
+    
+    // 如果不是Slave模式，正常更新UI
+    if (!isUILockedForSlave) {
+        updateAllChannelButtonsFromSemanticState();
     }
 }
 ```
 
-### Phase 5: 集成和配置系统
+### Phase 4: 集成测试和验证
 
-#### 5.1 配置系统集成
-**配置切换时的完整更新**：
+#### 4.1 构造/析构函数集成
+**文件**: `Source/PluginProcessor.cpp` (修改现有构造/析构函数)
+
+**构造函数注册**：
 ```cpp
-void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& speaker, const juce::String& sub) {
-    // 更新配置
-    Layout newLayout = configManager.getLayout(speaker, sub);
-    currentLayout = newLayout;
+MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
+    : // 现有初始化列表 ...
+{
+    // 现有初始化代码 ...
     
-    // 更新物理映射
-    physicalMapper.updateMapping(newLayout);
+    // 新增：注册到GlobalPluginState
+    registerToGlobalState();
     
-    // 重新初始化语义状态
-    semanticState.clearAllStates();
-    for (const auto& channelInfo : newLayout.channels) {
-        semanticState.initializeChannel(channelInfo.name);
-    }
-    
-    // 更新UI显示
-    if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
-        editor->updateLayoutFromConfig();
-    }
-    
-    // 广播新状态给外部设备
-    if (oscComm.isConnected()) {
-        oscComm.broadcastAllStates(semanticState);
+    VST3_DBG("Plugin initialized and registered to GlobalPluginState");
+}
+
+void MonitorControllerMaxAudioProcessor::registerToGlobalState() {
+    if (!isRegisteredToGlobalState) {
+        GlobalPluginState::getInstance().registerPlugin(this);
+        isRegisteredToGlobalState = true;
     }
 }
 ```
 
-#### 5.2 状态保存和恢复
-**VST3状态管理**：
+**析构函数注销**：
 ```cpp
-void MonitorControllerMaxAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
-    // 只保存VST3参数（Gain等）
-    auto apvtsState = apvts.copyState();
+MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor() {
+    VST3_DBG("Plugin destructor - cleaning up GlobalPluginState registration");
     
-    // 保存语义状态
-    auto semanticStateXml = std::make_unique<juce::XmlElement>("SemanticState");
+    // 先注销GlobalPluginState
+    unregisterFromGlobalState();
     
-    auto activeChannels = physicalMapper.getActiveSemanticChannels();
-    for (const auto& channelName : activeChannels) {
-        auto channelXml = semanticStateXml->createNewChildElement("Channel");
-        channelXml->setAttribute("name", channelName);
-        channelXml->setAttribute("solo", semanticState.getSoloState(channelName));
-        channelXml->setAttribute("mute", semanticState.getMuteState(channelName));
+    // 现有清理代码 ...
+}
+
+void MonitorControllerMaxAudioProcessor::unregisterFromGlobalState() {
+    if (isRegisteredToGlobalState) {
+        GlobalPluginState::getInstance().unregisterPlugin(this);
+        isRegisteredToGlobalState = false;
     }
-    
-    // 保存当前配置
-    semanticStateXml->setAttribute("speakerLayout", currentLayout.speakerName);
-    semanticStateXml->setAttribute("subLayout", currentLayout.subName);
-    
-    // 合并状态
-    auto completeState = apvtsState.createCopy();
-    completeState.appendChild(juce::ValueTree::fromXml(*semanticStateXml), nullptr);
-    
-    auto xml = completeState.createXml();
-    copyXmlToBinary(*xml, destData);
 }
 ```
 
-### Phase 6: 测试和验证
+#### 4.2 功能完整性测试计划
 
-#### 6.1 功能测试
-**测试场景**：
+**测试场景覆盖**：
 ```
-1. 基本Solo/Mute功能
-   - 单通道Solo → 其他通道Auto-Mute
-   - Solo模式下的联动逻辑
-   - Mute功能的独立工作
+1. 基础角色切换测试
+   - Standalone → Master: 成功切换，UI更新正确
+   - Master → Slave: 成功切换，UI锁定，状态同步
+   - Slave → Standalone: 成功切换，UI解锁
+   - 多次角色切换无内存泄漏
 
-2. 配置切换测试
-   - 5.1 → 7.1.4 配置切换
-   - 物理映射正确更新
-   - UI按钮正确重建
+2. 多实例Master冲突测试
+   - 第一个插件切换Master: 成功
+   - 第二个插件尝试切换Master: 失败，保持原角色
+   - 第一个Master关闭: 第二个插件可成功切换Master
 
-3. OSC通信测试
-   - 状态变化时的OSC发送
-   - 外部OSC控制接收
-   - 状态反馈机制
+3. 状态同步测试
+   - Master操作Solo按钮 → 所有Slave实时同步显示
+   - Master操作Mute按钮 → 所有Slave实时同步显示
+   - 多Slave并发连接 → 状态同步正确
+   - Slave UI完全锁定 → 无法操作任何控件
 
-4. VST3兼容性测试
-   - 插件加载/卸载
-   - 状态保存/恢复
-   - 宿主自动化（仅Gain参数）
+4. 生命周期测试
+   - 插件加载/卸载 → GlobalPluginState正确注册/注销
+   - Master插件关闭 → Slave插件自动切换Standalone
+   - 多实例并发加载/卸载 → 无崩溃，无内存泄漏
+
+5. 性能测试
+   - 状态同步延迟 < 1ms
+   - CPU占用增量 < 2%
+   - 内存占用增量 < 1MB
 ```
 
-#### 6.2 外部集成测试
-**OSC测试工具**：
-```bash
-# 发送OSC命令测试
-oscsend 127.0.0.1 7444 /Monitor/Solo_L/ f 1.0
-oscsend 127.0.0.1 7444 /Monitor/Mute_R/ f 0.0
+#### 4.3 错误处理和边界条件
 
-# 监听OSC反馈
-oscdump 7444
+**边界条件处理**：
+```cpp
+// GlobalPluginState中的安全检查
+void GlobalPluginState::broadcastStateToSlaves(const juce::String& channelName, const juce::String& action, bool state) {
+    std::lock_guard<std::mutex> lock(pluginsMutex);
+    
+    // 安全检查：移除无效指针
+    slavePlugins.erase(
+        std::remove_if(slavePlugins.begin(), slavePlugins.end(),
+            [](MonitorControllerMaxAudioProcessor* plugin) {
+                return plugin == nullptr;
+            }),
+        slavePlugins.end()
+    );
+    
+    for (auto* slave : slavePlugins) {
+        try {
+            slave->receiveMasterState(channelName, action, state);
+        } catch (const std::exception& e) {
+            VST3_DBG("Error broadcasting to slave: " + juce::String(e.what()));
+        }
+    }
+}
 ```
 
 ## 🔧 实施优先级
 
 ### 高优先级（立即执行）：
-1. **Phase 1** - 实现核心语义化架构
-2. **Phase 3.1** - 重构音频处理逻辑
-3. **移除参数联动系统** - 清理所有旧代码
+1. **Phase 1.1** - 创建GlobalPluginState基础类
+2. **Phase 1.2** - 实现核心方法和单例模式
+3. **Phase 2.1** - 集成PluginProcessor角色管理
 
 ### 中优先级：
-4. **Phase 2** - 实现OSC通信系统
-5. **Phase 4** - 重构UI为语义化组件
+4. **Phase 2.2** - 实现状态同步逻辑
+5. **Phase 3.1** - 添加角色选择UI
+6. **Phase 3.2** - 实现UI状态控制
 
 ### 低优先级：
-6. **Phase 5** - 完善配置系统集成
-7. **Phase 6** - 全面测试和优化
+7. **Phase 4.1** - 构造/析构函数集成
+8. **Phase 4.2** - 全面测试和验证
 
 ## 📊 实施进度追踪
 
-### ✅ **重大里程碑：语义化状态系统迁移完成** (2025-01-11)
+### ⚠️ **Phase 1 - 核心GlobalPluginState类** - 待实施
 
-### ✅ **Phase 1 - 核心架构重构** - 100% 完成
+**计划创建的新文件**：
+- 🔜 `Source/GlobalPluginState.h/cpp` - 静态全局状态管理器
 
-**已创建的新文件**：
-- ✅ `Source/SemanticChannelState.h/cpp` - 语义状态管理核心，稳定运行
-- ✅ `Source/PhysicalChannelMapper.h/cpp` - 物理通道映射系统，配置驱动
-- ✅ `Source/SemanticChannelButton.h/cpp` - 动态语义按钮组件，UI集成
-- 🔜 `Source/OSCCommunicator.h/cpp` - OSC通信系统，下一阶段实施
+**核心功能实现**：
+- 🔜 线程安全单例模式
+- 🔜 插件实例注册/注销机制
+- 🔜 Master/Slave角色管理
+- 🔜 状态存储和广播机制
 
-### ✅ **Phase 2 - 完全迁移和清理** - 100% 完成
+### 🔜 **Phase 2 - 角色管理集成** - 待实施
 
-**已重构的现有文件**：
-- ✅ `Source/PluginProcessor.h/cpp` - **完全重构**，语义状态系统接管
-- ✅ `Source/PluginEditor.h/cpp` - **UI完全迁移**，语义状态驱动
-- ✅ VST3参数系统 - **Solo/Mute参数完全移除**，只保留Gain参数
+**计划修改的现有文件**：
+- 🔜 `Source/PluginProcessor.h/cpp` - 添加角色管理方法
+- 🔜 集成状态变化回调
+- 🔜 实现Master/Slave状态同步
 
-**已移除的旧系统**：
-- ✅ `Source/ParameterLinkageEngine.h/cpp` - **完全移除**，代码清理完成
-- ✅ 所有linkageEngine引用 - **全部清除**，无残留代码
-- ✅ VST3参数联动逻辑 - **彻底移除**，架构清理完成
+### 🔜 **Phase 3 - UI集成适配** - 待实施
 
-### ✅ **Phase 3 - 功能验证和测试** - 100% 完成
-
-**核心功能验证**：
-- ✅ **Solo/Mute基本功能** - 按钮点击、状态切换完美工作
-- ✅ **选择模式状态机** - Solo选择模式、Mute选择模式流畅运行
-- ✅ **记忆管理系统** - Solo模式记忆保存/恢复完美工作
-- ✅ **状态联动逻辑** - Solo优先级、Auto-Mute联动正确
-- ✅ **物理映射系统** - 语义通道到物理Pin映射正确
-- ✅ **配置系统集成** - Speaker_Config.json驱动映射更新
-
-**实际用户测试**：
-- ✅ **2.0立体声配置** - L/R声道映射和控制正常
-- ✅ **复杂操作流程** - Mute→Solo选择→Solo激活→清除Solo→记忆恢复
-- ✅ **UI状态同步** - 按钮颜色、状态显示实时正确
-- ✅ **音频处理** - 语义状态驱动的静音处理正常
-
-### 🔜 **Phase 4 - OSC通信扩展** - 待实施
-- 🔜 实现OSCCommunicator类
-- 🔜 集成OSC发送/接收功能
-- 🔜 状态变化OSC广播
-- 🔜 外部OSC控制接收
+**UI功能扩展**：
+- 🔜 角色选择下拉框 (PluginEditor)
+- 🔜 连接状态显示标签
+- 🔜 Slave模式UI锁定机制
+- 🔜 实时状态更新响应
 
 ## 🎯 成功标准验证
 
-### ✅ **架构目标达成** - 100% 完成
-- ✅ **完全绕过VST3参数联动限制** - 语义状态系统接管，无VST3限制
-- ✅ **语义通道命名保持一致性** - "L","R","C"等语义名称完全统一
-- 🔜 **OSC外部集成完全功能** - 架构就绪，等待OSC实现
-- ✅ **配置切换不影响控制协议** - 物理映射系统动态更新
+### ✅ **架构目标**
+- 🎯 **同进程优化** - 使用静态全局状态，专为DAW环境设计
+- 🎯 **最小侵入性** - 现有语义状态系统完全保持不变
+- 🎯 **零依赖** - 无需网络、端口、序列化，纯内存操作
+- 🎯 **线程安全** - 多实例并发稳定运行
 
-### ✅ **功能验证标准** - 100% 完成
-- ✅ **Solo/Mute联动逻辑完全正确** - 复杂状态机完美运行
-- 🔜 **外部OSC控制双向通信正常** - 等待OSC通信实现  
-- ✅ **状态反馈机制实时同步** - UI实时反映语义状态变化
-- ✅ **VST3基本功能保持兼容** - Gain参数正常，宿主兼容性保持
+### 🔜 **功能验证标准**
+- 🔜 **角色切换流畅** - 三种角色无缝切换，Master冲突正确处理
+- 🔜 **状态同步实时** - Master操作立即同步到Slave (< 1ms)
+- 🔜 **UI响应正确** - Slave UI正确锁定，连接状态准确显示
+- 🔜 **生命周期健壮** - 插件加载/卸载正确处理，无内存泄漏
 
-### ✅ **用户体验验证** - 100% 完成
-- ✅ **操作逻辑完全保留** - 用户感知不到底层架构变化
-- ✅ **视觉效果完全一致** - 按钮颜色、布局、交互完全相同
-- ✅ **响应性能稳定** - 状态切换流畅，无延迟感知
-- ✅ **复杂流程流畅** - Solo记忆管理、选择模式切换完美
+### 🔜 **集成兼容性验证**
+- 🔜 **现有功能保持** - Solo/Mute逻辑、OSC通信、配置系统完全不变
+- 🔜 **性能影响最小** - CPU/内存占用增量 < 2%
+- 🔜 **编译稳定性** - Debug/Release编译成功，无警告错误
 
-### ✅ **技术架构验证** - 100% 完成  
-- ✅ **编译稳定性** - Debug/Release编译成功，无警告错误
-- ✅ **运行稳定性** - 长时间运行稳定，无崩溃或内存泄漏
-- ✅ **代码清洁度** - 旧系统完全移除，无残留冗余代码
-- ✅ **扩展性就绪** - OSC通信架构就绪，易于集成
+## 🏆 **v4.0架构优势**
 
-## 🔥 架构突破意义
+**这个新架构具有以下关键优势：**
 
-**这个新架构代表了从VST3限制到完全自由的根本性突破！**
+- **同进程专优** - 针对DAW同进程插件环境专门设计
+- **零延迟通信** - 直接内存访问，纳秒级状态同步
+- **线程安全** - 完整的互斥锁保护，支持多线程DAW
+- **最小开销** - 无网络、无序列化，最小的性能影响
+- **稳定可靠** - 基于经过验证的稳定版本构建
+- **简单维护** - 清晰的角色分工，直观的实现逻辑
 
-- **技术突破** - 彻底解决VST3协议限制
-- **架构优势** - 语义化一致性和完美外部集成
-- **专业标准** - 达到专业监听控制器的工业级要求
-- **未来扩展** - 为更复杂功能奠定坚实基础
-
-**这就是现代专业音频插件的正确发展方向！** 🎵
-
----
-
-## 🏆 **项目里程碑总结** (2025-01-11)
-
-### 🎯 **重大成就**：
-✅ **彻底解决VST3协议限制** - 从根本上绕过"No automated parameter must influence another automated parameter"限制  
-✅ **完美保留用户体验** - 所有Solo/Mute逻辑、记忆管理、选择模式完整保留  
-✅ **架构完全现代化** - 语义化状态系统为未来OSC集成、外部控制奠定基础  
-✅ **代码质量提升** - 移除复杂的参数联动代码，架构更清晰、更可维护  
-
-### 📈 **技术指标**：
-- **代码迁移量**: 90%+ 核心功能重写
-- **功能保留度**: 100% 用户感知一致性
-- **稳定性**: 零错误编译，稳定运行
-- **架构清洁度**: 100% 旧系统移除
-
-### 🚀 **下一阶段目标**：
-🔜 **OSC通信系统** - 专业监听控制器的外部集成能力  
-🔜 **多配置测试** - 5.1、7.1.4等复杂配置验证  
-🔜 **性能优化** - 大规模通道配置的性能调优  
-
-**这标志着监听控制器插件从VST3限制走向完全自由的历史性突破！** 🎵🎉
+**这标志着使用最适合DAW环境的技术方案，实现高效可靠的专业级主从插件通信系统！** 🎵🎉

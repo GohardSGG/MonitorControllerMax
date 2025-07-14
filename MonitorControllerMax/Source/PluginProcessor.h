@@ -18,8 +18,7 @@
 #include "SemanticChannelState.h"
 #include "PhysicalChannelMapper.h"
 #include "OSCCommunicator.h"
-
-class InterPluginCommunicator;
+#include "GlobalPluginState.h"
 
 //==============================================================================
 
@@ -44,19 +43,26 @@ public:
     ~MonitorControllerMaxAudioProcessor() override;
 
     //==============================================================================
-    enum Role
-    {
-        standalone,
-        master,
-        slave
-    };
-
-    void setRole(Role newRole);
-    Role getRole() const;
-
-    void setRemoteMuteSoloState(const MuteSoloState& state);
-    bool getRemoteMuteState(int channel) const;
-    bool getRemoteSoloState(int channel) const;
+    // Master-Slave角色管理
+    void switchToStandalone();
+    void switchToMaster();
+    void switchToSlave();
+    PluginRole getCurrentRole() const { return currentRole; }
+    
+    // 状态同步接口（供GlobalPluginState调用）
+    void receiveMasterState(const juce::String& channelName, const juce::String& action, bool state);
+    void onMasterDisconnected();
+    
+    // 连接状态查询
+    bool isMasterWithSlaves() const;
+    bool isSlaveConnected() const;
+    int getConnectedSlaveCount() const;
+    juce::String getConnectionStatusText() const;
+    
+    // 用于UI刷新时维持状态的接口
+    void saveCurrentUIState();
+    void restoreUIState();
+    void restoreSemanticStates(); // 恢复语义状态
 
     void setCurrentLayout(const juce::String& speaker, const juce::String& sub);
     const Layout& getCurrentLayout() const;
@@ -101,6 +107,9 @@ public:
     
     // OSC external control handler
     void handleExternalOSCControl(const juce::String& action, const juce::String& channelName, bool state);
+    
+    // 状态同步时的回调处理（整合到现有回调中）
+    void onSemanticStateChanged(const juce::String& channelName, const juce::String& action, bool state);
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -148,6 +157,11 @@ public:
     // 用户实际选择的布局配置 - 用于状态持久化
     juce::String userSelectedSpeakerLayout = "2.0";
     juce::String userSelectedSubLayout = "None";
+    
+    // 角色和UI状态持久化
+    PluginRole savedRole = PluginRole::Standalone;
+    juce::String savedSelectedChannels;
+    juce::ValueTree savedSemanticStateData;
 
     // New semantic state system (gradually replacing VST3 parameter system)
     SemanticChannelState semanticState;
@@ -157,12 +171,16 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     //==============================================================================
-    std::atomic<Role> currentRole;
-    std::unique_ptr<InterPluginCommunicator> communicator;
-
-    // Atomics to hold the state received from a master instance when in slave mode.
-    std::array<std::atomic<bool>, 26> remoteMutes{};
-    std::array<std::atomic<bool>, 26> remoteSolos{};
+    // Master-Slave角色管理
+    PluginRole currentRole = PluginRole::Standalone;
+    bool isRegisteredToGlobalState = false;
+    bool suppressStateChange = false;  // 防止循环回调
+    
+    // 角色管理方法
+    void registerToGlobalState();
+    void unregisterFromGlobalState();
+    void handleRoleTransition(PluginRole newRole);
+    void updateUIFromRole();
 
     // We'll need atomic pointers to our parameters for thread-safe access in the audio callback.
     std::array<std::atomic<float>*, 26> muteParams{};
@@ -190,3 +208,42 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };
+
+// Role-aware debug macros with role prefix - defined here to avoid circular includes
+#define VST3_DBG_ROLE(processorPtr, message) \
+    do { \
+        juce::String rolePrefix; \
+        if (processorPtr) { \
+            switch ((processorPtr)->getCurrentRole()) { \
+                case PluginRole::Standalone: rolePrefix = "[Standalone]"; break; \
+                case PluginRole::Master: rolePrefix = "[Master]"; break; \
+                case PluginRole::Slave: rolePrefix = "[Slave]"; break; \
+                default: rolePrefix = "[Unknown]"; break; \
+            } \
+        } else { \
+            rolePrefix = "[Unknown]"; \
+        } \
+        std::ostringstream oss; \
+        oss << rolePrefix << " " << message; \
+        DBG(oss.str()); \
+        DebugLogger::getInstance().log(oss.str()); \
+    } while(0)
+
+#define VST3_DBG_ROLE_IMPORTANT(processorPtr, message) \
+    do { \
+        juce::String rolePrefix; \
+        if (processorPtr) { \
+            switch ((processorPtr)->getCurrentRole()) { \
+                case PluginRole::Standalone: rolePrefix = "[Standalone]"; break; \
+                case PluginRole::Master: rolePrefix = "[Master]"; break; \
+                case PluginRole::Slave: rolePrefix = "[Slave]"; break; \
+                default: rolePrefix = "[Unknown]"; break; \
+            } \
+        } else { \
+            rolePrefix = "[Unknown]"; \
+        } \
+        std::ostringstream oss; \
+        oss << rolePrefix << " " << message; \
+        DBG(oss.str()); \
+        DebugLogger::getInstance().logImportant(oss.str()); \
+    } while(0)

@@ -80,4 +80,10 @@ struct SemanticChannelButtonPair
         soloButton->updateFromSemanticState();
         muteButton->updateFromSemanticState();
     }
+    
+    void setButtonsEnabled(bool enabled)
+    {
+        if (soloButton) soloButton->setEnabled(enabled);
+        if (muteButton) muteButton->setEnabled(enabled);
+    }
 };
