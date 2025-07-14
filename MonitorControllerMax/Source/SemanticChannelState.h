@@ -46,6 +46,7 @@ public:
 
     // Channel management
     void initializeChannel(const juce::String& channelName);
+    bool hasChannel(const juce::String& channelName) const;
     void clearAllStates();
     void clearAllSoloStates();
     void clearAllMuteStates();

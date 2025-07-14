@@ -79,6 +79,17 @@ void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plu
         VST3_DBG(slaveLogMsg);
         addConnectionLog(slaveLogMsg);
     }
+    
+    // 如果在等待列表中，也要移除
+    auto waitingIt = std::find(waitingSlavePlugins.begin(), waitingSlavePlugins.end(), plugin);
+    if (waitingIt != waitingSlavePlugins.end()) {
+        waitingSlavePlugins.erase(waitingIt);
+        
+        juce::String waitingLogMsg = getCurrentTimeString() + " Waiting slave plugin unregistered - Waiting slaves: " + 
+                                    juce::String(waitingSlavePlugins.size());
+        VST3_DBG(waitingLogMsg);
+        addConnectionLog(waitingLogMsg);
+    }
 }
 
 bool GlobalPluginState::setAsMaster(MonitorControllerMaxAudioProcessor* plugin) {
@@ -107,6 +118,9 @@ bool GlobalPluginState::setAsMaster(MonitorControllerMaxAudioProcessor* plugin) 
     VST3_DBG(logMsg);
     addConnectionLog(logMsg);
     
+    // 将等待中的Slave提升为活跃Slave
+    promoteWaitingSlavesToActive();
+    
     return true;
 }
 
@@ -128,7 +142,21 @@ void GlobalPluginState::removeMaster(MonitorControllerMaxAudioProcessor* plugin)
                 });
             }
         }
+        
+        // 将活跃的Slave移到等待列表
+        for (auto* slave : slavePlugins) {
+            if (slave != nullptr) {
+                waitingSlavePlugins.push_back(slave);
+            }
+        }
         slavePlugins.clear();
+        
+        if (!waitingSlavePlugins.empty()) {
+            juce::String waitingLogMsg = getCurrentTimeString() + " Moved " + juce::String(waitingSlavePlugins.size()) + 
+                                        " slaves to waiting list - waiting for new Master";
+            VST3_DBG(waitingLogMsg);
+            addConnectionLog(waitingLogMsg);
+        }
     }
 }
 
@@ -142,14 +170,6 @@ bool GlobalPluginState::addSlavePlugin(MonitorControllerMaxAudioProcessor* plugi
     
     if (plugin == nullptr) return false;
     
-    // 检查是否有Master
-    if (masterPlugin == nullptr) {
-        juce::String logMsg = getCurrentTimeString() + " Slave role denied - No Master available";
-        VST3_DBG(logMsg);
-        addConnectionLog(logMsg);
-        return false;
-    }
-    
     // 不能将Master设为Slave
     if (plugin == masterPlugin) {
         juce::String logMsg = getCurrentTimeString() + " Slave role denied - Plugin is Master";
@@ -158,6 +178,14 @@ bool GlobalPluginState::addSlavePlugin(MonitorControllerMaxAudioProcessor* plugi
         return false;
     }
     
+    // 检查是否有Master
+    if (masterPlugin == nullptr) {
+        // 没有Master，将Slave加入等待列表
+        addWaitingSlavePlugin(plugin);
+        return true;  // 返回true表示成功加入等待列表
+    }
+    
+    // 有Master，直接加入活跃Slave列表
     // 检查是否已经是Slave
     auto it = std::find(slavePlugins.begin(), slavePlugins.end(), plugin);
     if (it == slavePlugins.end()) {
@@ -168,6 +196,9 @@ bool GlobalPluginState::addSlavePlugin(MonitorControllerMaxAudioProcessor* plugi
                              ") - Active slaves: " + juce::String(slavePlugins.size());
         VST3_DBG(logMsg);
         addConnectionLog(logMsg);
+        
+        // 立即同步Master状态到新Slave
+        syncAllStatesToSlave(plugin);
     }
     
     return true;
@@ -176,6 +207,7 @@ bool GlobalPluginState::addSlavePlugin(MonitorControllerMaxAudioProcessor* plugi
 void GlobalPluginState::removeSlavePlugin(MonitorControllerMaxAudioProcessor* plugin) {
     std::lock_guard<std::mutex> lock(pluginsMutex);
     
+    // 从活跃Slave列表移除
     auto it = std::find(slavePlugins.begin(), slavePlugins.end(), plugin);
     if (it != slavePlugins.end()) {
         slavePlugins.erase(it);
@@ -186,6 +218,9 @@ void GlobalPluginState::removeSlavePlugin(MonitorControllerMaxAudioProcessor* pl
         VST3_DBG(logMsg);
         addConnectionLog(logMsg);
     }
+    
+    // 从等待Slave列表移除
+    removeWaitingSlavePlugin(plugin);
 }
 
 std::vector<MonitorControllerMaxAudioProcessor*> GlobalPluginState::getSlavePlugins() const {
@@ -269,6 +304,81 @@ int GlobalPluginState::getSlaveCount() const {
     return static_cast<int>(slavePlugins.size());
 }
 
+int GlobalPluginState::getWaitingSlaveCount() const {
+    std::lock_guard<std::mutex> lock(pluginsMutex);
+    return static_cast<int>(waitingSlavePlugins.size());
+}
+
+void GlobalPluginState::addWaitingSlavePlugin(MonitorControllerMaxAudioProcessor* plugin) {
+    // 此方法在已持有锁的情况下调用
+    if (plugin == nullptr) return;
+    
+    // 从活跃Slave列表移除（如果存在）
+    auto activeIt = std::find(slavePlugins.begin(), slavePlugins.end(), plugin);
+    if (activeIt != slavePlugins.end()) {
+        slavePlugins.erase(activeIt);
+    }
+    
+    // 检查是否已在等待列表
+    auto waitingIt = std::find(waitingSlavePlugins.begin(), waitingSlavePlugins.end(), plugin);
+    if (waitingIt == waitingSlavePlugins.end()) {
+        waitingSlavePlugins.push_back(plugin);
+        
+        juce::String logMsg = getCurrentTimeString() + " Slave added to waiting list (ID: " + 
+                             juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + 
+                             ") - Waiting slaves: " + juce::String(waitingSlavePlugins.size());
+        VST3_DBG(logMsg);
+        addConnectionLog(logMsg);
+    }
+}
+
+void GlobalPluginState::removeWaitingSlavePlugin(MonitorControllerMaxAudioProcessor* plugin) {
+    // 此方法在已持有锁的情况下调用
+    auto waitingIt = std::find(waitingSlavePlugins.begin(), waitingSlavePlugins.end(), plugin);
+    if (waitingIt != waitingSlavePlugins.end()) {
+        waitingSlavePlugins.erase(waitingIt);
+        
+        juce::String logMsg = getCurrentTimeString() + " Slave removed from waiting list (ID: " + 
+                             juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + 
+                             ") - Waiting slaves: " + juce::String(waitingSlavePlugins.size());
+        VST3_DBG(logMsg);
+        addConnectionLog(logMsg);
+    }
+}
+
+void GlobalPluginState::promoteWaitingSlavesToActive() {
+    // 此方法在已持有锁的情况下调用
+    if (waitingSlavePlugins.empty()) return;
+    
+    juce::String logMsg = getCurrentTimeString() + " Promoting " + juce::String(waitingSlavePlugins.size()) + 
+                         " waiting slaves to active - Master is now available";
+    VST3_DBG(logMsg);
+    addConnectionLog(logMsg);
+    
+    // 将所有等待中的Slave提升为活跃Slave
+    for (auto* waitingSlave : waitingSlavePlugins) {
+        if (waitingSlave != nullptr) {
+            slavePlugins.push_back(waitingSlave);
+            
+            // 同步Master状态到新连接的Slave
+            syncAllStatesToSlave(waitingSlave);
+            
+            // 通知Slave现在已连接到Master
+            juce::MessageManager::callAsync([waitingSlave]() {
+                waitingSlave->onMasterConnected();
+            });
+        }
+    }
+    
+    // 清空等待列表
+    waitingSlavePlugins.clear();
+    
+    juce::String finalLogMsg = getCurrentTimeString() + " All waiting slaves promoted - Active slaves: " + 
+                              juce::String(slavePlugins.size());
+    VST3_DBG(finalLogMsg);
+    addConnectionLog(finalLogMsg);
+}
+
 bool GlobalPluginState::hasMaster() const {
     std::lock_guard<std::mutex> lock(pluginsMutex);
     return masterPlugin != nullptr;
@@ -287,7 +397,11 @@ juce::String GlobalPluginState::getConnectionInfo() const {
             info += " | No Slaves";
         }
     } else {
-        info += "No Master | Plugins: " + juce::String(allPlugins.size());
+        info += "No Master";
+        if (!waitingSlavePlugins.empty()) {
+            info += " | Waiting Slaves: " + juce::String(waitingSlavePlugins.size());
+        }
+        info += " | Plugins: " + juce::String(allPlugins.size());
     }
     
     return info;
@@ -327,6 +441,14 @@ void GlobalPluginState::cleanupInvalidPlugins() {
                 return plugin == nullptr;
             }),
         slavePlugins.end()
+    );
+    
+    waitingSlavePlugins.erase(
+        std::remove_if(waitingSlavePlugins.begin(), waitingSlavePlugins.end(),
+            [](MonitorControllerMaxAudioProcessor* plugin) {
+                return plugin == nullptr;
+            }),
+        waitingSlavePlugins.end()
     );
     
     allPlugins.erase(

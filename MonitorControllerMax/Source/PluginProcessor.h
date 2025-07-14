@@ -52,6 +52,7 @@ public:
     // 状态同步接口（供GlobalPluginState调用）
     void receiveMasterState(const juce::String& channelName, const juce::String& action, bool state);
     void onMasterDisconnected();
+    void onMasterConnected();
     
     // 连接状态查询
     bool isMasterWithSlaves() const;

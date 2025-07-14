@@ -260,48 +260,107 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     */
 
     // =================================================================================
-    // 1. 确定所有 *在当前布局中激活的* 逻辑通道的最终 Mute/Solo 状态
-    // =================================================================================
-
-    bool anySoloEngaged = false;
-
-    // 检查是否有任何一个 *语义通道* 被 solo
-    anySoloEngaged = (currentRole == PluginRole::Slave) ? false : semanticState.hasAnySoloActive();
-
-    // =================================================================================
-    // 2. 将处理逻辑应用到物理音频缓冲区 (全新逻辑)
-    //    这个循环严格遍历宿主提供的物理通道
+    // Master-Slave Audio Processing Logic (v4.0 Architecture)
     // =================================================================================
     
+    // 确定处理策略
+    bool hasNonSUBSolo = semanticState.hasAnyNonSUBSoloActive();
+    bool hasSUBSolo = semanticState.hasAnySUBSoloActive();
+    bool processingEnabled = false;
+    
+    // 场景判断和处理策略
+    if (!hasNonSUBSolo && !hasSUBSolo) {
+        // 无Solo模式：所有角色正常处理所有通道
+        processingEnabled = true;
+        // VST3_DBG_ROLE(this, "Audio Processing: No Solo mode - all channels processed");
+    }
+    else if (hasNonSUBSolo && !hasSUBSolo) {
+        // 场景1：只有非SUB通道Solo
+        processingEnabled = (currentRole == PluginRole::Slave);  // 从插件处理，主插件直通
+        // VST3_DBG_ROLE(this, "Audio Processing: Non-SUB Solo only - " + 
+        //              juce::String(processingEnabled ? "Slave processes" : "Master passthrough"));
+    }
+    else if (!hasNonSUBSolo && hasSUBSolo) {
+        // 场景2：只有SUB通道Solo
+        processingEnabled = (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone);  // 主插件处理，从插件直通
+        // VST3_DBG_ROLE(this, "Audio Processing: SUB Solo only - " + 
+        //              juce::String(processingEnabled ? "Master processes" : "Slave passthrough"));
+    }
+    else {
+        // 场景3：混合Solo（非SUB + SUB）
+        processingEnabled = (currentRole == PluginRole::Slave);  // 从插件处理，主插件直通
+        // VST3_DBG_ROLE(this, "Audio Processing: Mixed Solo - " + 
+        //              juce::String(processingEnabled ? "Slave processes" : "Master passthrough"));
+    }
+    
+    // 应用处理逻辑到所有物理通道
     for (int physicalChannel = 0; physicalChannel < totalNumInputChannels; ++physicalChannel)
     {
         // 获取对应的语义通道名
         juce::String semanticChannelName = physicalMapper.getSemanticName(physicalChannel);
         
-        // 如果这个物理通道没有语义映射，我们就跳过它，实现音频直通
+        // 如果这个物理通道没有语义映射，直通
         if (semanticChannelName.isEmpty())
         {
             continue;
         }
 
-        // --- 从这里开始，我们确认了 physicalChannel 对应一个有效的语义通道 ---
-
-        // 获取这个语义通道的最终Mute状态（已包含Solo模式联动逻辑）
-        const bool shouldBeSilent = (currentRole == PluginRole::Slave) ? false : semanticState.getFinalMuteState(semanticChannelName);
-
-        if (shouldBeSilent)
-        {
-            buffer.clear(physicalChannel, 0, buffer.getNumSamples());
+        // 判断是否为SUB通道
+        bool isSUBChannel = semanticState.isSUBChannel(semanticChannelName);
+        bool shouldProcess = false;
+        
+        // 根据场景和通道类型决定是否处理
+        if (!hasNonSUBSolo && !hasSUBSolo) {
+            // 无Solo：所有通道都处理
+            shouldProcess = processingEnabled;
         }
-        else
-        {
-            // 应用增益 - 从物理通道索引获取对应的Gain参数
-            const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(physicalChannel + 1))->load();
-            if (std::abs(gainDb) > 0.01f)
-            {
-                buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
+        else if (hasNonSUBSolo && !hasSUBSolo) {
+            // 场景1：从插件处理非SUB，主插件处理SUB
+            if (currentRole == PluginRole::Slave) {
+                shouldProcess = !isSUBChannel;  // 从插件只处理非SUB通道
+            } else {
+                shouldProcess = isSUBChannel;   // 主插件只处理SUB通道
             }
         }
+        else if (!hasNonSUBSolo && hasSUBSolo) {
+            // 场景2：主插件处理所有，从插件直通
+            if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+                if (isSUBChannel) {
+                    shouldProcess = true;  // SUB通道正常处理
+                } else {
+                    // 非SUB通道强制静音（SUB Solo逻辑）
+                    buffer.clear(physicalChannel, 0, buffer.getNumSamples());
+                    continue;
+                }
+            } else {
+                shouldProcess = false;  // 从插件直通
+            }
+        }
+        else {
+            // 场景3：从插件处理非SUB，主插件处理SUB
+            if (currentRole == PluginRole::Slave) {
+                shouldProcess = !isSUBChannel;  // 从插件只处理非SUB通道
+            } else {
+                shouldProcess = isSUBChannel;   // 主插件只处理SUB通道
+            }
+        }
+        
+        if (shouldProcess) {
+            // 获取最终Mute状态并应用
+            bool finalMuteState = semanticState.getFinalMuteState(semanticChannelName);
+            
+            if (finalMuteState) {
+                // 静音此通道
+                buffer.clear(physicalChannel, 0, buffer.getNumSamples());
+            } else {
+                // 应用增益
+                const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(physicalChannel + 1))->load();
+                if (std::abs(gainDb) > 0.01f) {
+                    buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
+                }
+            }
+        }
+        // 如果不应该处理，音频直通（不做任何修改）
     }
 }
 
@@ -368,9 +427,22 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
                 PluginRole savedRole = static_cast<PluginRole>(savedRoleInt);
                 VST3_DBG_ROLE(this, "PluginProcessor: Restoring plugin role - " + juce::String(savedRoleInt));
                 
-                // 应用角色（会自动处理GlobalPluginState注册）
-                currentRole = savedRole;
-                savedRole = savedRole;  // 更新保存的角色
+                // 重要修复：不能只设置currentRole，必须调用正确的切换方法来触发连接逻辑
+                switch (savedRole) {
+                    case PluginRole::Standalone:
+                        switchToStandalone();
+                        break;
+                    case PluginRole::Master:
+                        switchToMaster();
+                        break;
+                    case PluginRole::Slave:
+                        switchToSlave();  // 这会触发等待队列逻辑
+                        break;
+                    default:
+                        switchToStandalone();
+                        break;
+                }
+                VST3_DBG_ROLE(this, "Plugin role restoration complete - connection logic triggered");
             }
             
             // 恢复用户选择的布局配置（如果存在）
@@ -402,9 +474,9 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
         }
     }
     
-    // 重要修复：状态恢复后立即重置到干净状态
-    VST3_DBG_ROLE(this, "Performing post-state-restore clean reset");
-    semanticState.clearAllStates();
+    // 重要修复：完全移除状态清空逻辑，保持JUCE插件状态持久化的最佳实践
+    VST3_DBG_ROLE(this, "State restoration complete - preserving user states");
+    // 删除: semanticState.clearAllStates(); // 这行破坏了状态持久化！
     
     // 角色确定后初始化OSC系统
     initializeOSCForRole();
@@ -505,12 +577,15 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
     VST3_DBG_ROLE(this, "Update physical channel mapping");
     physicalMapper.updateMapping(currentLayout);
     
-    // Clear and reinitialize semantic channels
-    semanticState.clearAllStates();
+    // 智能更新语义通道：只初始化新通道，保持现有状态
+    VST3_DBG_ROLE(this, "Smart channel update - preserving existing states");
     for (const auto& channelInfo : currentLayout.channels)
     {
-        semanticState.initializeChannel(channelInfo.name);
-        VST3_DBG_DETAIL("Initialize semantic channel: " + channelInfo.name + " -> physical pin " + juce::String(channelInfo.channelIndex));
+        // 只初始化不存在的通道，保持已有状态
+        if (!semanticState.hasChannel(channelInfo.name)) {
+            semanticState.initializeChannel(channelInfo.name);
+            VST3_DBG_ROLE(this, "Initialize new semantic channel: " + channelInfo.name + " -> physical pin " + juce::String(channelInfo.channelIndex));
+        }
     }
     
     // Log current mapping
@@ -1063,6 +1138,13 @@ void MonitorControllerMaxAudioProcessor::onMasterDisconnected() {
     if (currentRole == PluginRole::Slave) {
         VST3_DBG_ROLE(this, "Master disconnected - switching to Standalone");
         switchToStandalone();
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::onMasterConnected() {
+    if (currentRole == PluginRole::Standalone) {
+        VST3_DBG_ROLE(this, "Master connected - switching to Slave");
+        switchToSlave();
     }
 }
 

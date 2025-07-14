@@ -220,6 +220,11 @@ void SemanticChannelState::initializeChannel(const juce::String& channelName)
     muteMemory[channelName] = false;
 }
 
+bool SemanticChannelState::hasChannel(const juce::String& channelName) const
+{
+    return soloStates.find(channelName) != soloStates.end();
+}
+
 void SemanticChannelState::clearAllStates()
 {
     // 删除垃圾日志 - 状态清理高频调用
@@ -237,7 +242,11 @@ void SemanticChannelState::clearAllSoloStates()
     
     for (auto& [channelName, soloState] : soloStates)
     {
-        soloState = false;
+        if (soloState) {  // 只处理实际改变的状态
+            soloState = false;
+            // 重要修复：广播状态变化到Master-Slave系统
+            notifyStateChange(channelName, "solo", false);
+        }
     }
     
     updateGlobalSoloMode();
@@ -250,7 +259,11 @@ void SemanticChannelState::clearAllMuteStates()
     
     for (auto& [channelName, muteState] : muteStates)
     {
-        muteState = false;
+        if (muteState) {  // 只处理实际改变的状态
+            muteState = false;
+            // 重要修复：广播状态变化到Master-Slave系统
+            notifyStateChange(channelName, "mute", false);
+        }
     }
 }
 
@@ -361,22 +374,21 @@ void SemanticChannelState::notifyGlobalModeChange()
 {
     stateChangeListeners.call([](StateChangeListener& l) { l.onGlobalModeChanged(); });
     
-    // When global Solo mode changes, broadcast all channels' final Mute states
-    // This ensures external controllers get correct state sync
-    if (globalSoloModeActive)
+    // When global Solo mode changes, ALWAYS broadcast all channels' final Mute states
+    // This ensures complete state sync for both Solo ON and Solo OFF scenarios
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Global Solo mode changed to " + 
+                     juce::String(globalSoloModeActive ? "ACTIVE" : "OFF") + 
+                     " - broadcasting all final mute states");
+    
+    // Send final Mute state for all channels - regardless of Solo mode direction
+    for (const auto& [channelName, _] : soloStates)
     {
-        SEMANTIC_DBG_ROLE("SemanticChannelState: Global Solo mode activated - broadcasting final mute states");
+        bool finalMuteState = getFinalMuteState(channelName);
+        SEMANTIC_DBG_ROLE("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
+                 ", Final Mute: " + (finalMuteState ? "ON" : "OFF"));
         
-        // Send final Mute state for all channels
-        for (const auto& [channelName, _] : soloStates)
-        {
-            bool finalMuteState = getFinalMuteState(channelName);
-            SEMANTIC_DBG_ROLE("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
-                     ", Final Mute: " + (finalMuteState ? "ON" : "OFF"));
-            
-            // Send final Mute state
-            notifyStateChange(channelName, "mute", finalMuteState);
-        }
+        // Send final Mute state - this will reach both OSC and Master-Slave sync
+        notifyStateChange(channelName, "mute", finalMuteState);
     }
 }
 

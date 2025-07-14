@@ -48,6 +48,7 @@ private:
     // 插件实例管理
     MonitorControllerMaxAudioProcessor* masterPlugin = nullptr;
     std::vector<MonitorControllerMaxAudioProcessor*> slavePlugins;
+    std::vector<MonitorControllerMaxAudioProcessor*> waitingSlavePlugins;  // 等待Master的Slave插件
     std::vector<MonitorControllerMaxAudioProcessor*> allPlugins;
     mutable std::mutex pluginsMutex;
     
@@ -77,6 +78,11 @@ public:
     void removeSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
     std::vector<MonitorControllerMaxAudioProcessor*> getSlavePlugins() const;
     
+    // 等待Master的Slave管理
+    void addWaitingSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
+    void removeWaitingSlavePlugin(MonitorControllerMaxAudioProcessor* plugin);
+    void promoteWaitingSlavesToActive();  // 当Master可用时，将等待中的Slave提升为活跃
+    
     // 状态同步机制
     void setGlobalSoloState(const juce::String& channelName, bool state);
     void setGlobalMuteState(const juce::String& channelName, bool state);
@@ -89,6 +95,7 @@ public:
     
     // 状态查询
     int getSlaveCount() const;
+    int getWaitingSlaveCount() const;
     bool hasMaster() const;
     juce::String getConnectionInfo() const;
     MonitorControllerMaxAudioProcessor* getMasterPlugin() const;

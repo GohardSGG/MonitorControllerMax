@@ -153,6 +153,11 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         // 这确保UI反映用户的实际选择，而不是自动推断的配置
         syncUIFromUserSelection();
         updateChannelButtonStates(); // 同步按钮状态
+        
+        // 🔧 关键修复：同步角色的UI状态，解决重新打开编辑器时Slave锁定状态丢失的问题
+        updateUIBasedOnRole();
+        
+        VST3_DBG_ROLE(&audioProcessor, "PluginEditor: UI initialization complete with role-based state");
     });
 }
 
@@ -623,8 +628,13 @@ void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
     }
     
     // Apply Solo Priority Rule: Disable Mute button when Solo is active
+    // 重要修复：Slave模式时，按钮必须保持禁用状态，不受Solo Priority规则影响
     bool muteButtonEnabled = audioProcessor.isMuteButtonEnabled();
-    globalMuteButton.setEnabled(muteButtonEnabled);
+    PluginRole currentRole = audioProcessor.getCurrentRole();
+    bool isSlaveMode = (currentRole == PluginRole::Slave);
+    
+    // Slave模式下强制禁用，否则按照Solo Priority规则
+    globalMuteButton.setEnabled(!isSlaveMode && muteButtonEnabled);
 
 }
 
