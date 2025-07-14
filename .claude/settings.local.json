@@ -50,7 +50,8 @@
       "Bash(g++:*)",
       "Bash(./semantic_test.exe)",
       "Bash(python3:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }
