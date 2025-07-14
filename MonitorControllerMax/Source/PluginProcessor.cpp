@@ -9,6 +9,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "DebugLogger.h"
+#include "MasterBusProcessor.h"
 
 //==============================================================================
 MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
@@ -57,6 +58,10 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     // 设置OSC的processor指针用于角色日志
     oscCommunicator.setProcessor(this);
     
+    // v4.1: 初始化总线处理器
+    masterBusProcessor.setProcessor(this);
+    VST3_DBG_ROLE(this, "MasterBusProcessor initialized");
+    
     // 设置OSC外部控制回调（所有角色都设置，但只有Master/Standalone处理）
     oscCommunicator.onExternalStateChange = [this](const juce::String& action, const juce::String& channelName, bool state) 
     {
@@ -65,6 +70,39 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
             handleExternalOSCControl(action, channelName, state);
         } else {
             VST3_DBG_ROLE(this, "OSC control ignored - Slave mode does not process OSC");
+        }
+    };
+    
+    // v4.1: 设置Master总线OSC控制回调
+    oscCommunicator.onMasterVolumeOSC = [this](float volumePercent)
+    {
+        // 只有Master和Standalone处理外部OSC控制
+        if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+            masterBusProcessor.handleOSCMasterVolume(volumePercent);
+            
+            // 同步到VST3参数
+            // JUCE的AudioParameterFloat::setValueNotifyingHost()总是需要归一化值(0.0-1.0)
+            // 无论参数定义的范围是什么，都需要归一化
+            auto* masterGainParam = apvts.getParameter("MASTER_GAIN");
+            if (masterGainParam != nullptr) {
+                // OSC: 0-100% -> 归一化值: volumePercent/100.0f
+                float normalizedValue = volumePercent / 100.0f;
+                masterGainParam->setValueNotifyingHost(normalizedValue);
+                
+                VST3_DBG_ROLE(this, "OSC Master Volume: " << volumePercent << "% -> normalized: " << normalizedValue);
+            }
+        } else {
+            VST3_DBG_ROLE(this, "Master Volume OSC ignored - Slave mode");
+        }
+    };
+    
+    oscCommunicator.onMasterDimOSC = [this](bool dimState)
+    {
+        // 只有Master和Standalone处理外部OSC控制
+        if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+            masterBusProcessor.handleOSCDim(dimState);
+        } else {
+            VST3_DBG_ROLE(this, "Master Dim OSC ignored - Slave mode");
         }
     };
     
@@ -83,13 +121,16 @@ MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
     // Shutdown OSC communication
     oscCommunicator.shutdown();
     
-    // Only remove Gain parameter listeners - Solo/Mute parameters no longer exist
+    // Remove parameter listeners - Solo/Mute parameters no longer exist
     const int maxChannels = 26;
     for (int i = 0; i < maxChannels; ++i)
     {
         auto gainId = "GAIN_" + juce::String(i + 1);
         apvts.removeParameterListener(gainId, this);
     }
+    
+    // v4.1: 移除Master Gain参数监听器
+    apvts.removeParameterListener("MASTER_GAIN", this);
     
     // 注销GlobalPluginState
     unregisterFromGlobalState();
@@ -165,7 +206,7 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
 {
     VST3_DBG_ROLE(this, "prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
     
-    // 只处理保留的Gain参数
+    // 处理个人通道Gain参数
     const int maxChannels = 26;
     for (int i = 0; i < maxChannels; ++i)
     {
@@ -173,6 +214,9 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
         gainParams[i] = apvts.getRawParameterValue(gainId);
         apvts.addParameterListener(gainId, this);
     }
+    
+    // v4.1: 处理Master Gain参数
+    apvts.addParameterListener("MASTER_GAIN", this);
     
     // 根据当前总线布局自动选择合适的配置
     int currentChannelCount = getTotalNumInputChannels();
@@ -353,15 +397,26 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
                 // 静音此通道
                 buffer.clear(physicalChannel, 0, buffer.getNumSamples());
             } else {
-                // 应用增益
-                const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(physicalChannel + 1))->load();
-                if (std::abs(gainDb) > 0.01f) {
-                    buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
+                // v4.1: 根据角色决定是否应用个人通道Gain
+                // Slave插件：只处理Solo/Mute状态，不处理Gain
+                // Master/Standalone插件：处理Solo/Mute状态和Gain
+                if (currentRole != PluginRole::Slave) {
+                    // 应用个人通道增益 (Master/Standalone)
+                    const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(physicalChannel + 1))->load();
+                    if (std::abs(gainDb) > 0.01f) {
+                        buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
+                    }
                 }
+                // 如果是Slave插件：音频直通，不应用Gain
             }
         }
         // 如果不应该处理，音频直通（不做任何修改）
     }
+    
+    // v4.1: 最后应用总线效果 (Master Gain + Dim) - 所有角色都应用
+    // Slave: 只Solo/Mute状态处理 + 总线效果
+    // Master/Standalone: Solo/Mute状态 + 个人通道Gain + 总线效果
+    masterBusProcessor.process(buffer, currentRole);
 }
 
 //==============================================================================
@@ -660,15 +715,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout MonitorControllerMaxAudioPro
     
     const int maxParams = 26; 
 
-    // Only create Gain parameters - Solo/Mute are now handled by semantic state system
+    // Create individual channel Gain parameters - Solo/Mute are handled by semantic state system
     for (int i = 0; i < maxParams; ++i)
     {
         juce::String chanNumStr = juce::String(i + 1);
         
-        // Only Gain parameters remain for VST3 automation
+        // Individual channel Gain parameters for VST3 automation
         params.push_back(std::make_unique<juce::AudioParameterFloat>("GAIN_" + chanNumStr, "Gain " + chanNumStr, 
                                                                     juce::NormalisableRange<float>(-100.0f, 12.0f, 0.1f, 3.0f), 0.0f, "dB"));
     }
+    
+    // v4.1: 添加Master Gain总线参数 (基于JSFX实现: 0-100%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>("MASTER_GAIN", "Master Gain", 
+                                                                juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 100.0f, "%"));
 
     return { params.begin(), params.end() };
 }
@@ -685,11 +744,25 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
 {
     // 删除垃圾日志 - 参数变化高频调用
     
-    // Only handle Gain parameters now - Solo/Mute are managed by semantic state system
+    // Handle individual channel Gain parameters - Solo/Mute are managed by semantic state system
     if (parameterID.startsWith("GAIN_"))
     {
-        // Gain parameter changes can be logged or processed if needed
+        // Individual channel gain parameter changes can be logged or processed if needed
         // 删除垃圾日志 - 增益参数更新高频调用
+    }
+    // v4.1: Handle Master Gain parameter
+    else if (parameterID == "MASTER_GAIN")
+    {
+        // 同步Master Gain到总线处理器
+        masterBusProcessor.setMasterGainPercent(newValue);
+        
+        // 发送OSC消息 (只有Master/Standalone发送)
+        if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+            oscCommunicator.sendMasterVolume(newValue);
+        }
+        
+        // 删除垃圾日志 - Master Gain参数更新调用
+        // VST3_DBG_ROLE(this, "Master Gain parameter changed: " << newValue << "%");
     }
     
     // Note: Solo/Mute parameters no longer exist in VST3 parameter system
@@ -963,6 +1036,25 @@ void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::St
     VST3_DBG_ROLE(this, "Handle external OSC control - action: " + action + 
              ", channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
+    // v4.1: 处理总线级别的OSC控制
+    if (action == "Master")
+    {
+        if (channelName == "Dim")
+        {
+            // OSC控制Dim: /Monitor/Master/Dim
+            masterBusProcessor.handleOSCDim(state);
+            return;
+        }
+        else if (channelName == "Volume")
+        {
+            // OSC控制Master Volume: /Monitor/Master/Volume
+            // 注意：这里state参数作为float值使用，需要特殊处理
+            float volumePercent = state ? 100.0f : 0.0f;  // 简化处理，实际应该传递float值
+            masterBusProcessor.handleOSCMasterVolume(volumePercent);
+            return;
+        }
+    }
+    
     // 验证通道名称是否在当前映射中存在
     if (!physicalMapper.hasSemanticChannel(channelName))
     {
@@ -984,6 +1076,14 @@ void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::St
     else
     {
         VST3_DBG_ROLE(this, "Unknown OSC action - " + action);
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::sendDimOSCState(bool dimState)
+{
+    // v4.1: 发送Dim状态OSC消息 (只有Master/Standalone发送)
+    if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+        oscCommunicator.sendMasterDim(dimState);
     }
 }
 

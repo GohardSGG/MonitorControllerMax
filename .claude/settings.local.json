@@ -51,7 +51,9 @@
       "Bash(./semantic_test.exe)",
       "Bash(python3:*)",
       "Bash(awk:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }

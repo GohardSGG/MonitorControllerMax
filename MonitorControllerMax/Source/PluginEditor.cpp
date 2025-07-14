@@ -46,6 +46,53 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     dimButton.setButtonText("DIM");
     dimButton.setClickingTogglesState(true);
     dimButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::yellow);
+    
+    // v4.1: 连接Dim按钮到总线处理器
+    dimButton.onClick = [this]
+    {
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Dim button click ignored - Slave mode");
+            return;
+        }
+        
+        // 切换Dim状态
+        audioProcessor.masterBusProcessor.toggleDim();
+        
+        // 更新按钮状态
+        dimButton.setToggleState(audioProcessor.masterBusProcessor.isDimActive(), juce::dontSendNotification);
+    };
+    
+    // v4.1: 设置Dim状态变化回调 - 用于OSC控制时更新UI
+    audioProcessor.masterBusProcessor.onDimStateChanged = [this]()
+    {
+        // 在主线程中更新UI
+        juce::MessageManager::callAsync([this]()
+        {
+            dimButton.setToggleState(audioProcessor.masterBusProcessor.isDimActive(), juce::dontSendNotification);
+        });
+    };
+    
+    // v4.1: 设置Master Gain旋钮
+    addAndMakeVisible(masterGainSlider);
+    masterGainSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    masterGainSlider.setRange(0.0, 100.0, 0.1);
+    masterGainSlider.setValue(100.0);
+    masterGainSlider.setTextValueSuffix("%");
+    masterGainSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+    masterGainSlider.setColour(juce::Slider::rotarySliderFillColourId, juce::Colours::orange);
+    masterGainSlider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colours::grey);
+    masterGainSlider.setColour(juce::Slider::textBoxTextColourId, juce::Colours::white);
+    masterGainSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+    
+    // v4.1: Master Gain标签
+    addAndMakeVisible(masterGainLabel);
+    masterGainLabel.setText("Master Volume", juce::dontSendNotification);
+    masterGainLabel.setJustificationType(juce::Justification::centred);
+    masterGainLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    
+    // v4.1: 连接Master Gain旋钮到VST3参数
+    masterGainSliderAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, "MASTER_GAIN", masterGainSlider);
 
     addAndMakeVisible(speakerLayoutSelector);
     speakerLayoutSelector.addItemList(configManager.getSpeakerLayoutNames(), 1);
@@ -191,6 +238,10 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     sidebarFlex.items.add(juce::FlexItem(globalSoloButton).withHeight(50).withMargin(5));
     sidebarFlex.items.add(juce::FlexItem(dimButton).withHeight(50).withMargin(5));
     sidebarFlex.items.add(juce::FlexItem(globalMuteButton).withHeight(50).withMargin(5));
+    
+    // v4.1: 添加Master Gain旋钮和标签
+    sidebarFlex.items.add(juce::FlexItem(masterGainLabel).withHeight(20).withMargin(juce::FlexItem::Margin(10, 5, 5, 5)));
+    sidebarFlex.items.add(juce::FlexItem(masterGainSlider).withHeight(80).withMargin(5));
     
     sidebarFlex.performLayout(sidebarBounds);
 
@@ -858,6 +909,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
     globalMuteButton.setEnabled(!isSlaveMode);
     dimButton.setEnabled(!isSlaveMode);
     
+    // v4.1: Slave模式禁用Master Gain旋钮
+    masterGainSlider.setEnabled(!isSlaveMode);
+    
     // 禁用布局选择器（Slave不能更改布局）
     speakerLayoutSelector.setEnabled(!isSlaveMode);
     subLayoutSelector.setEnabled(!isSlaveMode);
@@ -882,6 +936,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         globalSoloButton.setAlpha(0.6f);
         globalMuteButton.setAlpha(0.6f);
         dimButton.setAlpha(0.6f);
+        masterGainSlider.setAlpha(0.6f);
         speakerLayoutSelector.setAlpha(0.6f);
         subLayoutSelector.setAlpha(0.6f);
     } else {
@@ -889,6 +944,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         globalSoloButton.setAlpha(1.0f);
         globalMuteButton.setAlpha(1.0f);
         dimButton.setAlpha(1.0f);
+        masterGainSlider.setAlpha(1.0f);
         speakerLayoutSelector.setAlpha(1.0f);
         subLayoutSelector.setAlpha(1.0f);
     }

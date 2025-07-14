@@ -15,34 +15,106 @@
 
 ConfigManager::ConfigManager()
 {
+    DBG("ConfigManager: Starting constructor");
     loadConfig();
+    DBG("ConfigManager: Constructor finished");
 }
 
 void ConfigManager::loadConfig()
 {
     const char* configJsonData = BinaryData::Speaker_Config_json;
     int configJsonDataSize = BinaryData::Speaker_Config_jsonSize;
-
-    if (configJsonData == nullptr)
-    {
-        DBG("ERROR: Speaker_Config.json binary data not found!");
-        return;
-    }
-
+    
     juce::var parsedJson;
-    auto result = juce::JSON::parse(juce::String::fromUTF8(configJsonData, configJsonDataSize), parsedJson);
+    bool loadSuccess = false;
 
-    if (result.wasOk())
+    // 首先尝试从BinaryData加载
+    DBG("ConfigManager: BinaryData pointer: " + juce::String::toHexString((juce::pointer_sized_int)configJsonData));
+    DBG("ConfigManager: BinaryData size: " + juce::String(configJsonDataSize));
+    
+    if (configJsonData != nullptr)
     {
-        configData = parsedJson;
+        DBG("ConfigManager: BinaryData found, parsing JSON...");
+        auto result = juce::JSON::parse(juce::String::fromUTF8(configJsonData, configJsonDataSize), parsedJson);
+        if (result.wasOk())
+        {
+            configData = parsedJson;
+            loadSuccess = true;
+            DBG("ConfigManager: Loaded from BinaryData successfully");
+        }
+        else
+        {
+            DBG("ConfigManager: Failed to parse Speaker_Config.json from BinaryData: " + result.getErrorMessage());
+        }
+    }
+    else
+    {
+        DBG("ConfigManager: BinaryData is nullptr!");
+    }
+    
+    // 如果BinaryData加载失败，尝试从文件系统加载（开发时后备方案）
+    if (!loadSuccess)
+    {
+        DBG("ConfigManager: BinaryData not available, trying filesystem fallback...");
+        DBG("ConfigManager: Current working directory: " + juce::File::getCurrentWorkingDirectory().getFullPathName());
         
+        // 尝试相对路径和几个可能的位置
+        juce::StringArray possiblePaths = {
+            "C:\\REAPER\\Effects\\Masking Effects\\MonitorControllerMax\\Source\\Config\\Speaker_Config.json",  // Windows绝对路径
+            "Source/Config/Speaker_Config.json",
+            "Config/Speaker_Config.json", 
+            "../Source/Config/Speaker_Config.json",
+            "MonitorControllerMax/Source/Config/Speaker_Config.json",
+            "../../Source/Config/Speaker_Config.json",
+            "../../../Source/Config/Speaker_Config.json"
+        };
+        
+        for (const auto& path : possiblePaths)
+        {
+            juce::File configFile;
+            
+            // 判断是否为绝对路径
+            if (path.startsWith("C:\\") || path.startsWith("/"))
+            {
+                configFile = juce::File(path);
+            }
+            else
+            {
+                configFile = juce::File::getCurrentWorkingDirectory().getChildFile(path);
+            }
+            
+            DBG("ConfigManager: Trying path: " + configFile.getFullPathName() + " (exists: " + (configFile.existsAsFile() ? "YES" : "NO") + ")");
+            
+            if (configFile.existsAsFile())
+            {
+                juce::String jsonText = configFile.loadFileAsString();
+                DBG("ConfigManager: File content length: " + juce::String(jsonText.length()));
+                
+                auto result = juce::JSON::parse(jsonText, parsedJson);
+                if (result.wasOk())
+                {
+                    configData = parsedJson;
+                    loadSuccess = true;
+                    DBG("ConfigManager: ✅ Successfully loaded from filesystem: " + configFile.getFullPathName());
+                    break;
+                }
+                else
+                {
+                    DBG("ConfigManager: JSON parse failed: " + result.getErrorMessage());
+                }
+            }
+        }
+    }
+    
+    if (loadSuccess)
+    {
         // The max channel index is now dynamic based on layout, so we don't calculate it here.
         // Instead, the processor will query the default layout's channel count.
         maxChannelIndex = 0; // Reset this, it's no longer used globally.
     }
     else
     {
-        DBG("ERROR: Failed to parse Speaker_Config.json: " + result.getErrorMessage());
+        DBG("ERROR: Failed to load Speaker_Config.json from both BinaryData and filesystem!");
     }
 }
 

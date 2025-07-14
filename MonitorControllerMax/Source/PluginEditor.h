@@ -127,6 +127,10 @@ private:
     juce::TextButton globalSoloButton{ "Solo" };
     juce::TextButton dimButton{ "Dim" };
     
+    // v4.1: Master Gain旋钮控件
+    juce::Slider masterGainSlider;
+    juce::Label masterGainLabel;
+    
     juce::ComboBox speakerLayoutSelector;
     juce::ComboBox subLayoutSelector;
     
@@ -146,6 +150,10 @@ private:
 
     std::map<int, std::unique_ptr<juce::TextButton>> channelButtons;
     std::map<int, std::unique_ptr<ButtonAttachment>> channelButtonAttachments;
+    
+    // v4.1: Master Gain参数连接
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    std::unique_ptr<SliderAttachment> masterGainSliderAttachment;
     
     // New semantic channel button system (gradually replacing legacy system)
     std::map<juce::String, std::unique_ptr<SemanticChannelButtonPair>> semanticChannelButtons;

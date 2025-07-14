@@ -46,6 +46,10 @@ public:
     void sendSoloState(const juce::String& channelName, bool state);
     void sendMuteState(const juce::String& channelName, bool state);
     
+    // v4.1: 发送Master总线状态到外部设备
+    void sendMasterVolume(float volumePercent);
+    void sendMasterDim(bool dimState);
+    
     // 状态反馈机制 - 广播所有当前状态
     void broadcastAllStates(const SemanticChannelState& semanticState, 
                            const PhysicalChannelMapper& physicalMapper);
@@ -55,6 +59,10 @@ public:
     
     // 设置状态更新回调 (用于接收外部OSC控制时更新语义状态)
     std::function<void(const juce::String& action, const juce::String& channelName, bool state)> onExternalStateChange;
+    
+    // v4.1: Master总线OSC控制回调
+    std::function<void(float volumePercent)> onMasterVolumeOSC;
+    std::function<void(bool dimState)> onMasterDimOSC;
 
 private:
     // OSC通信组件
@@ -76,6 +84,7 @@ private:
     
     // 内部工具方法
     void handleIncomingOSCMessage(const juce::OSCMessage& message);
+    void handleMasterBusOSCMessage(const juce::String& address, const juce::OSCMessage& message);  // v4.1: Master总线OSC处理
     juce::String formatOSCAddress(const juce::String& action, const juce::String& channelName) const;
     std::pair<juce::String, juce::String> parseOSCAddress(const juce::String& address) const;
     bool isValidChannelName(const juce::String& channelName) const;

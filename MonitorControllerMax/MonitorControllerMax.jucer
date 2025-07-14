@@ -2,9 +2,14 @@
 
 <JUCERPROJECT id="sDeyhF" name="MonitorControllerMax" projectType="audioplug"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
-              pluginChannelsIn="26" pluginChannelsOut="26">
+              pluginChannelsIn="26" pluginChannelsOut="26" pluginFormats="buildAAX,buildAU,buildAUv3,buildStandalone,buildVST3"
+              pluginManufacturer="Masking Effects">
   <MAINGROUP id="fEulgD" name="MonitorControllerMax">
     <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
+      <FILE id="rnV7U9" name="MasterBusProcessor.cpp" compile="1" resource="0"
+            file="Source/MasterBusProcessor.cpp"/>
+      <FILE id="HJFmXh" name="MasterBusProcessor.h" compile="0" resource="0"
+            file="Source/MasterBusProcessor.h"/>
       <FILE id="PfztzT" name="GlobalPluginState.cpp" compile="1" resource="0"
             file="Source/GlobalPluginState.cpp"/>
       <FILE id="nBxO0T" name="GlobalPluginState.h" compile="0" resource="0"

@@ -19,6 +19,7 @@
 #include "PhysicalChannelMapper.h"
 #include "OSCCommunicator.h"
 #include "GlobalPluginState.h"
+#include "MasterBusProcessor.h"
 
 //==============================================================================
 
@@ -109,6 +110,9 @@ public:
     // OSC external control handler
     void handleExternalOSCControl(const juce::String& action, const juce::String& channelName, bool state);
     
+    // v4.1: Master总线OSC发送接口
+    void sendDimOSCState(bool dimState);
+    
     // 状态同步时的回调处理（整合到现有回调中）
     void onSemanticStateChanged(const juce::String& channelName, const juce::String& action, bool state);
 
@@ -168,6 +172,7 @@ public:
     SemanticChannelState semanticState;
     PhysicalChannelMapper physicalMapper;
     OSCCommunicator oscCommunicator;
+    MasterBusProcessor masterBusProcessor;  // v4.1: 总线效果处理器
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

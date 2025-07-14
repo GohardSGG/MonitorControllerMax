@@ -149,6 +149,53 @@ void OSCCommunicator::sendMuteState(const juce::String& channelName, bool state)
     }
 }
 
+void OSCCommunicator::sendMasterVolume(float volumePercent)
+{
+    // 检查连接状态
+    if (!isConnected())
+    {
+        return;
+    }
+    
+    // v4.1: 发送Master Volume状态 (地址: /Monitor/Master/Volume)
+    juce::String address = "/Monitor/Master/Volume";
+
+    // 关键修改：将内部的 0-100 百分比转换为OSC标准的 0.0-1.0 范围
+    float oscValue = volumePercent / 100.0f;
+    oscValue = juce::jlimit(0.0f, 1.0f, oscValue); // 确保值在0.0和1.0之间
+    
+    if (sender->send(address, oscValue))
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Sent Master Volume - " + address + " = " + juce::String(oscValue) + " (from " + juce::String(volumePercent) + "%)");
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Master Volume - " + address);
+    }
+}
+
+void OSCCommunicator::sendMasterDim(bool dimState)
+{
+    // 检查连接状态
+    if (!isConnected())
+    {
+        return;
+    }
+    
+    // v4.1: 发送Master Dim状态 (地址: /Monitor/Master/Dim)
+    juce::String address = "/Monitor/Master/Dim";
+    float value = dimState ? 1.0f : 0.0f;
+    
+    if (sender->send(address, value))
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Sent Master Dim - " + address + " = " + juce::String(value) + " (" + (dimState ? "ON" : "OFF") + ")");
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Master Dim - " + address);
+    }
+}
+
 void OSCCommunicator::broadcastAllStates(const SemanticChannelState& semanticState, 
                                         const PhysicalChannelMapper& physicalMapper)
 {
@@ -186,8 +233,14 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
 {
     juce::String address = message.getAddressPattern().toString();
     
-    OSC_DBG_ROLE("OSCCommunicator: Received OSC message - " + address);
+    // v4.1: 处理Master总线消息
+    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume")
+    {
+        handleMasterBusOSCMessage(address, message);
+        return;
+    }
     
+    // 常规通道消息处理
     // 解析OSC地址
     auto [action, channelName] = parseOSCAddress(address);
     
@@ -234,6 +287,66 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     {
         // 传递action类型、通道名和状态值
         onExternalStateChange(action, channelName, state);
+    }
+}
+
+void OSCCommunicator::handleMasterBusOSCMessage(const juce::String& address, const juce::OSCMessage& message)
+{
+    OSC_DBG_ROLE("OSCCommunicator: Handling Master bus OSC message - " + address);
+    
+    // 获取值
+    if (message.size() < 1)
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Master OSC message has no arguments");
+        return;
+    }
+    
+    float value = 0.0f;
+    if (message[0].isFloat32())
+    {
+        value = message[0].getFloat32();
+    }
+    else if (message[0].isInt32())
+    {
+        value = static_cast<float>(message[0].getInt32());
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Master OSC message argument is not numeric");
+        return;
+    }
+    
+    // v4.1: 处理Master Volume消息 (/Monitor/Master/Volume)
+    if (address == "/Monitor/Master/Volume")
+    {
+        // 关键修改：将OSC的 0.0-1.0 范围转换为内部使用的 0-100 百分比范围
+        float volumePercent = value * 100.0f;
+        
+        // 限制范围到0-100%
+        volumePercent = juce::jlimit(0.0f, 100.0f, volumePercent);
+        
+        OSC_DBG_ROLE("OSCCommunicator: Received Master Volume OSC - value: " + juce::String(value) + " -> " + juce::String(volumePercent) + "%");
+        
+        if (onMasterVolumeOSC)
+        {
+            onMasterVolumeOSC(volumePercent);
+        }
+    }
+    // v4.1: 处理Master Dim消息 (/Monitor/Master/Dim)
+    else if (address == "/Monitor/Master/Dim")
+    {
+        bool dimState = (value > 0.5f);
+        
+        OSC_DBG_ROLE("OSCCommunicator: Received Master Dim OSC - " + juce::String(dimState ? "ON" : "OFF"));
+        
+        if (onMasterDimOSC)
+        {
+            onMasterDimOSC(dimState);
+        }
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Unknown Master bus OSC address - " + address);
     }
 }
 
