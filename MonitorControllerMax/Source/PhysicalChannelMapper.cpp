@@ -1,14 +1,30 @@
 ﻿#include "PhysicalChannelMapper.h"
+#include "PluginProcessor.h"
 #include "DebugLogger.h"
+
+// PhysicalChannelMapper类专用角色日志宏
+#define MAPPER_DBG_ROLE(message) \
+    do { \
+        if (processorPtr) { \
+            VST3_DBG_ROLE(processorPtr, message); \
+        } else { \
+            VST3_DBG("[Mapper] " + juce::String(message)); \
+        } \
+    } while(0)
 
 PhysicalChannelMapper::PhysicalChannelMapper()
 {
-    VST3_DBG("PhysicalChannelMapper: Initializephysical channel mapping system");
+    MAPPER_DBG_ROLE("PhysicalChannelMapper: Initialize physical channel mapping system");
 }
 
 PhysicalChannelMapper::~PhysicalChannelMapper()
 {
-    VST3_DBG("PhysicalChannelMapper: Destroyphysical channel mapping system");
+    MAPPER_DBG_ROLE("PhysicalChannelMapper: Destroy physical channel mapping system");
+}
+
+void PhysicalChannelMapper::setProcessor(MonitorControllerMaxAudioProcessor* processor)
+{
+    processorPtr = processor;
 }
 
 void PhysicalChannelMapper::updateMapping(const Layout& layout)
@@ -62,7 +78,7 @@ int PhysicalChannelMapper::getPhysicalPin(const juce::String& semanticName) cons
         return it->second;
     }
     
-    VST3_DBG("PhysicalChannelMapper: Warning - Semantic channel mapping not found: " + semanticName);
+    MAPPER_DBG_ROLE("PhysicalChannelMapper: Warning - Semantic channel mapping not found: " + semanticName);
     return -1;  // Invalid pin
 }
 
@@ -145,7 +161,7 @@ std::pair<int, int> PhysicalChannelMapper::getGridPosition(const juce::String& s
         return it->second;
     }
     
-    VST3_DBG("PhysicalChannelMapper: Warning - Grid position not found: " + semanticName);
+    MAPPER_DBG_ROLE("PhysicalChannelMapper: Warning - Grid position not found: " + semanticName);
     return {-1, -1};  // Invalid position
 }
 
@@ -213,6 +229,6 @@ void PhysicalChannelMapper::removeMapping(const juce::String& semanticName)
         gridPositions.erase(semanticName);
         channelInfoMap.erase(semanticName);
         
-        VST3_DBG("PhysicalChannelMapper: Remove mapping - " + semanticName);
+        MAPPER_DBG_ROLE("PhysicalChannelMapper: Remove mapping - " + semanticName);
     }
 }

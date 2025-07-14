@@ -6,11 +6,17 @@
 #include <vector>
 #include <utility>
 
+// Forward declaration
+class MonitorControllerMaxAudioProcessor;
+
 class PhysicalChannelMapper
 {
 public:
     PhysicalChannelMapper();
     ~PhysicalChannelMapper();
+    
+    // 设置processor指针用于角色日志
+    void setProcessor(MonitorControllerMaxAudioProcessor* processor);
 
     // Configuration-driven mapping updates (compatible with existing system)
     void updateMapping(const Layout& layout);
@@ -49,6 +55,9 @@ private:
     
     // Channel information storage
     std::map<juce::String, ChannelInfo> channelInfoMap;
+    
+    // Processor指针用于角色日志
+    MonitorControllerMaxAudioProcessor* processorPtr = nullptr;
     
     // Helper methods
     void addMapping(const juce::String& semanticName, int physicalPin, int gridX = -1, int gridY = -1);

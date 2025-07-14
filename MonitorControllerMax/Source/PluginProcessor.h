@@ -181,6 +181,11 @@ private:
     void unregisterFromGlobalState();
     void handleRoleTransition(PluginRole newRole);
     void updateUIFromRole();
+    
+    // OSC系统角色管理
+    void initializeOSCForRole();
+    void shutdownOSC();
+    juce::String getRoleString(PluginRole role) const;
 
     // We'll need atomic pointers to our parameters for thread-safe access in the audio callback.
     std::array<std::atomic<float>*, 26> muteParams{};

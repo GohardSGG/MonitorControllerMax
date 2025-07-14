@@ -1,26 +1,42 @@
 ﻿#include "OSCCommunicator.h"
 #include "SemanticChannelState.h"
 #include "PhysicalChannelMapper.h"
+#include "PluginProcessor.h"
 #include "DebugLogger.h"
+
+// OSC类专用角色日志宏
+#define OSC_DBG_ROLE(message) \
+    do { \
+        if (processorPtr) { \
+            VST3_DBG_ROLE(processorPtr, message); \
+        } else { \
+            VST3_DBG("[OSC] " + juce::String(message)); \
+        } \
+    } while(0)
 
 OSCCommunicator::OSCCommunicator()
 {
-    VST3_DBG("OSCCommunicator: Initialize OSC communication system");
+    OSC_DBG_ROLE("OSCCommunicator: Initialize OSC communication system");
     
     // 创建OSC发送和接收组件
     sender = std::make_unique<juce::OSCSender>();
     receiver = std::make_unique<juce::OSCReceiver>();
 }
 
+void OSCCommunicator::setProcessor(MonitorControllerMaxAudioProcessor* processor)
+{
+    processorPtr = processor;
+}
+
 OSCCommunicator::~OSCCommunicator()
 {
-    VST3_DBG("OSCCommunicator: Shutdown OSC communication system");
+    OSC_DBG_ROLE("OSCCommunicator: Shutdown OSC communication system");
     shutdown();
 }
 
 bool OSCCommunicator::initialize()
 {
-    VST3_DBG("OSCCommunicator: Initialize OSC connections");
+    OSC_DBG_ROLE("OSCCommunicator: Initialize OSC connections");
     
     bool success = true;
     
@@ -28,12 +44,12 @@ bool OSCCommunicator::initialize()
     if (sender->connect(TARGET_IP, TARGET_PORT))
     {
         senderConnected.store(true);
-        VST3_DBG("OSCCommunicator: OSC Sender connected to " << TARGET_IP << ":" << TARGET_PORT);
+        OSC_DBG_ROLE("OSCCommunicator: OSC Sender connected to " + juce::String(TARGET_IP) + ":" + juce::String(TARGET_PORT));
     }
     else
     {
         senderConnected.store(false);
-        VST3_DBG("OSCCommunicator: Failed to connect OSC Sender to " << TARGET_IP << ":" << TARGET_PORT);
+        OSC_DBG_ROLE("OSCCommunicator: Failed to connect OSC Sender to " + juce::String(TARGET_IP) + ":" + juce::String(TARGET_PORT));
         success = false;
     }
     
@@ -42,12 +58,12 @@ bool OSCCommunicator::initialize()
     {
         receiver->addListener(this);
         receiverConnected.store(true);
-        VST3_DBG("OSCCommunicator: OSC Receiver listening on port " << RECEIVE_PORT);
+        OSC_DBG_ROLE("OSCCommunicator: OSC Receiver listening on port " + juce::String(RECEIVE_PORT));
     }
     else
     {
         receiverConnected.store(false);
-        VST3_DBG("OSCCommunicator: Failed to start OSC Receiver on port " << RECEIVE_PORT);
+        OSC_DBG_ROLE("OSCCommunicator: Failed to start OSC Receiver on port " + juce::String(RECEIVE_PORT));
         success = false;
     }
     
@@ -55,11 +71,11 @@ bool OSCCommunicator::initialize()
     
     if (success)
     {
-        VST3_DBG("OSCCommunicator: OSC communication system initialized successfully");
+        OSC_DBG_ROLE("OSCCommunicator: OSC communication system initialized successfully");
     }
     else
     {
-        VST3_DBG("OSCCommunicator: OSC communication system initialization failed");
+        OSC_DBG_ROLE("OSCCommunicator: OSC communication system initialization failed");
     }
     
     return success;
@@ -67,7 +83,7 @@ bool OSCCommunicator::initialize()
 
 void OSCCommunicator::shutdown()
 {
-    VST3_DBG("OSCCommunicator: Shutdown OSC communication");
+    OSC_DBG_ROLE("OSCCommunicator: Shutdown OSC communication");
     
     if (receiver && receiverConnected.load())
     {
@@ -83,7 +99,7 @@ void OSCCommunicator::shutdown()
     }
     
     isInitialized.store(false);
-    VST3_DBG("OSCCommunicator: OSC communication shutdown complete");
+    OSC_DBG_ROLE("OSCCommunicator: OSC communication shutdown complete");
 }
 
 bool OSCCommunicator::isConnected() const
@@ -104,11 +120,11 @@ void OSCCommunicator::sendSoloState(const juce::String& channelName, bool state)
     
     if (sender->send(address, value))
     {
-        VST3_DBG("OSCCommunicator: Sent Solo state - " << address << " = " << value);
+        OSC_DBG_ROLE("OSCCommunicator: Sent Solo state - " + address + " = " + juce::String(value));
     }
     else
     {
-        VST3_DBG("OSCCommunicator: Failed to send Solo state - " << address);
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Solo state - " + address);
     }
 }
 
@@ -125,11 +141,11 @@ void OSCCommunicator::sendMuteState(const juce::String& channelName, bool state)
     
     if (sender->send(address, value))
     {
-        VST3_DBG("OSCCommunicator: Sent Mute state - " << address << " = " << value);
+        OSC_DBG_ROLE("OSCCommunicator: Sent Mute state - " + address + " = " + juce::String(value));
     }
     else
     {
-        VST3_DBG("OSCCommunicator: Failed to send Mute state - " << address);
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Mute state - " + address);
     }
 }
 
@@ -138,11 +154,11 @@ void OSCCommunicator::broadcastAllStates(const SemanticChannelState& semanticSta
 {
     if (!isConnected())
     {
-        VST3_DBG("OSCCommunicator: Cannot broadcast - not connected");
+        OSC_DBG_ROLE("OSCCommunicator: Cannot broadcast - not connected");
         return;
     }
     
-    VST3_DBG("OSCCommunicator: Broadcasting all current states");
+    OSC_DBG_ROLE("OSCCommunicator: Broadcasting all current states");
     
     // 获取当前活跃的语义通道
     auto activeChannels = physicalMapper.getActiveSemanticChannels();
@@ -158,7 +174,7 @@ void OSCCommunicator::broadcastAllStates(const SemanticChannelState& semanticSta
         sendMuteState(channelName, muteState);
     }
     
-    VST3_DBG("OSCCommunicator: Broadcast complete - " << activeChannels.size() << " channels");
+    OSC_DBG_ROLE("OSCCommunicator: Broadcast complete - " + juce::String(activeChannels.size()) + " channels");
 }
 
 void OSCCommunicator::oscMessageReceived(const juce::OSCMessage& message)
@@ -170,27 +186,27 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
 {
     juce::String address = message.getAddressPattern().toString();
     
-    VST3_DBG("OSCCommunicator: Received OSC message - " << address);
+    OSC_DBG_ROLE("OSCCommunicator: Received OSC message - " + address);
     
     // 解析OSC地址
     auto [action, channelName] = parseOSCAddress(address);
     
     if (action.isEmpty() || channelName.isEmpty())
     {
-        VST3_DBG("OSCCommunicator: Invalid OSC address format - " << address);
+        OSC_DBG_ROLE("OSCCommunicator: Invalid OSC address format - " + address);
         return;
     }
     
     if (!isValidChannelName(channelName))
     {
-        VST3_DBG("OSCCommunicator: Invalid channel name - " << channelName);
+        OSC_DBG_ROLE("OSCCommunicator: Invalid channel name - " + channelName);
         return;
     }
     
     // 获取值
     if (message.size() < 1)
     {
-        VST3_DBG("OSCCommunicator: OSC message has no arguments");
+        OSC_DBG_ROLE("OSCCommunicator: OSC message has no arguments");
         return;
     }
     
@@ -205,13 +221,13 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     }
     else
     {
-        VST3_DBG("OSCCommunicator: OSC message argument is not numeric");
+        OSC_DBG_ROLE("OSCCommunicator: OSC message argument is not numeric");
         return;
     }
     
     bool state = (value > 0.5f);
     
-    VST3_DBG("OSCCommunicator: Parsed OSC - action:" << action << " channel:" << channelName << " state:" << (state ? "ON" : "OFF"));
+    OSC_DBG_ROLE("OSCCommunicator: Parsed OSC - action:" + action + " channel:" + channelName + " state:" + (state ? "ON" : "OFF"));
     
     // 调用处理函数来更新对应的状态
     if (onExternalStateChange)

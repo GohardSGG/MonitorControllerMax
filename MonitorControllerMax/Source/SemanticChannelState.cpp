@@ -1,21 +1,37 @@
 ﻿#include "SemanticChannelState.h"
+#include "PluginProcessor.h"
 #include "DebugLogger.h"
+
+// SemanticChannelState类专用角色日志宏
+#define SEMANTIC_DBG_ROLE(message) \
+    do { \
+        if (processorPtr) { \
+            VST3_DBG_ROLE(processorPtr, message); \
+        } else { \
+            VST3_DBG("[Semantic] " + juce::String(message)); \
+        } \
+    } while(0)
 
 SemanticChannelState::SemanticChannelState()
 {
-    VST3_DBG("SemanticChannelState: Initialize semantic state management system");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Initialize semantic state management system");
     globalSoloModeActive = false;
     previousGlobalSoloMode = false;
 }
 
+void SemanticChannelState::setProcessor(MonitorControllerMaxAudioProcessor* processor)
+{
+    processorPtr = processor;
+}
+
 SemanticChannelState::~SemanticChannelState()
 {
-    VST3_DBG("SemanticChannelState: Destroy semantic state management system");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Destroy semantic state management system");
 }
 
 void SemanticChannelState::setSoloState(const juce::String& channelName, bool state)
 {
-    VST3_DBG("SemanticChannelState: Set Solo state - channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Set Solo state - channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
     soloStates[channelName] = state;
     
@@ -32,14 +48,14 @@ void SemanticChannelState::setSoloState(const juce::String& channelName, bool st
     // If global mode changed, notify global mode change
     if (previousGlobalMode != globalSoloModeActive)
     {
-        VST3_DBG("SemanticChannelState: Global Solo mode changed - " + juce::String(globalSoloModeActive ? "ACTIVE" : "OFF"));
+        SEMANTIC_DBG_ROLE("SemanticChannelState: Global Solo mode changed - " + juce::String(globalSoloModeActive ? "ACTIVE" : "OFF"));
         notifyGlobalModeChange();
     }
 }
 
 void SemanticChannelState::setMuteState(const juce::String& channelName, bool state)
 {
-    VST3_DBG("SemanticChannelState: Set Mute state - channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Set Mute state - channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
     muteStates[channelName] = state;
     
@@ -196,7 +212,7 @@ bool SemanticChannelState::hasAnyMuteActive() const
 
 void SemanticChannelState::initializeChannel(const juce::String& channelName)
 {
-    VST3_DBG_DETAIL("SemanticChannelState: Initialize channel - " + channelName);
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Initialize channel - " + channelName);
     
     // Initialize with default states
     soloStates[channelName] = false;
@@ -217,7 +233,7 @@ void SemanticChannelState::clearAllStates()
 
 void SemanticChannelState::clearAllSoloStates()
 {
-    VST3_DBG("SemanticChannelState: Clear all Solo states");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Clear all Solo states");
     
     for (auto& [channelName, soloState] : soloStates)
     {
@@ -230,7 +246,7 @@ void SemanticChannelState::clearAllSoloStates()
 
 void SemanticChannelState::clearAllMuteStates()
 {
-    VST3_DBG("SemanticChannelState: Clear all Mute states");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Clear all Mute states");
     
     for (auto& [channelName, muteState] : muteStates)
     {
@@ -252,7 +268,7 @@ std::vector<juce::String> SemanticChannelState::getActiveChannels() const
 
 void SemanticChannelState::saveCurrentMuteMemory()
 {
-    VST3_DBG("SemanticChannelState: Save current Mute memory");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Save current Mute memory");
     
     // Save current mute states for complex logic
     for (const auto& [channelName, muteState] : muteStates)
@@ -263,7 +279,7 @@ void SemanticChannelState::saveCurrentMuteMemory()
 
 void SemanticChannelState::restoreMuteMemory()
 {
-    VST3_DBG("SemanticChannelState: Restore Mute memory");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Restore Mute memory");
     
     // Restore mute states from memory
     for (const auto& [channelName, memorizedMute] : muteMemory)
@@ -275,7 +291,7 @@ void SemanticChannelState::restoreMuteMemory()
 
 void SemanticChannelState::clearMuteMemory()
 {
-    VST3_DBG("SemanticChannelState: Clear Mute memory");
+    SEMANTIC_DBG_ROLE("SemanticChannelState: Clear Mute memory");
     
     muteMemory.clear();
 }
@@ -349,13 +365,13 @@ void SemanticChannelState::notifyGlobalModeChange()
     // This ensures external controllers get correct state sync
     if (globalSoloModeActive)
     {
-        VST3_DBG("SemanticChannelState: Global Solo mode activated - broadcasting final mute states");
+        SEMANTIC_DBG_ROLE("SemanticChannelState: Global Solo mode activated - broadcasting final mute states");
         
         // Send final Mute state for all channels
         for (const auto& [channelName, _] : soloStates)
         {
             bool finalMuteState = getFinalMuteState(channelName);
-            VST3_DBG("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
+            SEMANTIC_DBG_ROLE("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
                      ", Final Mute: " + (finalMuteState ? "ON" : "OFF"));
             
             // Send final Mute state

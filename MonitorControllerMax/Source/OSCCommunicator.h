@@ -7,6 +7,7 @@
 // Forward declarations
 class SemanticChannelState;
 class PhysicalChannelMapper;
+class MonitorControllerMaxAudioProcessor;
 
 /**
  * OSC通信管理器 - 处理监听控制器的OSC双向通信
@@ -32,6 +33,9 @@ class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::Re
 public:
     OSCCommunicator();
     ~OSCCommunicator();
+    
+    // 设置processor指针用于角色日志
+    void setProcessor(MonitorControllerMaxAudioProcessor* processor);
 
     // 初始化和关闭
     bool initialize();
@@ -66,6 +70,9 @@ private:
     std::atomic<bool> isInitialized{false};
     std::atomic<bool> senderConnected{false};
     std::atomic<bool> receiverConnected{false};
+    
+    // Processor指针用于角色日志
+    MonitorControllerMaxAudioProcessor* processorPtr = nullptr;
     
     // 内部工具方法
     void handleIncomingOSCMessage(const juce::OSCMessage& message);

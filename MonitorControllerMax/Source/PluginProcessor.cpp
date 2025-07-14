@@ -32,7 +32,11 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     registerToGlobalState();
     
     // Initialize semantic state system
+    semanticState.setProcessor(this);  // 设置角色日志支持
     semanticState.addStateChangeListener(this);
+    
+    // Initialize physical channel mapper
+    physicalMapper.setProcessor(this);  // 设置角色日志支持
     
     VST3_DBG_ROLE(this, "Initialize semantic state system");
     
@@ -50,8 +54,8 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     
     VST3_DBG_ROLE(this, "Semantic state system initialization complete");
     
-    // Initialize OSC communication system
-    VST3_DBG_ROLE(this, "Initialize OSC communication system");
+    // 设置OSC的processor指针用于角色日志
+    oscCommunicator.setProcessor(this);
     
     // 设置OSC外部控制回调（所有角色都设置，但只有Master/Standalone处理）
     oscCommunicator.onExternalStateChange = [this](const juce::String& action, const juce::String& channelName, bool state) 
@@ -64,15 +68,8 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
         }
     };
     
-    // 初始化OSC连接（暂时所有角色都初始化，但处理时会过滤）
-    if (oscCommunicator.initialize())
-    {
-        VST3_DBG_ROLE(this, "OSC communication system initialized successfully");
-    }
-    else
-    {
-        VST3_DBG_ROLE(this, "OSC communication system initialization failed - continuing without OSC");
-    }
+    // 重要：OSC系统将在角色确定后初始化（在setStateInformation或UI初始化完成后）
+    VST3_DBG_ROLE(this, "OSC initialization deferred until role is determined");
     
     // Initialize legacy StateManager (will be phased out)
 }
@@ -184,9 +181,12 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
         autoSelectLayoutForChannelCount(currentChannelCount);
     }
     
-    // 插件准备就绪后，广播所有当前状态到OSC
-    VST3_DBG_ROLE(this, "Broadcasting initial states to OSC");
-    oscCommunicator.broadcastAllStates(semanticState, physicalMapper);
+    // OSC广播现在在角色确定后由initializeOSCForRole()处理
+    // 如果是首次加载且没有保存的状态，初始化默认角色的OSC
+    if (currentRole == PluginRole::Standalone) {
+        // 第一次加载时的默认角色初始化
+        initializeOSCForRole();
+    }
 }
 
 void MonitorControllerMaxAudioProcessor::releaseResources()
@@ -405,6 +405,9 @@ void MonitorControllerMaxAudioProcessor::setStateInformation (const void* data, 
     // 重要修复：状态恢复后立即重置到干净状态
     VST3_DBG_ROLE(this, "Performing post-state-restore clean reset");
     semanticState.clearAllStates();
+    
+    // 角色确定后初始化OSC系统
+    initializeOSCForRole();
 }
 
 // 动态获取输入通道名称，根据当前音箱布局映射物理通道到逻辑声道名
@@ -1004,8 +1007,14 @@ void MonitorControllerMaxAudioProcessor::switchToSlave() {
 }
 
 void MonitorControllerMaxAudioProcessor::handleRoleTransition(PluginRole newRole) {
+    PluginRole oldRole = currentRole;
     currentRole = newRole;
     savedRole = newRole;  // 保存角色用于状态持久化
+    
+    VST3_DBG_ROLE(this, "Role transition: " + getRoleString(oldRole) + " -> " + getRoleString(newRole));
+    
+    // 重要：角色变化时重新初始化OSC系统
+    initializeOSCForRole();
     
     // 异步更新UI
     juce::MessageManager::callAsync([this]() {
@@ -1183,6 +1192,49 @@ void MonitorControllerMaxAudioProcessor::onSemanticStateChanged(const juce::Stri
         
         // 广播给所有Slave
         globalState.broadcastStateToSlaves(channelName, action, state);
+    }
+}
+
+// OSC系统角色管理实现
+void MonitorControllerMaxAudioProcessor::initializeOSCForRole() {
+    // 先关闭旧的OSC连接
+    shutdownOSC();
+    
+    // 根据角色决定是否初始化OSC
+    bool shouldInitializeOSC = (currentRole == PluginRole::Standalone || currentRole == PluginRole::Master);
+    
+    if (shouldInitializeOSC) {
+        VST3_DBG_ROLE(this, "Initializing OSC for role: " + getRoleString(currentRole));
+        
+        if (oscCommunicator.initialize()) {
+            VST3_DBG_ROLE(this, "OSC communication system initialized successfully for " + getRoleString(currentRole));
+            
+            // 如果是主控模式，广播初始状态
+            if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+                VST3_DBG_ROLE(this, "Broadcasting initial states to OSC");
+                oscCommunicator.broadcastAllStates(semanticState, physicalMapper);
+            }
+        } else {
+            VST3_DBG_ROLE(this, "OSC communication system initialization failed for " + getRoleString(currentRole));
+        }
+    } else {
+        VST3_DBG_ROLE(this, "OSC initialization skipped for Slave role");
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::shutdownOSC() {
+    if (oscCommunicator.isConnected()) {
+        VST3_DBG_ROLE(this, "Shutting down OSC communication");
+        oscCommunicator.shutdown();
+    }
+}
+
+juce::String MonitorControllerMaxAudioProcessor::getRoleString(PluginRole role) const {
+    switch (role) {
+        case PluginRole::Standalone: return "Standalone";
+        case PluginRole::Master: return "Master";
+        case PluginRole::Slave: return "Slave";
+        default: return "Unknown";
     }
 }
 

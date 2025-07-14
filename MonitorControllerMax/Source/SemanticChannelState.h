@@ -5,6 +5,9 @@
 #include <vector>
 #include <memory>
 
+// Forward declaration
+class MonitorControllerMaxAudioProcessor;
+
 class SemanticChannelState
 {
 public:
@@ -19,6 +22,9 @@ public:
 
     SemanticChannelState();
     ~SemanticChannelState();
+    
+    // 设置processor指针用于角色日志
+    void setProcessor(MonitorControllerMaxAudioProcessor* processor);
 
     // Core state management
     void setSoloState(const juce::String& channelName, bool state);
@@ -68,6 +74,9 @@ private:
     bool previousGlobalSoloMode = false;
     
     juce::ListenerList<StateChangeListener> stateChangeListeners;
+    
+    // Processor指针用于角色日志
+    MonitorControllerMaxAudioProcessor* processorPtr = nullptr;
     
     // Internal helper methods
     void notifyStateChange(const juce::String& channelName, const juce::String& action, bool state);
