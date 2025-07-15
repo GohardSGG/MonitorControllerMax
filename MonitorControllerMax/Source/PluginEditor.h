@@ -126,6 +126,7 @@ private:
     juce::TextButton globalMuteButton{ "Mute" };
     juce::TextButton globalSoloButton{ "Solo" };
     juce::TextButton dimButton{ "Dim" };
+    juce::TextButton lowBoostButton{ "LowBoost" };
     
     // v4.1: Master Gain旋钮控件
     juce::Slider masterGainSlider;

@@ -112,6 +112,7 @@ public:
     
     // v4.1: Master总线OSC发送接口
     void sendDimOSCState(bool dimState);
+    void sendLowBoostOSCState(bool lowBoostState);
     
     // 状态同步时的回调处理（整合到现有回调中）
     void onSemanticStateChanged(const juce::String& channelName, const juce::String& action, bool state);

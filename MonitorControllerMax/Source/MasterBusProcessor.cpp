@@ -36,20 +36,34 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
     // 计算当前Master Level (基于JSFX算法)
     float masterLevel = calculateMasterLevel();
     
-    // 应用到所有通道 (JSFX: spl0 *= ... * Level_Master)
-    if (std::abs(masterLevel - 1.0f) > 0.001f)  // 只有非1.0时才应用增益
+    int totalChannels = buffer.getNumChannels();
+    int numSamples = buffer.getNumSamples();
+    
+    // 应用Master Level和Low Boost到各通道
+    for (int channel = 0; channel < totalChannels; ++channel)
     {
-        int totalChannels = buffer.getNumChannels();
-        int numSamples = buffer.getNumSamples();
+        float channelGain = masterLevel;
         
-        for (int channel = 0; channel < totalChannels; ++channel)
+        // v4.1: 检查是否是SUB通道并应用Low Boost
+        if (lowBoostActive && processorPtr)
         {
-            buffer.applyGain(channel, 0, numSamples, masterLevel);
+            // 获取通道名称来判断是否为SUB通道
+            auto channelName = processorPtr->getPhysicalMapper().getSemanticNameSafe(channel);
+            if (channelName.startsWith("SUB"))
+            {
+                channelGain *= LOW_BOOST_FACTOR;  // 1.5x boost for SUB channels
+            }
         }
         
-        // 删除垃圾日志 - 高频音频处理调用
-        // VST3_DBG_ROLE(processorPtr, "Applied master level: " << masterLevel << " to " << totalChannels << " channels");
+        // 只有非1.0时才应用增益
+        if (std::abs(channelGain - 1.0f) > 0.001f)
+        {
+            buffer.applyGain(channel, 0, numSamples, channelGain);
+        }
     }
+    
+    // 删除垃圾日志 - 高频音频处理调用
+    // VST3_DBG_ROLE(processorPtr, "Applied master level: " << masterLevel << " to " << totalChannels << " channels");
 }
 
 //==============================================================================
@@ -89,6 +103,30 @@ void MasterBusProcessor::setDimActive(bool active)
 }
 
 //==============================================================================
+void MasterBusProcessor::setLowBoostActive(bool active)
+{
+    if (lowBoostActive != active)
+    {
+        lowBoostActive = active;
+        
+        if (processorPtr)
+        {
+            VST3_DBG_ROLE(processorPtr, "Low Boost " << (lowBoostActive ? "ACTIVATED" : "DEACTIVATED") 
+                         << " (SUB channels: " << (lowBoostActive ? "1.5x" : "1.0x") << ")");
+            
+            // v4.1: 发送OSC Low Boost状态 (通过PluginProcessor发送，确保角色检查)
+            processorPtr->sendLowBoostOSCState(lowBoostActive);
+        }
+        
+        // v4.1: 通知UI更新
+        if (onLowBoostStateChanged)
+        {
+            onLowBoostStateChanged();
+        }
+    }
+}
+
+//==============================================================================
 void MasterBusProcessor::handleOSCMasterVolume(float volumePercent)
 {
     setMasterGainPercent(volumePercent);
@@ -109,6 +147,16 @@ void MasterBusProcessor::handleOSCDim(bool dimState)
     }
 }
 
+void MasterBusProcessor::handleOSCLowBoost(bool lowBoostState)
+{
+    setLowBoostActive(lowBoostState);
+    
+    if (processorPtr)
+    {
+        VST3_DBG_ROLE(processorPtr, "OSC Low Boost received: " << (lowBoostState ? "ON" : "OFF"));
+    }
+}
+
 //==============================================================================
 float MasterBusProcessor::getCurrentMasterLevel() const
 {
@@ -125,6 +173,11 @@ juce::String MasterBusProcessor::getStatusDescription() const
     if (dimActive)
     {
         desc += " + DIM(16%)";
+    }
+    
+    if (lowBoostActive)
+    {
+        desc += " + LOW_BOOST(1.5x)";
     }
     
     desc += " = " + juce::String(currentLevel * 100.0f, 1) + "%";

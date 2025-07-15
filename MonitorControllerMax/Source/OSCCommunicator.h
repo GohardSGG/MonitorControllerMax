@@ -49,6 +49,7 @@ public:
     // v4.1: 发送Master总线状态到外部设备
     void sendMasterVolume(float volumePercent);
     void sendMasterDim(bool dimState);
+    void sendMasterLowBoost(bool lowBoostState);
     
     // 状态反馈机制 - 广播所有当前状态
     void broadcastAllStates(const SemanticChannelState& semanticState, 
@@ -63,6 +64,7 @@ public:
     // v4.1: Master总线OSC控制回调
     std::function<void(float volumePercent)> onMasterVolumeOSC;
     std::function<void(bool dimState)> onMasterDimOSC;
+    std::function<void(bool lowBoostState)> onMasterLowBoostOSC;
 
 private:
     // OSC通信组件

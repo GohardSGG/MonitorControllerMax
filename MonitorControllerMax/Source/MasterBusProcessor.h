@@ -58,10 +58,16 @@ public:
     bool isDimActive() const { return dimActive; }
     void toggleDim() { setDimActive(!dimActive); }
     
+    // Low Boost控制 (内部状态，不持久化)
+    void setLowBoostActive(bool active);
+    bool isLowBoostActive() const { return lowBoostActive; }
+    void toggleLowBoost() { setLowBoostActive(!lowBoostActive); }
+    
     //==============================================================================
     // OSC控制接口
     void handleOSCMasterVolume(float volumePercent);
     void handleOSCDim(bool dimState);
+    void handleOSCLowBoost(bool lowBoostState);
     
     //==============================================================================
     // 状态查询
@@ -70,6 +76,7 @@ public:
     
     // v4.1: UI更新回调
     std::function<void()> onDimStateChanged;
+    std::function<void()> onLowBoostStateChanged;
     
 private:
     //==============================================================================
@@ -80,11 +87,13 @@ private:
     // 内部状态
     float masterGainPercent = 100.0f;  // Master Gain百分比 (0-100%)
     bool dimActive = false;             // Dim状态 (内部状态，不持久化)
+    bool lowBoostActive = false;        // Low Boost状态 (内部状态，不持久化)
     
     //==============================================================================
     // 音频处理常量 (基于JSFX实现)
     static constexpr float DIM_FACTOR = 0.16f;  // Dim时的衰减因子 (16%)
     static constexpr float SCALE_FACTOR = 0.01f; // 百分比转换因子
+    static constexpr float LOW_BOOST_FACTOR = 1.5f; // Low Boost增益因子 (1.5x, 约+3.5dB)
     
     //==============================================================================
     // 内部计算方法

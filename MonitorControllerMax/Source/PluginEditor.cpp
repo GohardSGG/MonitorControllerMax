@@ -73,6 +73,38 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         });
     };
     
+    // v4.1: 设置Low Boost按钮
+    addAndMakeVisible(lowBoostButton);
+    lowBoostButton.setButtonText("LOW BOOST");
+    lowBoostButton.setClickingTogglesState(true);
+    lowBoostButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    
+    // v4.1: 连接Low Boost按钮到总线处理器
+    lowBoostButton.onClick = [this]()
+    {
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Low Boost button click ignored - Slave mode");
+            return;
+        }
+        
+        // 切换Low Boost状态
+        audioProcessor.masterBusProcessor.toggleLowBoost();
+        
+        // 更新按钮状态
+        lowBoostButton.setToggleState(audioProcessor.masterBusProcessor.isLowBoostActive(), juce::dontSendNotification);
+    };
+    
+    // v4.1: 设置Low Boost状态变化回调 - 用于OSC控制时更新UI
+    audioProcessor.masterBusProcessor.onLowBoostStateChanged = [this]()
+    {
+        // 在主线程中更新UI
+        juce::MessageManager::callAsync([this]()
+        {
+            lowBoostButton.setToggleState(audioProcessor.masterBusProcessor.isLowBoostActive(), juce::dontSendNotification);
+        });
+    };
+    
     // v4.1: 设置Master Gain旋钮
     addAndMakeVisible(masterGainSlider);
     masterGainSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -85,11 +117,8 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     masterGainSlider.setColour(juce::Slider::textBoxTextColourId, juce::Colours::white);
     masterGainSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     
-    // v4.1: Master Gain标签
-    addAndMakeVisible(masterGainLabel);
-    masterGainLabel.setText("Master Volume", juce::dontSendNotification);
-    masterGainLabel.setJustificationType(juce::Justification::centred);
-    masterGainLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    // v4.1: Master Gain标签 (移除丑陋的文字说明，保持简洁)
+    // masterGainLabel 不再显示
     
     // v4.1: 连接Master Gain旋钮到VST3参数
     masterGainSliderAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, "MASTER_GAIN", masterGainSlider);
@@ -239,9 +268,11 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     sidebarFlex.items.add(juce::FlexItem(dimButton).withHeight(50).withMargin(5));
     sidebarFlex.items.add(juce::FlexItem(globalMuteButton).withHeight(50).withMargin(5));
     
-    // v4.1: 添加Master Gain旋钮和标签
-    sidebarFlex.items.add(juce::FlexItem(masterGainLabel).withHeight(20).withMargin(juce::FlexItem::Margin(10, 5, 5, 5)));
+    // v4.1: 添加Master Gain旋钮 (移除文字标签，保持简洁)
     sidebarFlex.items.add(juce::FlexItem(masterGainSlider).withHeight(80).withMargin(5));
+    
+    // v4.1: 添加Low Boost按钮
+    sidebarFlex.items.add(juce::FlexItem(lowBoostButton).withHeight(40).withMargin(5));
     
     sidebarFlex.performLayout(sidebarBounds);
 
@@ -909,8 +940,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
     globalMuteButton.setEnabled(!isSlaveMode);
     dimButton.setEnabled(!isSlaveMode);
     
-    // v4.1: Slave模式禁用Master Gain旋钮
+    // v4.1: Slave模式禁用Master总线控件
     masterGainSlider.setEnabled(!isSlaveMode);
+    lowBoostButton.setEnabled(!isSlaveMode);
     
     // 禁用布局选择器（Slave不能更改布局）
     speakerLayoutSelector.setEnabled(!isSlaveMode);
@@ -937,6 +969,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         globalMuteButton.setAlpha(0.6f);
         dimButton.setAlpha(0.6f);
         masterGainSlider.setAlpha(0.6f);
+        lowBoostButton.setAlpha(0.6f);
         speakerLayoutSelector.setAlpha(0.6f);
         subLayoutSelector.setAlpha(0.6f);
     } else {
@@ -945,6 +978,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         globalMuteButton.setAlpha(1.0f);
         dimButton.setAlpha(1.0f);
         masterGainSlider.setAlpha(1.0f);
+        lowBoostButton.setAlpha(1.0f);
         speakerLayoutSelector.setAlpha(1.0f);
         subLayoutSelector.setAlpha(1.0f);
     }

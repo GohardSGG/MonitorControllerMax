@@ -196,6 +196,28 @@ void OSCCommunicator::sendMasterDim(bool dimState)
     }
 }
 
+void OSCCommunicator::sendMasterLowBoost(bool lowBoostState)
+{
+    // 检查连接状态
+    if (!isConnected())
+    {
+        return;
+    }
+    
+    // v4.1: 发送Master Low Boost状态 (地址: /Monitor/Master/Effect/Low_Boost)
+    juce::String address = "/Monitor/Master/Effect/Low_Boost";
+    float value = lowBoostState ? 1.0f : 0.0f;
+    
+    if (sender->send(address, value))
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Sent Master Low Boost - " + address + " = " + juce::String(value) + " (" + (lowBoostState ? "ON" : "OFF") + ")");
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Master Low Boost - " + address);
+    }
+}
+
 void OSCCommunicator::broadcastAllStates(const SemanticChannelState& semanticState, 
                                         const PhysicalChannelMapper& physicalMapper)
 {
@@ -234,7 +256,7 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     juce::String address = message.getAddressPattern().toString();
     
     // v4.1: 处理Master总线消息
-    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume")
+    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume" || address == "/Monitor/Master/Effect/Low_Boost")
     {
         handleMasterBusOSCMessage(address, message);
         return;
@@ -342,6 +364,18 @@ void OSCCommunicator::handleMasterBusOSCMessage(const juce::String& address, con
         if (onMasterDimOSC)
         {
             onMasterDimOSC(dimState);
+        }
+    }
+    // v4.1: 处理Master Low Boost消息 (/Monitor/Master/Effect/Low_Boost)
+    else if (address == "/Monitor/Master/Effect/Low_Boost")
+    {
+        bool lowBoostState = (value > 0.5f);
+        
+        OSC_DBG_ROLE("OSCCommunicator: Received Master Low Boost OSC - " + juce::String(lowBoostState ? "ON" : "OFF"));
+        
+        if (onMasterLowBoostOSC)
+        {
+            onMasterLowBoostOSC(lowBoostState);
         }
     }
     else
