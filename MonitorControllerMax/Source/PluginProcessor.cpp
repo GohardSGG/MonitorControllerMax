@@ -116,6 +116,16 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
         }
     };
     
+    oscCommunicator.onMasterMuteOSC = [this](bool masterMuteState)
+    {
+        // 只有Master和Standalone处理外部OSC控制
+        if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+            masterBusProcessor.handleOSCMasterMute(masterMuteState);
+        } else {
+            VST3_DBG_ROLE(this, "Master Mute OSC ignored - Slave mode");
+        }
+    };
+    
     // 重要：OSC系统将在角色确定后初始化（在setStateInformation或UI初始化完成后）
     VST3_DBG_ROLE(this, "OSC initialization deferred until role is determined");
     
@@ -1102,6 +1112,14 @@ void MonitorControllerMaxAudioProcessor::sendLowBoostOSCState(bool lowBoostState
     // v4.1: 发送Low Boost状态OSC消息 (只有Master/Standalone发送)
     if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
         oscCommunicator.sendMasterLowBoost(lowBoostState);
+    }
+}
+
+void MonitorControllerMaxAudioProcessor::sendMasterMuteOSCState(bool masterMuteState)
+{
+    // v4.1: 发送Master Mute状态OSC消息 (只有Master/Standalone发送)
+    if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+        oscCommunicator.sendMasterMute(masterMuteState);
     }
 }
 

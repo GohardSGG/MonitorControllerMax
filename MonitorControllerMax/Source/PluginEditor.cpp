@@ -75,7 +75,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     
     // v4.1: 设置Low Boost按钮
     addAndMakeVisible(lowBoostButton);
-    lowBoostButton.setButtonText("LOW BOOST");
+    lowBoostButton.setButtonText("LOW\nBOOST");
     lowBoostButton.setClickingTogglesState(true);
     lowBoostButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
     
@@ -102,6 +102,38 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         juce::MessageManager::callAsync([this]()
         {
             lowBoostButton.setToggleState(audioProcessor.masterBusProcessor.isLowBoostActive(), juce::dontSendNotification);
+        });
+    };
+    
+    // v4.1: 设置Master Mute按钮
+    addAndMakeVisible(masterMuteButton);
+    masterMuteButton.setButtonText("MASTER\nMUTE");
+    masterMuteButton.setClickingTogglesState(true);
+    masterMuteButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::red);
+    
+    // v4.1: 连接Master Mute按钮到总线处理器
+    masterMuteButton.onClick = [this]()
+    {
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Master Mute button click ignored - Slave mode");
+            return;
+        }
+        
+        // 切换Master Mute状态
+        audioProcessor.masterBusProcessor.toggleMasterMute();
+        
+        // 更新按钮状态
+        masterMuteButton.setToggleState(audioProcessor.masterBusProcessor.isMasterMuteActive(), juce::dontSendNotification);
+    };
+    
+    // v4.1: 设置Master Mute状态变化回调 - 用于OSC控制时更新UI
+    audioProcessor.masterBusProcessor.onMasterMuteStateChanged = [this]()
+    {
+        // 在主线程中更新UI
+        juce::MessageManager::callAsync([this]()
+        {
+            masterMuteButton.setToggleState(audioProcessor.masterBusProcessor.isMasterMuteActive(), juce::dontSendNotification);
         });
     };
     
@@ -271,8 +303,11 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     // v4.1: 添加Master Gain旋钮 (移除文字标签，保持简洁)
     sidebarFlex.items.add(juce::FlexItem(masterGainSlider).withHeight(80).withMargin(5));
     
-    // v4.1: 添加Low Boost按钮
-    sidebarFlex.items.add(juce::FlexItem(lowBoostButton).withHeight(40).withMargin(5));
+    // v4.1: 添加Low Boost按钮 (与Dim按钮同样大小)
+    sidebarFlex.items.add(juce::FlexItem(lowBoostButton).withHeight(50).withMargin(5));
+    
+    // v4.1: 添加Master Mute按钮 (与Low Boost按钮同样大小)
+    sidebarFlex.items.add(juce::FlexItem(masterMuteButton).withHeight(50).withMargin(5));
     
     sidebarFlex.performLayout(sidebarBounds);
 
@@ -943,6 +978,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
     // v4.1: Slave模式禁用Master总线控件
     masterGainSlider.setEnabled(!isSlaveMode);
     lowBoostButton.setEnabled(!isSlaveMode);
+    masterMuteButton.setEnabled(!isSlaveMode);
     
     // 禁用布局选择器（Slave不能更改布局）
     speakerLayoutSelector.setEnabled(!isSlaveMode);
@@ -970,6 +1006,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         dimButton.setAlpha(0.6f);
         masterGainSlider.setAlpha(0.6f);
         lowBoostButton.setAlpha(0.6f);
+        masterMuteButton.setAlpha(0.6f);
         speakerLayoutSelector.setAlpha(0.6f);
         subLayoutSelector.setAlpha(0.6f);
     } else {
@@ -979,6 +1016,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         dimButton.setAlpha(1.0f);
         masterGainSlider.setAlpha(1.0f);
         lowBoostButton.setAlpha(1.0f);
+        masterMuteButton.setAlpha(1.0f);
         speakerLayoutSelector.setAlpha(1.0f);
         subLayoutSelector.setAlpha(1.0f);
     }

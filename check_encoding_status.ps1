@@ -64,3 +64,4 @@ Write-Host "----------------------------------------------------"
 Write-Host "检查完毕。共检查了 $($files.Count) 个文件。"
 Write-Host " -> $($filesWithBom.Count) 个文件符合格式。"
 Write-Host " -> $($filesWithoutBom.Count) 个文件需要转换。"
+ 

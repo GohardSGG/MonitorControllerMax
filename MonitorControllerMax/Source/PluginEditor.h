@@ -68,6 +68,16 @@ public:
             g.fillRoundedRectangle(squareBounds, cornerSize);
         }
     }
+    
+    juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override
+    {
+        // v4.1: 为Low Boost和Master Mute按钮设置更小的字体
+        if (button.getButtonText().contains("LOW") || button.getButtonText().contains("MASTER"))
+        {
+            return juce::Font(12.0f);  // 更小的字号以适应换行文字
+        }
+        return juce::LookAndFeel_V4::getTextButtonFont(button, buttonHeight);
+    }
 
     juce::Colour getSoloColour() const { return soloColour; }
     juce::Colour getMuteColour() const { return muteColour; }
@@ -127,6 +137,7 @@ private:
     juce::TextButton globalSoloButton{ "Solo" };
     juce::TextButton dimButton{ "Dim" };
     juce::TextButton lowBoostButton{ "LowBoost" };
+    juce::TextButton masterMuteButton{ "Master\nMute" };
     
     // v4.1: Master Gain旋钮控件
     juce::Slider masterGainSlider;

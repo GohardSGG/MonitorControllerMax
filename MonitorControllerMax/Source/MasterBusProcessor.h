@@ -63,11 +63,17 @@ public:
     bool isLowBoostActive() const { return lowBoostActive; }
     void toggleLowBoost() { setLowBoostActive(!lowBoostActive); }
     
+    // Master Mute控制 (内部状态，不持久化)
+    void setMasterMuteActive(bool active);
+    bool isMasterMuteActive() const { return masterMuteActive; }
+    void toggleMasterMute() { setMasterMuteActive(!masterMuteActive); }
+    
     //==============================================================================
     // OSC控制接口
     void handleOSCMasterVolume(float volumePercent);
     void handleOSCDim(bool dimState);
     void handleOSCLowBoost(bool lowBoostState);
+    void handleOSCMasterMute(bool masterMuteState);
     
     //==============================================================================
     // 状态查询
@@ -77,6 +83,7 @@ public:
     // v4.1: UI更新回调
     std::function<void()> onDimStateChanged;
     std::function<void()> onLowBoostStateChanged;
+    std::function<void()> onMasterMuteStateChanged;
     
 private:
     //==============================================================================
@@ -88,6 +95,7 @@ private:
     float masterGainPercent = 100.0f;  // Master Gain百分比 (0-100%)
     bool dimActive = false;             // Dim状态 (内部状态，不持久化)
     bool lowBoostActive = false;        // Low Boost状态 (内部状态，不持久化)
+    bool masterMuteActive = false;      // Master Mute状态 (内部状态，不持久化)
     
     //==============================================================================
     // 音频处理常量 (基于JSFX实现)

@@ -218,6 +218,28 @@ void OSCCommunicator::sendMasterLowBoost(bool lowBoostState)
     }
 }
 
+void OSCCommunicator::sendMasterMute(bool masterMuteState)
+{
+    // 检查连接状态
+    if (!isConnected())
+    {
+        return;
+    }
+    
+    // v4.1: 发送Master Mute状态 (地址: /Monitor/Master/Mute)
+    juce::String address = "/Monitor/Master/Mute";
+    float value = masterMuteState ? 1.0f : 0.0f;
+    
+    if (sender->send(address, value))
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Sent Master Mute - " + address + " = " + juce::String(value) + " (" + (masterMuteState ? "ON" : "OFF") + ")");
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Master Mute - " + address);
+    }
+}
+
 void OSCCommunicator::broadcastAllStates(const SemanticChannelState& semanticState, 
                                         const PhysicalChannelMapper& physicalMapper)
 {
@@ -256,7 +278,7 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     juce::String address = message.getAddressPattern().toString();
     
     // v4.1: 处理Master总线消息
-    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume" || address == "/Monitor/Master/Effect/Low_Boost")
+    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume" || address == "/Monitor/Master/Effect/Low_Boost" || address == "/Monitor/Master/Mute")
     {
         handleMasterBusOSCMessage(address, message);
         return;
@@ -376,6 +398,18 @@ void OSCCommunicator::handleMasterBusOSCMessage(const juce::String& address, con
         if (onMasterLowBoostOSC)
         {
             onMasterLowBoostOSC(lowBoostState);
+        }
+    }
+    // v4.1: 处理Master Mute消息 (/Monitor/Master/Mute)
+    else if (address == "/Monitor/Master/Mute")
+    {
+        bool masterMuteState = (value > 0.5f);
+        
+        OSC_DBG_ROLE("OSCCommunicator: Received Master Mute OSC - " + juce::String(masterMuteState ? "ON" : "OFF"));
+        
+        if (onMasterMuteOSC)
+        {
+            onMasterMuteOSC(masterMuteState);
         }
     }
     else

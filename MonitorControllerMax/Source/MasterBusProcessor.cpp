@@ -39,6 +39,17 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
     int totalChannels = buffer.getNumChannels();
     int numSamples = buffer.getNumSamples();
     
+    // v4.1: 检查Master Mute状态 - 如果激活则静音所有通道
+    if (masterMuteActive)
+    {
+        // Master Mute激活时，静音所有通道
+        for (int channel = 0; channel < totalChannels; ++channel)
+        {
+            buffer.clear(channel, 0, numSamples);
+        }
+        return;  // 直接返回，不应用其他效果
+    }
+    
     // 应用Master Level和Low Boost到各通道
     for (int channel = 0; channel < totalChannels; ++channel)
     {
@@ -127,6 +138,30 @@ void MasterBusProcessor::setLowBoostActive(bool active)
 }
 
 //==============================================================================
+void MasterBusProcessor::setMasterMuteActive(bool active)
+{
+    if (masterMuteActive != active)
+    {
+        masterMuteActive = active;
+        
+        if (processorPtr)
+        {
+            VST3_DBG_ROLE(processorPtr, "Master Mute " << (masterMuteActive ? "ACTIVATED" : "DEACTIVATED") 
+                         << " (All channels: " << (masterMuteActive ? "MUTED" : "ACTIVE") << ")");
+            
+            // v4.1: 发送OSC Master Mute状态 (通过PluginProcessor发送，确保角色检查)
+            processorPtr->sendMasterMuteOSCState(masterMuteActive);
+        }
+        
+        // v4.1: 通知UI更新
+        if (onMasterMuteStateChanged)
+        {
+            onMasterMuteStateChanged();
+        }
+    }
+}
+
+//==============================================================================
 void MasterBusProcessor::handleOSCMasterVolume(float volumePercent)
 {
     setMasterGainPercent(volumePercent);
@@ -157,6 +192,16 @@ void MasterBusProcessor::handleOSCLowBoost(bool lowBoostState)
     }
 }
 
+void MasterBusProcessor::handleOSCMasterMute(bool masterMuteState)
+{
+    setMasterMuteActive(masterMuteState);
+    
+    if (processorPtr)
+    {
+        VST3_DBG_ROLE(processorPtr, "OSC Master Mute received: " << (masterMuteState ? "ON" : "OFF"));
+    }
+}
+
 //==============================================================================
 float MasterBusProcessor::getCurrentMasterLevel() const
 {
@@ -178,6 +223,11 @@ juce::String MasterBusProcessor::getStatusDescription() const
     if (lowBoostActive)
     {
         desc += " + LOW_BOOST(1.5x)";
+    }
+    
+    if (masterMuteActive)
+    {
+        desc += " + MASTER_MUTE(ALL_MUTED)";
     }
     
     desc += " = " + juce::String(currentLevel * 100.0f, 1) + "%";
