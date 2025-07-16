@@ -297,6 +297,13 @@ void GlobalPluginState::syncAllStatesToSlave(MonitorControllerMaxAudioProcessor*
             VST3_DBG("Error syncing mute state: " + juce::String(e.what()));
         }
     }
+    
+    // v4.1: 同步总线效果状态
+    try {
+        slavePlugin->receiveMasterBusState("mono", globalMonoState);
+    } catch (const std::exception& e) {
+        VST3_DBG("Error syncing mono state: " + juce::String(e.what()));
+    }
 }
 
 int GlobalPluginState::getSlaveCount() const {
@@ -463,4 +470,35 @@ void GlobalPluginState::cleanupInvalidPlugins() {
 juce::String GlobalPluginState::getCurrentTimeString() const {
     auto now = juce::Time::getCurrentTime();
     return now.toString(false, true, true, true);  // 包含毫秒
+}
+
+//==============================================================================
+// v4.1: 总线效果状态管理
+void GlobalPluginState::setGlobalMonoState(bool monoState) {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    globalMonoState = monoState;
+    
+    VST3_DBG("Global mono state set to: " + juce::String(monoState ? "ON" : "OFF"));
+}
+
+bool GlobalPluginState::getGlobalMonoState() const {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    return globalMonoState;
+}
+
+void GlobalPluginState::broadcastMonoStateToSlaves(bool monoState) {
+    std::lock_guard<std::mutex> lock(pluginsMutex);
+    
+    VST3_DBG("Broadcasting mono state to " + juce::String(slavePlugins.size()) + " slaves: " + 
+             juce::String(monoState ? "ON" : "OFF"));
+    
+    for (auto* slave : slavePlugins) {
+        if (slave) {
+            try {
+                slave->receiveMasterBusState("mono", monoState);
+            } catch (const std::exception& e) {
+                VST3_DBG("Error broadcasting mono state: " + juce::String(e.what()));
+            }
+        }
+    }
 }

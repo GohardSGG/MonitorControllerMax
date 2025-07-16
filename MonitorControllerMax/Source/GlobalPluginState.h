@@ -43,6 +43,10 @@ private:
     // 全局状态存储
     std::map<juce::String, bool> globalSoloStates;
     std::map<juce::String, bool> globalMuteStates;
+    
+    // v4.1: 全局总线效果状态
+    bool globalMonoState = false;
+    
     mutable std::mutex stateMutex;
     
     // 插件实例管理
@@ -92,6 +96,11 @@ public:
     // 广播机制 - 直接调用，零延迟
     void broadcastStateToSlaves(const juce::String& channelName, const juce::String& action, bool state);
     void syncAllStatesToSlave(MonitorControllerMaxAudioProcessor* slavePlugin);
+    
+    // v4.1: 总线效果状态管理
+    void setGlobalMonoState(bool monoState);
+    bool getGlobalMonoState() const;
+    void broadcastMonoStateToSlaves(bool monoState);
     
     // 状态查询
     int getSlaveCount() const;

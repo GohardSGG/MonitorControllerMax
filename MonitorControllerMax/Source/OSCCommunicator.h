@@ -51,6 +51,7 @@ public:
     void sendMasterDim(bool dimState);
     void sendMasterLowBoost(bool lowBoostState);
     void sendMasterMute(bool masterMuteState);
+    void sendMasterMono(bool monoState);
     
     // 状态反馈机制 - 广播所有当前状态
     void broadcastAllStates(const SemanticChannelState& semanticState, 
@@ -67,6 +68,7 @@ public:
     std::function<void(bool dimState)> onMasterDimOSC;
     std::function<void(bool lowBoostState)> onMasterLowBoostOSC;
     std::function<void(bool masterMuteState)> onMasterMuteOSC;
+    std::function<void(bool monoState)> onMasterMonoOSC;
 
 private:
     // OSC通信组件

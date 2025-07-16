@@ -240,6 +240,28 @@ void OSCCommunicator::sendMasterMute(bool masterMuteState)
     }
 }
 
+void OSCCommunicator::sendMasterMono(bool monoState)
+{
+    // 检查连接状态
+    if (!isConnected())
+    {
+        return;
+    }
+    
+    // v4.1: 发送Master Mono状态 (地址: /Monitor/Master/Effect/Mono)
+    juce::String address = "/Monitor/Master/Effect/Mono";
+    float value = monoState ? 1.0f : 0.0f;
+    
+    if (sender->send(address, value))
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Sent Master Mono - " + address + " = " + juce::String(value) + " (" + (monoState ? "ON" : "OFF") + ")");
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send Master Mono - " + address);
+    }
+}
+
 void OSCCommunicator::broadcastAllStates(const SemanticChannelState& semanticState, 
                                         const PhysicalChannelMapper& physicalMapper)
 {
@@ -278,7 +300,7 @@ void OSCCommunicator::handleIncomingOSCMessage(const juce::OSCMessage& message)
     juce::String address = message.getAddressPattern().toString();
     
     // v4.1: 处理Master总线消息
-    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume" || address == "/Monitor/Master/Effect/Low_Boost" || address == "/Monitor/Master/Mute")
+    if (address == "/Monitor/Master/Dim" || address == "/Monitor/Master/Volume" || address == "/Monitor/Master/Effect/Low_Boost" || address == "/Monitor/Master/Mute" || address == "/Monitor/Master/Effect/Mono")
     {
         handleMasterBusOSCMessage(address, message);
         return;
@@ -410,6 +432,18 @@ void OSCCommunicator::handleMasterBusOSCMessage(const juce::String& address, con
         if (onMasterMuteOSC)
         {
             onMasterMuteOSC(masterMuteState);
+        }
+    }
+    // v4.1: 处理Master Mono消息 (/Monitor/Master/Effect/Mono)
+    else if (address == "/Monitor/Master/Effect/Mono")
+    {
+        bool monoState = (value > 0.5f);
+        
+        OSC_DBG_ROLE("OSCCommunicator: Received Master Mono OSC - " + juce::String(monoState ? "ON" : "OFF"));
+        
+        if (onMasterMonoOSC)
+        {
+            onMasterMonoOSC(monoState);
         }
     }
     else

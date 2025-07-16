@@ -68,12 +68,18 @@ public:
     bool isMasterMuteActive() const { return masterMuteActive; }
     void toggleMasterMute() { setMasterMuteActive(!masterMuteActive); }
     
+    // Mono控制 (内部状态，不持久化)
+    void setMonoActive(bool active);
+    bool isMonoActive() const { return monoActive; }
+    void toggleMono() { setMonoActive(!monoActive); }
+    
     //==============================================================================
     // OSC控制接口
     void handleOSCMasterVolume(float volumePercent);
     void handleOSCDim(bool dimState);
     void handleOSCLowBoost(bool lowBoostState);
     void handleOSCMasterMute(bool masterMuteState);
+    void handleOSCMono(bool monoState);
     
     //==============================================================================
     // 状态查询
@@ -84,6 +90,7 @@ public:
     std::function<void()> onDimStateChanged;
     std::function<void()> onLowBoostStateChanged;
     std::function<void()> onMasterMuteStateChanged;
+    std::function<void()> onMonoStateChanged;
     
 private:
     //==============================================================================
@@ -96,6 +103,7 @@ private:
     bool dimActive = false;             // Dim状态 (内部状态，不持久化)
     bool lowBoostActive = false;        // Low Boost状态 (内部状态，不持久化)
     bool masterMuteActive = false;      // Master Mute状态 (内部状态，不持久化)
+    bool monoActive = false;            // Mono状态 (内部状态，不持久化)
     
     //==============================================================================
     // 音频处理常量 (基于JSFX实现)

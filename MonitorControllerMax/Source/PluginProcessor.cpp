@@ -116,6 +116,16 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
         }
     };
     
+    oscCommunicator.onMasterMonoOSC = [this](bool monoState)
+    {
+        // 只有Master和Standalone处理外部OSC控制
+        if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+            masterBusProcessor.handleOSCMono(monoState);
+        } else {
+            VST3_DBG_ROLE(this, "Master Mono OSC ignored - Slave mode");
+        }
+    };
+    
     oscCommunicator.onMasterMuteOSC = [this](bool masterMuteState)
     {
         // 只有Master和Standalone处理外部OSC控制
@@ -1123,6 +1133,14 @@ void MonitorControllerMaxAudioProcessor::sendMasterMuteOSCState(bool masterMuteS
     }
 }
 
+void MonitorControllerMaxAudioProcessor::sendMonoOSCState(bool monoState)
+{
+    // v4.1: 发送Mono状态OSC消息 (只有Master/Standalone发送)
+    if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
+        oscCommunicator.sendMasterMono(monoState);
+    }
+}
+
 //==============================================================================
 // Master-Slave角色管理实现
 
@@ -1252,6 +1270,37 @@ void MonitorControllerMaxAudioProcessor::receiveMasterState(const juce::String& 
         
     } catch (const std::exception& e) {
         VST3_DBG_ROLE(this, "Error receiving Master state: " + juce::String(e.what()));
+    }
+    
+    // 重新启用回调
+    suppressStateChange = false;
+}
+
+// v4.1: 接收Master总线效果状态 - 用于Master-Slave同步
+void MonitorControllerMaxAudioProcessor::receiveMasterBusState(const juce::String& busEffect, bool state) {
+    if (currentRole != PluginRole::Slave) return;
+    
+    // 防止循环回调
+    suppressStateChange = true;
+    
+    try {
+        // 应用Master总线效果状态到本地MasterBusProcessor
+        if (busEffect == "mono") {
+            masterBusProcessor.setMonoActive(state);
+        }
+        // 未来可以添加其他总线效果，如dim、lowBoost等
+        
+        VST3_DBG_ROLE(this, "Slave received Master bus state: " + busEffect + " = " + (state ? "ON" : "OFF"));
+        
+        // 异步通知UI更新
+        juce::MessageManager::callAsync([this]() {
+            if (auto* editor = dynamic_cast<MonitorControllerMaxAudioProcessorEditor*>(getActiveEditor())) {
+                editor->updateChannelButtonStates();
+            }
+        });
+        
+    } catch (const std::exception& e) {
+        VST3_DBG_ROLE(this, "Error receiving Master bus state: " + juce::String(e.what()));
     }
     
     // 重新启用回调

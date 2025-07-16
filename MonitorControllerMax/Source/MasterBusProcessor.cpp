@@ -12,6 +12,7 @@
 
 #include "MasterBusProcessor.h"
 #include "PluginProcessor.h"
+#include "GlobalPluginState.h"
 
 //==============================================================================
 MasterBusProcessor::MasterBusProcessor()
@@ -48,6 +49,47 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
             buffer.clear(channel, 0, numSamples);
         }
         return;  // 直接返回，不应用其他效果
+    }
+    
+    // v4.1: 处理Mono效果 - 将所有非SUB通道混合成单声道并复制到所有非SUB通道
+    // 重要：Mono处理只在Slave/Standalone模式下进行 (pre-calibration)
+    if (monoActive && processorPtr && 
+        (currentRole == PluginRole::Slave || currentRole == PluginRole::Standalone))
+    {
+        // 步骤1: 收集所有非SUB通道的索引
+        std::vector<int> nonSubChannels;
+        for (int channel = 0; channel < totalChannels; ++channel)
+        {
+            auto channelName = processorPtr->getPhysicalMapper().getSemanticNameSafe(channel);
+            if (!channelName.startsWith("SUB"))
+            {
+                nonSubChannels.push_back(channel);
+            }
+        }
+        
+        // 步骤2: 混合所有非SUB通道内容
+        if (nonSubChannels.size() > 1)
+        {
+            // 创建混合缓冲区
+            juce::AudioBuffer<float> monoMix(1, numSamples);
+            monoMix.clear();
+            
+            // 混合所有非SUB通道到单声道
+            for (int channel : nonSubChannels)
+            {
+                monoMix.addFrom(0, 0, buffer, channel, 0, numSamples);
+            }
+            
+            // 归一化混合结果 (防止响度过大)
+            float mixGain = 1.0f / std::sqrt(static_cast<float>(nonSubChannels.size()));
+            monoMix.applyGain(0, 0, numSamples, mixGain);
+            
+            // 步骤3: 将混合结果复制到所有非SUB通道
+            for (int channel : nonSubChannels)
+            {
+                buffer.copyFrom(channel, 0, monoMix, 0, 0, numSamples);
+            }
+        }
     }
     
     // 应用Master Level和Low Boost到各通道
@@ -162,6 +204,45 @@ void MasterBusProcessor::setMasterMuteActive(bool active)
 }
 
 //==============================================================================
+void MasterBusProcessor::setMonoActive(bool active)
+{
+    if (monoActive != active)
+    {
+        monoActive = active;
+        
+        if (processorPtr)
+        {
+            VST3_DBG_ROLE(processorPtr, "Mono " << (monoActive ? "ACTIVATED" : "DEACTIVATED") 
+                         << " (Non-SUB channels: " << (monoActive ? "mono mix" : "stereo") << ")");
+            
+            // v4.1: 发送OSC Mono状态 (通过PluginProcessor发送，确保角色检查)
+            processorPtr->sendMonoOSCState(monoActive);
+            
+            // v4.1: Master-Slave状态同步 - 只有Master/Standalone可以控制全局状态
+            if (processorPtr->getCurrentRole() == PluginRole::Master || 
+                processorPtr->getCurrentRole() == PluginRole::Standalone)
+            {
+                // 更新全局状态
+                auto& globalState = GlobalPluginState::getInstance();
+                globalState.setGlobalMonoState(monoActive);
+                
+                // 如果是Master模式，广播状态到所有Slave
+                if (processorPtr->getCurrentRole() == PluginRole::Master)
+                {
+                    globalState.broadcastMonoStateToSlaves(monoActive);
+                }
+            }
+        }
+        
+        // v4.1: 通知UI更新
+        if (onMonoStateChanged)
+        {
+            onMonoStateChanged();
+        }
+    }
+}
+
+//==============================================================================
 void MasterBusProcessor::handleOSCMasterVolume(float volumePercent)
 {
     setMasterGainPercent(volumePercent);
@@ -199,6 +280,16 @@ void MasterBusProcessor::handleOSCMasterMute(bool masterMuteState)
     if (processorPtr)
     {
         VST3_DBG_ROLE(processorPtr, "OSC Master Mute received: " << (masterMuteState ? "ON" : "OFF"));
+    }
+}
+
+void MasterBusProcessor::handleOSCMono(bool monoState)
+{
+    setMonoActive(monoState);
+    
+    if (processorPtr)
+    {
+        VST3_DBG_ROLE(processorPtr, "OSC Mono received: " << (monoState ? "ON" : "OFF"));
     }
 }
 

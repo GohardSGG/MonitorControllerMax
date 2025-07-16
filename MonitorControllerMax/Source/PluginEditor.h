@@ -138,6 +138,7 @@ private:
     juce::TextButton dimButton{ "Dim" };
     juce::TextButton lowBoostButton{ "LowBoost" };
     juce::TextButton masterMuteButton{ "Master\nMute" };
+    juce::TextButton monoButton{ "Mono" };
     
     // v4.1: Master Gain旋钮控件
     juce::Slider masterGainSlider;

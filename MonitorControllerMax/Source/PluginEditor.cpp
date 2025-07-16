@@ -154,6 +154,38 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     
     // v4.1: 连接Master Gain旋钮到VST3参数
     masterGainSliderAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, "MASTER_GAIN", masterGainSlider);
+    
+    // v4.1: 设置Mono按钮
+    addAndMakeVisible(monoButton);
+    monoButton.setButtonText("MONO");
+    monoButton.setClickingTogglesState(true);
+    monoButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::yellow);
+    
+    // v4.1: 连接Mono按钮到总线处理器
+    monoButton.onClick = [this]()
+    {
+        // 检查角色权限 - Slave模式禁止操作
+        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+            VST3_DBG_ROLE(&audioProcessor, "Mono button click ignored - Slave mode");
+            return;
+        }
+        
+        // 切换Mono状态
+        audioProcessor.masterBusProcessor.toggleMono();
+        
+        // 更新按钮状态
+        monoButton.setToggleState(audioProcessor.masterBusProcessor.isMonoActive(), juce::dontSendNotification);
+    };
+    
+    // v4.1: 设置Mono状态变化回调 - 用于OSC控制时更新UI
+    audioProcessor.masterBusProcessor.onMonoStateChanged = [this]()
+    {
+        // 在主线程中更新UI
+        juce::MessageManager::callAsync([this]()
+        {
+            monoButton.setToggleState(audioProcessor.masterBusProcessor.isMonoActive(), juce::dontSendNotification);
+        });
+    };
 
     addAndMakeVisible(speakerLayoutSelector);
     speakerLayoutSelector.addItemList(configManager.getSpeakerLayoutNames(), 1);
@@ -308,6 +340,9 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     
     // v4.1: 添加Master Mute按钮 (与Low Boost按钮同样大小)
     sidebarFlex.items.add(juce::FlexItem(masterMuteButton).withHeight(50).withMargin(5));
+    
+    // v4.1: 添加Mono按钮 (与其他按钮同样大小)
+    sidebarFlex.items.add(juce::FlexItem(monoButton).withHeight(50).withMargin(5));
     
     sidebarFlex.performLayout(sidebarBounds);
 
@@ -979,6 +1014,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
     masterGainSlider.setEnabled(!isSlaveMode);
     lowBoostButton.setEnabled(!isSlaveMode);
     masterMuteButton.setEnabled(!isSlaveMode);
+    monoButton.setEnabled(!isSlaveMode);
     
     // 禁用布局选择器（Slave不能更改布局）
     speakerLayoutSelector.setEnabled(!isSlaveMode);
@@ -1007,6 +1043,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         masterGainSlider.setAlpha(0.6f);
         lowBoostButton.setAlpha(0.6f);
         masterMuteButton.setAlpha(0.6f);
+        monoButton.setAlpha(0.6f);
         speakerLayoutSelector.setAlpha(0.6f);
         subLayoutSelector.setAlpha(0.6f);
     } else {
@@ -1017,6 +1054,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         masterGainSlider.setAlpha(1.0f);
         lowBoostButton.setAlpha(1.0f);
         masterMuteButton.setAlpha(1.0f);
+        monoButton.setAlpha(1.0f);
         speakerLayoutSelector.setAlpha(1.0f);
         subLayoutSelector.setAlpha(1.0f);
     }

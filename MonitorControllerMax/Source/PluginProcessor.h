@@ -52,6 +52,7 @@ public:
     
     // 状态同步接口（供GlobalPluginState调用）
     void receiveMasterState(const juce::String& channelName, const juce::String& action, bool state);
+    void receiveMasterBusState(const juce::String& busEffect, bool state);  // v4.1: 接收总线效果状态
     void onMasterDisconnected();
     void onMasterConnected();
     
@@ -114,6 +115,7 @@ public:
     void sendDimOSCState(bool dimState);
     void sendLowBoostOSCState(bool lowBoostState);
     void sendMasterMuteOSCState(bool masterMuteState);
+    void sendMonoOSCState(bool monoState);
     
     // 状态同步时的回调处理（整合到现有回调中）
     void onSemanticStateChanged(const juce::String& channelName, const juce::String& action, bool state);
