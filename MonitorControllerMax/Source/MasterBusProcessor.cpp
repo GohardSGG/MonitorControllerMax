@@ -80,8 +80,8 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
                 monoMix.addFrom(0, 0, buffer, channel, 0, numSamples);
             }
             
-            // 归一化混合结果 (防止响度过大)
-            float mixGain = 1.0f / std::sqrt(static_cast<float>(nonSubChannels.size()));
+            // 电压补偿混合结果 (每两个通道-6dB的对数衰减)
+            float mixGain = 1.0f / static_cast<float>(nonSubChannels.size());
             monoMix.applyGain(0, 0, numSamples, mixGain);
             
             // 步骤3: 将混合结果复制到所有非SUB通道
