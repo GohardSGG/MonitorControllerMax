@@ -72,10 +72,12 @@ public:
     
     juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override
     {
-        // v4.1: 为Low Boost和Master Mute按钮设置更小的字体
-        if (button.getButtonText().contains("LOW") || button.getButtonText().contains("MASTER"))
+        // v4.2: 按字符长度判断字体大小 - 6个字符及以上使用小字体
+        if (button.getButtonText().length() >= 6)
         {
-            return juce::Font(12.0f);  // 更小的字号以适应换行文字
+            // 获取默认字体的样式，但使用较小的字号
+            auto defaultFont = juce::LookAndFeel_V4::getTextButtonFont(button, buttonHeight);
+            return defaultFont.withHeight(12.0f);  // 保持原有字体粗细，只改变大小
         }
         return juce::LookAndFeel_V4::getTextButtonFont(button, buttonHeight);
     }

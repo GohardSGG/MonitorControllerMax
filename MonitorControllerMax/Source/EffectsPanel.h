@@ -75,9 +75,12 @@ private:
     // 面板状态
     bool panelVisible = false;
     
-    // 迁移的总线效果按钮
+    // 总线效果按钮集合 (模块化扩展)
     juce::TextButton lowBoostButton{ "LOW BOOST" };
+    juce::TextButton highBoostButton{ "HIGH BOOST" };  // 新增
     juce::TextButton monoButton{ "MONO" };
+    juce::TextButton dolbyCurveButton{ "DOLBY CURVE" };  // 新增
+    juce::TextButton phoneCurveButton{ "PHONE CURVE" };  // 新增
     
     // 5×5网格布局系统 (与主界面一致)
     juce::Grid effectsGrid;
@@ -86,11 +89,17 @@ private:
     // 私有方法
     void setupButtons();
     void setupLowBoostButton();
+    void setupHighBoostButton();    // 新增
     void setupMonoButton();
+    void setupDolbyCurveButton();   // 新增
+    void setupPhoneCurveButton();   // 新增
     
     // 按钮回调处理
     void handleLowBoostClick();
+    void handleHighBoostClick();    // 新增
     void handleMonoClick();
+    void handleDolbyCurveClick();   // 新增
+    void handlePhoneCurveClick();   // 新增
     
     // 布局和绘制辅助
     void layoutButtons(juce::Rectangle<int> area);

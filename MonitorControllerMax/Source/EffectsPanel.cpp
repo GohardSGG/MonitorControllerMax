@@ -93,7 +93,10 @@ bool EffectsPanel::isPanelVisible() const
 void EffectsPanel::setupButtons()
 {
     setupLowBoostButton();
-    setupMonoButton();
+    setupHighBoostButton();
+    setupMonoButton(); 
+    setupDolbyCurveButton();
+    setupPhoneCurveButton();
 }
 
 void EffectsPanel::setupLowBoostButton()
@@ -105,6 +108,10 @@ void EffectsPanel::setupLowBoostButton()
     
     // 颜色设置 (与原实现保持一致)
     lowBoostButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    
+    // 字体颜色设置 (与其他按钮保持一致)
+    lowBoostButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    lowBoostButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
     
     // 点击回调 - 直接调用MasterBusProcessor
     lowBoostButton.onClick = [this]()
@@ -132,6 +139,75 @@ void EffectsPanel::setupMonoButton()
     };
     
     VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Mono button initialized");
+}
+
+void EffectsPanel::setupHighBoostButton()
+{
+    // 基本属性设置 (完全参照LOW BOOST按钮)
+    addAndMakeVisible(highBoostButton);
+    highBoostButton.setButtonText("HIGH BOOST");
+    highBoostButton.setClickingTogglesState(true);
+    
+    // 颜色设置 (与原实现保持一致)
+    highBoostButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    
+    // 字体大小设置 (使用LookAndFeel设置统一字体大小)
+    highBoostButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    highBoostButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    
+    // 点击回调 - 直接调用MasterBusProcessor
+    highBoostButton.onClick = [this]()
+    {
+        handleHighBoostClick();
+    };
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: High Boost button initialized");
+}
+
+void EffectsPanel::setupDolbyCurveButton()
+{
+    // 基本属性设置 (完全参照LOW BOOST按钮)
+    addAndMakeVisible(dolbyCurveButton);
+    dolbyCurveButton.setButtonText("DOLBY CURVE");
+    dolbyCurveButton.setClickingTogglesState(true);
+    
+    // 颜色设置 (与原实现保持一致)
+    dolbyCurveButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    
+    // 字体大小设置 (使用LookAndFeel设置统一字体大小)
+    dolbyCurveButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    dolbyCurveButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    
+    // 点击回调 - 直接调用MasterBusProcessor
+    dolbyCurveButton.onClick = [this]()
+    {
+        handleDolbyCurveClick();
+    };
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Dolby Curve button initialized");
+}
+
+void EffectsPanel::setupPhoneCurveButton()
+{
+    // 基本属性设置 (完全参照LOW BOOST按钮)
+    addAndMakeVisible(phoneCurveButton);
+    phoneCurveButton.setButtonText("PHONE CURVE");
+    phoneCurveButton.setClickingTogglesState(true);
+    
+    // 颜色设置 (与原实现保持一致)
+    phoneCurveButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    
+    // 字体大小设置 (使用LookAndFeel设置统一字体大小)
+    phoneCurveButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    phoneCurveButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    
+    // 点击回调 - 直接调用MasterBusProcessor
+    phoneCurveButton.onClick = [this]()
+    {
+        handlePhoneCurveClick();
+    };
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Phone Curve button initialized");
 }
 
 //==============================================================================
@@ -176,27 +252,86 @@ void EffectsPanel::handleMonoClick()
                  juce::String(audioProcessor.masterBusProcessor.isMonoActive() ? "ON" : "OFF"));
 }
 
+void EffectsPanel::handleHighBoostClick()
+{
+    // 检查角色权限 - Slave模式禁止操作
+    if (audioProcessor.getCurrentRole() == PluginRole::Slave)
+    {
+        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: High Boost click ignored - Slave mode");
+        return;
+    }
+    
+    // TODO: 实现High Boost功能 - 模块化设计便于后续扩展
+    // audioProcessor.masterBusProcessor.toggleHighBoost();
+    
+    // 临时设置按钮状态切换 (实际功能待实现)
+    bool newState = !highBoostButton.getToggleState();
+    highBoostButton.setToggleState(newState, juce::dontSendNotification);
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: High Boost toggled to " +
+                 juce::String(newState ? "ON" : "OFF") + " (功能待实现)");
+}
+
+void EffectsPanel::handleDolbyCurveClick()
+{
+    // 检查角色权限 - Slave模式禁止操作
+    if (audioProcessor.getCurrentRole() == PluginRole::Slave)
+    {
+        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Dolby Curve click ignored - Slave mode");
+        return;
+    }
+    
+    // TODO: 实现Dolby Curve功能 - 模块化设计便于后续扩展
+    // audioProcessor.masterBusProcessor.toggleDolbyCurve();
+    
+    // 临时设置按钮状态切换 (实际功能待实现)
+    bool newState = !dolbyCurveButton.getToggleState();
+    dolbyCurveButton.setToggleState(newState, juce::dontSendNotification);
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Dolby Curve toggled to " +
+                 juce::String(newState ? "ON" : "OFF") + " (功能待实现)");
+}
+
+void EffectsPanel::handlePhoneCurveClick()
+{
+    // 检查角色权限 - Slave模式禁止操作
+    if (audioProcessor.getCurrentRole() == PluginRole::Slave)
+    {
+        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Phone Curve click ignored - Slave mode");
+        return;
+    }
+    
+    // TODO: 实现Phone Curve功能 - 模块化设计便于后续扩展
+    // audioProcessor.masterBusProcessor.togglePhoneCurve();
+    
+    // 临时设置按钮状态切换 (实际功能待实现)
+    bool newState = !phoneCurveButton.getToggleState();
+    phoneCurveButton.setToggleState(newState, juce::dontSendNotification);
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Phone Curve toggled to " +
+                 juce::String(newState ? "ON" : "OFF") + " (功能待实现)");
+}
+
 //==============================================================================
 // 角色权限和状态更新
 void EffectsPanel::updateButtonStatesForRole()
 {
     bool isSlaveMode = (audioProcessor.getCurrentRole() == PluginRole::Slave);
     
-    // 角色化启用/禁用
+    // 角色化启用/禁用 (所有按钮)
     lowBoostButton.setEnabled(!isSlaveMode);
+    highBoostButton.setEnabled(!isSlaveMode);
     monoButton.setEnabled(!isSlaveMode);
+    dolbyCurveButton.setEnabled(!isSlaveMode);
+    phoneCurveButton.setEnabled(!isSlaveMode);
     
     // 视觉反馈 - Slave模式时降低透明度
-    if (isSlaveMode)
-    {
-        lowBoostButton.setAlpha(0.6f);
-        monoButton.setAlpha(0.6f);
-    }
-    else
-    {
-        lowBoostButton.setAlpha(1.0f);
-        monoButton.setAlpha(1.0f);
-    }
+    float alpha = isSlaveMode ? 0.6f : 1.0f;
+    lowBoostButton.setAlpha(alpha);
+    highBoostButton.setAlpha(alpha);
+    monoButton.setAlpha(alpha);
+    dolbyCurveButton.setAlpha(alpha);
+    phoneCurveButton.setAlpha(alpha);
     
     VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Button states updated for role - " +
                  juce::String(isSlaveMode ? "LOCKED" : "INTERACTIVE"));
@@ -227,10 +362,8 @@ void EffectsPanel::paint(juce::Graphics& g)
 
 void EffectsPanel::resized()
 {
-    auto area = getLocalBounds().reduced(10);  // 内边距
-    
-    // 使用JUCE Grid布局系统，与主界面完全一致
-    effectsGrid.performLayout(area);
+    // 使用JUCE Grid布局系统，与主界面完全一致（无内边距以实现完美对齐）
+    effectsGrid.performLayout(getLocalBounds());
 }
 
 void EffectsPanel::mouseDown(const juce::MouseEvent& event)
@@ -263,11 +396,16 @@ void EffectsPanel::setupEffectsGrid()
     // 创建25个空的GridItem（代表5×5网格的所有位置）
     std::vector<juce::GridItem> gridItems(25);
     
-    // 将LOW BOOST按钮放置在网格位置1（左上角第一个位置）
-    gridItems[0] = juce::GridItem(lowBoostButton);
+    // 第1行：LOW BOOST (位置1), HIGH BOOST (位置2)
+    gridItems[0] = juce::GridItem(lowBoostButton);   // 位置1 (第1行第1列)
+    gridItems[1] = juce::GridItem(highBoostButton);  // 位置2 (第1行第2列) 
     
-    // 将MONO按钮放置在网格位置2（第一行第二个位置）
-    gridItems[1] = juce::GridItem(monoButton);
+    // 第2行：DOLBY CURVE (位置6), PHONE CURVE (位置7)  
+    gridItems[5] = juce::GridItem(dolbyCurveButton); // 位置6 (第2行第1列)
+    gridItems[6] = juce::GridItem(phoneCurveButton); // 位置7 (第2行第2列)
+    
+    // 第5行：MONO (位置21) - 最后一行第1个位置
+    gridItems[20] = juce::GridItem(monoButton);      // 位置21 (第5行第1列)
     
     // 将所有GridItem添加到网格中
     for (auto& item : gridItems)
@@ -275,7 +413,8 @@ void EffectsPanel::setupEffectsGrid()
         effectsGrid.items.add(item);
     }
     
-    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: 5x5 grid setup complete - LOW BOOST at pos 1, MONO at pos 2");
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: 5x5 grid setup complete - " +
+                 juce::String("LOW BOOST@1, HIGH BOOST@2, DOLBY CURVE@6, PHONE CURVE@7, MONO@21"));
 }
 
 void EffectsPanel::layoutButtons(juce::Rectangle<int> area)
