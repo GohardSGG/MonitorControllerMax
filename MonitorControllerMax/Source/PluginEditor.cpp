@@ -73,35 +73,25 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         });
     };
     
-    // v4.1: 设置Low Boost按钮
-    addAndMakeVisible(lowBoostButton);
-    lowBoostButton.setButtonText("LOW\nBOOST");
-    lowBoostButton.setClickingTogglesState(true);
-    lowBoostButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    // v4.2: 设置Effects面板按钮 (替代原Low Boost和Mono按钮)
+    setupEffectsPanel();
     
-    // v4.1: 连接Low Boost按钮到总线处理器
-    lowBoostButton.onClick = [this]()
-    {
-        // 检查角色权限 - Slave模式禁止操作
-        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
-            VST3_DBG_ROLE(&audioProcessor, "Low Boost button click ignored - Slave mode");
-            return;
-        }
-        
-        // 切换Low Boost状态
-        audioProcessor.masterBusProcessor.toggleLowBoost();
-        
-        // 更新按钮状态
-        lowBoostButton.setToggleState(audioProcessor.masterBusProcessor.isLowBoostActive(), juce::dontSendNotification);
-    };
-    
-    // v4.1: 设置Low Boost状态变化回调 - 用于OSC控制时更新UI
+    // v4.2: 设置Effects面板按钮状态同步回调 (用于OSC控制时更新)
     audioProcessor.masterBusProcessor.onLowBoostStateChanged = [this]()
     {
         // 在主线程中更新UI
         juce::MessageManager::callAsync([this]()
         {
-            lowBoostButton.setToggleState(audioProcessor.masterBusProcessor.isLowBoostActive(), juce::dontSendNotification);
+            effectsPanel.updateButtonStatesFromProcessor();
+        });
+    };
+    
+    audioProcessor.masterBusProcessor.onMonoStateChanged = [this]()
+    {
+        // 在主线程中更新UI
+        juce::MessageManager::callAsync([this]()
+        {
+            effectsPanel.updateButtonStatesFromProcessor();
         });
     };
     
@@ -155,37 +145,6 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     // v4.1: 连接Master Gain旋钮到VST3参数
     masterGainSliderAttachment = std::make_unique<SliderAttachment>(audioProcessor.apvts, "MASTER_GAIN", masterGainSlider);
     
-    // v4.1: 设置Mono按钮
-    addAndMakeVisible(monoButton);
-    monoButton.setButtonText("MONO");
-    monoButton.setClickingTogglesState(true);
-    monoButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::yellow);
-    
-    // v4.1: 连接Mono按钮到总线处理器
-    monoButton.onClick = [this]()
-    {
-        // 检查角色权限 - Slave模式禁止操作
-        if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
-            VST3_DBG_ROLE(&audioProcessor, "Mono button click ignored - Slave mode");
-            return;
-        }
-        
-        // 切换Mono状态
-        audioProcessor.masterBusProcessor.toggleMono();
-        
-        // 更新按钮状态
-        monoButton.setToggleState(audioProcessor.masterBusProcessor.isMonoActive(), juce::dontSendNotification);
-    };
-    
-    // v4.1: 设置Mono状态变化回调 - 用于OSC控制时更新UI
-    audioProcessor.masterBusProcessor.onMonoStateChanged = [this]()
-    {
-        // 在主线程中更新UI
-        juce::MessageManager::callAsync([this]()
-        {
-            monoButton.setToggleState(audioProcessor.masterBusProcessor.isMonoActive(), juce::dontSendNotification);
-        });
-    };
 
     addAndMakeVisible(speakerLayoutSelector);
     speakerLayoutSelector.addItemList(configManager.getSpeakerLayoutNames(), 1);
@@ -335,14 +294,14 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
     // v4.1: 添加Master Gain旋钮 (移除文字标签，保持简洁)
     sidebarFlex.items.add(juce::FlexItem(masterGainSlider).withHeight(80).withMargin(5));
     
-    // v4.1: 添加Low Boost按钮 (与Dim按钮同样大小)
-    sidebarFlex.items.add(juce::FlexItem(lowBoostButton).withHeight(50).withMargin(5));
-    
-    // v4.1: 添加Master Mute按钮 (与Low Boost按钮同样大小)
+    // v4.1: 添加Master Mute按钮 (与Dim按钮同样大小)
     sidebarFlex.items.add(juce::FlexItem(masterMuteButton).withHeight(50).withMargin(5));
     
-    // v4.1: 添加Mono按钮 (与其他按钮同样大小)
-    sidebarFlex.items.add(juce::FlexItem(monoButton).withHeight(50).withMargin(5));
+    // v4.2: 添加空隙分隔
+    sidebarFlex.items.add(juce::FlexItem().withHeight(10));
+    
+    // v4.2: 添加Effects面板按钮
+    sidebarFlex.items.add(juce::FlexItem(effectsPanelButton).withHeight(50).withMargin(5));
     
     sidebarFlex.performLayout(sidebarBounds);
 
@@ -376,6 +335,15 @@ void MonitorControllerMaxAudioProcessorEditor::resized()
 
     // 4. 在所有容器的边界都确定后，再调用updateLayout来填充网格内容
     updateLayout();
+}
+
+void MonitorControllerMaxAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
+{
+    // v4.2: 处理Effects面板外部点击关闭
+    handleEffectsPanelOutsideClick(event);
+    
+    // 调用基类处理
+    juce::Component::mouseDown(event);
 }
 
 void MonitorControllerMaxAudioProcessorEditor::updateLayout()
@@ -1012,9 +980,13 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
     
     // v4.1: Slave模式禁用Master总线控件
     masterGainSlider.setEnabled(!isSlaveMode);
-    lowBoostButton.setEnabled(!isSlaveMode);
     masterMuteButton.setEnabled(!isSlaveMode);
-    monoButton.setEnabled(!isSlaveMode);
+    
+    // v4.2: Slave模式禁用Effects面板按钮
+    effectsPanelButton.setEnabled(!isSlaveMode);
+    
+    // v4.2: 更新Effects面板内部按钮的角色权限
+    effectsPanel.updateButtonStatesForRole();
     
     // 禁用布局选择器（Slave不能更改布局）
     speakerLayoutSelector.setEnabled(!isSlaveMode);
@@ -1041,9 +1013,8 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         globalMuteButton.setAlpha(0.6f);
         dimButton.setAlpha(0.6f);
         masterGainSlider.setAlpha(0.6f);
-        lowBoostButton.setAlpha(0.6f);
         masterMuteButton.setAlpha(0.6f);
-        monoButton.setAlpha(0.6f);
+        effectsPanelButton.setAlpha(0.6f);
         speakerLayoutSelector.setAlpha(0.6f);
         subLayoutSelector.setAlpha(0.6f);
     } else {
@@ -1052,9 +1023,8 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
         globalMuteButton.setAlpha(1.0f);
         dimButton.setAlpha(1.0f);
         masterGainSlider.setAlpha(1.0f);
-        lowBoostButton.setAlpha(1.0f);
         masterMuteButton.setAlpha(1.0f);
-        monoButton.setAlpha(1.0f);
+        effectsPanelButton.setAlpha(1.0f);
         speakerLayoutSelector.setAlpha(1.0f);
         subLayoutSelector.setAlpha(1.0f);
     }
@@ -1110,4 +1080,73 @@ void MonitorControllerMaxAudioProcessorEditor::clearDebugLog()
     updateDebugLogDisplay();
     
     // 移除无意义的日志输出
+}
+
+//==============================================================================
+// v4.2: Effects面板管理方法
+
+void MonitorControllerMaxAudioProcessorEditor::setupEffectsPanel()
+{
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Setting up Effects panel");
+    
+    // 设置Effects面板按钮
+    addAndMakeVisible(effectsPanelButton);
+    effectsPanelButton.setButtonText("EFFECTS");
+    effectsPanelButton.setClickingTogglesState(true);
+    
+    // 设置按钮颜色 (使用绿色区分于其他按钮)
+    effectsPanelButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::green);
+    
+    // 连接按钮点击事件
+    effectsPanelButton.onClick = [this]()
+    {
+        handleEffectsPanelButtonClick();
+    };
+    
+    // 添加Effects面板为子组件但初始隐藏
+    addAndMakeVisible(effectsPanel);
+    effectsPanel.setVisible(false);
+    
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Effects panel setup complete");
+}
+
+void MonitorControllerMaxAudioProcessorEditor::handleEffectsPanelButtonClick()
+{
+    // 检查角色权限 - Slave模式禁止操作
+    if (audioProcessor.getCurrentRole() == PluginRole::Slave) {
+        VST3_DBG_ROLE(&audioProcessor, "Effects panel button click ignored - Slave mode");
+        return;
+    }
+    
+    // 切换面板显示状态
+    if (effectsPanel.isPanelVisible()) {
+        effectsPanel.hidePanel();
+        effectsPanelButton.setToggleState(false, juce::dontSendNotification);
+        VST3_DBG_ROLE(&audioProcessor, "Effects panel hidden via button");
+    } else {
+        // 设置面板位置 (覆盖在通道网格左上角)
+        auto channelGridBounds = channelGridContainer.getBounds();
+        int panelX = channelGridBounds.getX() + EffectsPanel::PANEL_MARGIN;
+        int panelY = channelGridBounds.getY() + EffectsPanel::PANEL_MARGIN;
+        
+        effectsPanel.setBounds(panelX, panelY, 
+                              EffectsPanel::PANEL_WIDTH, 
+                              EffectsPanel::PANEL_HEIGHT);
+        
+        effectsPanel.showPanel();
+        effectsPanelButton.setToggleState(true, juce::dontSendNotification);
+        VST3_DBG_ROLE(&audioProcessor, "Effects panel shown via button");
+    }
+}
+
+void MonitorControllerMaxAudioProcessorEditor::handleEffectsPanelOutsideClick(const juce::MouseEvent& event)
+{
+    // 检查点击是否在面板外部
+    if (effectsPanel.isPanelVisible() && !effectsPanel.getBounds().contains(event.getPosition()))
+    {
+        // 点击面板外部，隐藏面板
+        effectsPanel.hidePanel();
+        effectsPanelButton.setToggleState(false, juce::dontSendNotification);
+        VST3_DBG_ROLE(&audioProcessor, "Effects panel hidden via outside click");
+    }
 }

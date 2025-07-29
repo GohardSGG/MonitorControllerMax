@@ -478,7 +478,7 @@ void MonitorControllerMaxAudioProcessor::getStateInformation (juce::MemoryBlock&
     // 只保留Gain参数、角色、布局配置的持久化，确保插件重新加载时Solo/Mute状态为干净初始状态
     // Note: Solo/Mute状态在DAW会话期间（窗口关闭/重开）仍然通过内存对象维持
     
-    VST3_DBG("PluginProcessor: Saving complete state - Layout: " + userSelectedSpeakerLayout + " + " + userSelectedSubLayout + 
+    VST3_DBG_DETAIL("PluginProcessor: Saving complete state - Layout: " + userSelectedSpeakerLayout + " + " + userSelectedSubLayout + 
              ", Role: " + juce::String(static_cast<int>(currentRole)) + 
              " (Solo/Mute states NOT saved - clean startup policy)");
     

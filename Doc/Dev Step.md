@@ -202,3 +202,237 @@ float MasterBusProcessor::calculateMasterLevel() const {
 - `/Monitor/Master/Dim` - Dim开关控制 (0/1)
 
 **v4.1在v4.0基础上完美实现了Master Bus Processor系统，为专业监听控制提供了完整的总线效果处理能力！** 🎛️✨
+
+---
+
+# v4.2 总线效果面板重构系统
+
+## 🎯 **v4.2目标 - 总线效果UI集中化**
+
+**实现目标：** 创建弹出式总线效果面板，将分散的总线效果按钮集中管理，提升UI组织性和扩展性。
+
+**迁移范围：**
+- ✅ Low Boost 按钮 → 迁移到效果面板
+- ✅ Mono 按钮 → 迁移到效果面板
+
+**保留的左侧按钮：**
+- ✅ globalSoloButton (SOLO) - 保留
+- ✅ globalMuteButton (MUTE) - 保留  
+- ✅ dimButton (DIM) - 保留
+- ✅ masterMuteButton (MASTER MUTE) - 保留
+- ✅ masterGainSlider (Master Gain旋钮) - 保留
+
+## 📋 **v4.2实施步骤**
+
+### ✅ Phase 1: 创建EffectsPanel核心类
+**任务清单：**
+- [ ] 创建 `Source/EffectsPanel.h` - 效果面板类声明
+- [ ] 创建 `Source/EffectsPanel.cpp` - 效果面板实现
+- [ ] 实现弹出式面板显示/隐藏逻辑
+- [ ] 设计面板布局系统 (2x1网格，支持未来扩展)
+- [ ] 实现点击外部关闭功能
+
+**EffectsPanel类设计：**
+```cpp
+class EffectsPanel : public juce::Component
+{
+public:
+    EffectsPanel(MonitorControllerMaxAudioProcessor& processor);
+    
+    void showPanel();
+    void hidePanel();
+    bool isPanelVisible() const;
+    
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
+    
+private:
+    MonitorControllerMaxAudioProcessor& audioProcessor;
+    
+    // 迁移的按钮
+    juce::TextButton lowBoostButton{ "LOW BOOST" };
+    juce::TextButton monoButton{ "MONO" };
+    
+    bool isVisible = false;
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EffectsPanel)
+};
+```
+
+### ✅ Phase 2: 修改PluginEditor布局
+**任务清单：**
+- [ ] 修改 `Source/PluginEditor.h` - 添加EffectsPanel和effectsPanelButton声明
+- [ ] 修改 `Source/PluginEditor.cpp` - 重构左侧布局，移除Low Boost和Mono按钮
+- [ ] 添加Effects按钮到左侧侧边栏
+- [ ] 实现Effects按钮点击逻辑 (切换面板显示/隐藏)
+- [ ] 将面板添加为子组件，并设置正确的显示层次
+
+**左侧新布局：**
+```cpp
+// 新的左侧侧边栏布局 (7个元素)
+sidebarFlex.items.add(FlexItem(globalSoloButton).withHeight(50));
+sidebarFlex.items.add(FlexItem(globalMuteButton).withHeight(50));
+sidebarFlex.items.add(FlexItem(dimButton).withHeight(50));
+sidebarFlex.items.add(FlexItem(masterMuteButton).withHeight(50));
+sidebarFlex.items.add(FlexItem(masterGainSlider).withHeight(80));
+sidebarFlex.items.add(FlexItem().withHeight(10)); // 空隙
+sidebarFlex.items.add(FlexItem(effectsPanelButton).withHeight(50)); // 新增
+```
+
+### ✅ Phase 3: 按钮逻辑迁移
+**任务清单：**
+- [ ] 从PluginEditor.cpp中移除Low Boost按钮的所有相关代码
+- [ ] 从PluginEditor.cpp中移除Mono按钮的所有相关代码  
+- [ ] 在EffectsPanel.cpp中重新实现Low Boost按钮逻辑
+- [ ] 在EffectsPanel.cpp中重新实现Mono按钮逻辑
+- [ ] 保持与MasterBusProcessor的连接不变
+- [ ] 维持OSC通信和Master-Slave同步功能
+
+**迁移的回调逻辑：**
+```cpp
+// EffectsPanel.cpp 中重新实现
+lowBoostButton.onClick = [this]() {
+    if (audioProcessor.getCurrentRole() == PluginRole::Slave) return;
+    audioProcessor.masterBusProcessor.toggleLowBoost();
+};
+
+monoButton.onClick = [this]() {
+    if (audioProcessor.getCurrentRole() == PluginRole::Slave) return;
+    audioProcessor.masterBusProcessor.toggleMono();
+};
+```
+
+### ✅ Phase 4: 面板视觉设计和动画
+**任务清单：**
+- [ ] 实现面板背景绘制 (深色主题，圆角，阴影)
+- [ ] 设计面板尺寸 (250x120px，支持2个按钮)
+- [ ] 实现面板定位逻辑 (覆盖通道网格左上角)
+- [ ] 添加淡入淡出动画效果 (可选)
+- [ ] 实现半透明背景，保持通道功能可见性
+
+**面板样式规格：**
+```cpp
+// 面板设计参数
+static constexpr int PANEL_WIDTH = 250;
+static constexpr int PANEL_HEIGHT = 120;
+static constexpr int PANEL_MARGIN = 20;
+static constexpr float PANEL_CORNER_RADIUS = 8.0f;
+
+// 面板颜色 (与现有深色主题一致)
+const juce::Colour PANEL_BACKGROUND = juce::Colour(0xff2d2d2d);
+const juce::Colour PANEL_BORDER = juce::Colour(0xff5d5d5d);
+```
+
+### ✅ Phase 5: 角色权限和状态同步
+**任务清单：**
+- [ ] 确保面板按钮遵循Master/Slave权限控制
+- [ ] 实现面板按钮的角色化启用/禁用
+- [ ] 保持OSC控制时的UI状态同步
+- [ ] 验证Master-Slave状态同步功能正常
+- [ ] 添加面板相关的调试日志
+
+**权限控制实现：**
+```cpp
+// EffectsPanel中的角色检查
+void EffectsPanel::updateButtonStatesForRole() {
+    bool isSlaveMode = (audioProcessor.getCurrentRole() == PluginRole::Slave);
+    
+    lowBoostButton.setEnabled(!isSlaveMode);
+    monoButton.setEnabled(!isSlaveMode);
+    
+    if (isSlaveMode) {
+        lowBoostButton.setAlpha(0.6f);
+        monoButton.setAlpha(0.6f);
+    } else {
+        lowBoostButton.setAlpha(1.0f);
+        monoButton.setAlpha(1.0f);
+    }
+}
+```
+
+## 🎨 **界面效果预览**
+
+### 正常状态
+```
+┌──────┐─────────────────────────────────┐
+│ SOLO │                                 │
+│ MUTE │      通道网格区域               │
+│ DIM  │    ┌─────┐ ┌─────┐ ┌─────┐     │
+│M-MUTE│    │  L  │ │  R  │ │  C  │     │
+│[Gain]│    └─────┘ └─────┘ └─────┘     │
+│      │    ┌─────┐ ┌─────┐ ┌─────┐     │
+│EFFECT│    │ LS  │ │ RS  │ │ LFE │     │
+└──────┘    └─────┘ └─────┘ └─────┘     │
+└─────────────────────────────────────────┘
+```
+
+### 效果面板弹出状态
+```
+┌──────┐─────────────────────────────────┐
+│ SOLO │  ┌── Effects Panel ────┐       │
+│ MUTE │  │ ┌─────────┐ ┌──────┐│       │
+│ DIM  │  │ │LOW BOOST│ │ MONO ││       │
+│M-MUTE│  │ └─────────┘ └──────┘│       │
+│[Gain]│  │                     │       │
+│EFFECT│  │   [未来扩展空间]     │       │  
+└──────┘  └─────────────────────┘       │
+    通道网格 (背景半透明，功能正常)      │
+└─────────────────────────────────────────┘
+```
+
+## 📁 **文件修改清单**
+
+### 新增文件 (2个)
+- [ ] `Source/EffectsPanel.h` - 效果面板类声明
+- [ ] `Source/EffectsPanel.cpp` - 效果面板完整实现
+
+### 修改文件 (2个)  
+- [ ] `Source/PluginEditor.h` - 添加effectsPanel和effectsPanelButton声明，移除迁移按钮声明
+- [ ] `Source/PluginEditor.cpp` - 重构左侧布局，迁移按钮逻辑，添加面板控制
+
+### 代码量估计
+- 新增代码: ~200行 (EffectsPanel类)
+- 修改代码: ~60行 (PluginEditor布局重构)
+- 删除代码: ~40行 (迁移的按钮逻辑)
+- 净增代码: ~220行
+
+## 🚀 **v4.2验收标准**
+
+### ✅ 核心功能验收
+- [ ] Effects按钮点击正确切换面板显示/隐藏
+- [ ] 面板中的Low Boost和Mono按钮功能完全一致
+- [ ] 点击面板外部正确关闭面板
+- [ ] 面板不影响通道网格的正常操作
+
+### ✅ 视觉和交互验收
+- [ ] 面板样式与现有深色主题一致
+- [ ] 面板定位正确，不遮挡重要功能
+- [ ] 面板尺寸合适，支持2个按钮的清晰显示
+- [ ] 角色权限控制在面板中正确工作
+
+### ✅ 功能保持验收
+- [ ] 迁移后的按钮功能与原实现完全一致
+- [ ] OSC通信和Master-Slave同步功能不受影响
+- [ ] 所有现有功能保持正常工作
+- [ ] 编译无错误，无内存泄漏
+
+## 💡 **扩展设计**
+
+### 未来添加新效果
+面板采用灵活的网格布局，支持从2x1扩展到2x2、2x3等更大尺寸：
+```cpp
+// 扩展示例 (2x2布局)
+layout.items.add(FlexItem(lowBoostButton).withFlex(1));
+layout.items.add(FlexItem(monoButton).withFlex(1));
+layout.items.add(FlexItem(newEffect1Button).withFlex(1));  // 未来扩展
+layout.items.add(FlexItem(newEffect2Button).withFlex(1));  // 未来扩展
+```
+
+### 高级功能预留
+- 面板可拖拽repositioning
+- 分类标签页支持
+- 效果预设管理
+- MIDI控制器映射
+
+**v4.2将为MonitorControllerMax提供更加专业和组织化的总线效果控制界面！** 🎛️📱

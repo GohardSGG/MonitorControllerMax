@@ -12,6 +12,7 @@
 #include "PluginProcessor.h"
 #include "ConfigManager.h"
 #include "SemanticChannelButton.h"
+#include "EffectsPanel.h"
 #include <map>
 
 //==============================================================================
@@ -100,6 +101,7 @@ public:
     //==============================================================================
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
     void timerCallback() override;
     
     // Public UI update methods
@@ -136,9 +138,13 @@ private:
     juce::TextButton globalMuteButton{ "Mute" };
     juce::TextButton globalSoloButton{ "Solo" };
     juce::TextButton dimButton{ "Dim" };
-    juce::TextButton lowBoostButton{ "LowBoost" };
     juce::TextButton masterMuteButton{ "Master\nMute" };
-    juce::TextButton monoButton{ "Mono" };
+    
+    // v4.2: Effects面板按钮 (替代原来的lowBoostButton和monoButton)
+    juce::TextButton effectsPanelButton{ "EFFECTS" };
+    
+    // v4.2: 弹出式总线效果面板
+    EffectsPanel effectsPanel;
     
     // v4.1: Master Gain旋钮控件
     juce::Slider masterGainSlider;
@@ -186,6 +192,11 @@ private:
     void handleRoleChange();
     void updateDebugLogDisplay();
     void clearDebugLog();
+    
+    // v4.2: Effects面板管理
+    void setupEffectsPanel();
+    void handleEffectsPanelButtonClick();
+    void handleEffectsPanelOutsideClick(const juce::MouseEvent& event);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessorEditor)
 };
