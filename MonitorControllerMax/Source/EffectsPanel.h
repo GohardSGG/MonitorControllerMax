@@ -57,11 +57,10 @@ public:
     void mouseDown(const juce::MouseEvent& event) override;
     
     //==============================================================================
-    // 面板样式常量
-    static constexpr int PANEL_WIDTH = 250;
-    static constexpr int PANEL_HEIGHT = 120;
+    // 面板样式常量 (5×5网格布局，与主界面完全一致)
+    // 注意：面板尺寸现在动态匹配通道网格区域，不再使用固定尺寸常量
     static constexpr int PANEL_MARGIN = 20;
-    static constexpr float PANEL_CORNER_RADIUS = 8.0f;
+    static constexpr float PANEL_CORNER_RADIUS = 6.0f;
     
     // 面板颜色常量 (与现有深色主题一致)
     static const juce::Colour PANEL_BACKGROUND;
@@ -80,6 +79,9 @@ private:
     juce::TextButton lowBoostButton{ "LOW BOOST" };
     juce::TextButton monoButton{ "MONO" };
     
+    // 5×5网格布局系统 (与主界面一致)
+    juce::Grid effectsGrid;
+    
     //==============================================================================
     // 私有方法
     void setupButtons();
@@ -92,6 +94,7 @@ private:
     
     // 布局和绘制辅助
     void layoutButtons(juce::Rectangle<int> area);
+    void setupEffectsGrid();  // 设置5×5网格布局
     void drawPanelBackground(juce::Graphics& g, juce::Rectangle<int> area);
     void drawPanelBorder(juce::Graphics& g, juce::Rectangle<int> area);
     

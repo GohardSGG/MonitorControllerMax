@@ -15,10 +15,10 @@
 #include "DebugLogger.h"
 
 //==============================================================================
-// 面板颜色常量定义 (与现有深色主题一致)
-const juce::Colour EffectsPanel::PANEL_BACKGROUND = juce::Colour(0xff2d2d2d);
-const juce::Colour EffectsPanel::PANEL_BORDER = juce::Colour(0xff5d5d5d);
-const juce::Colour EffectsPanel::PANEL_SHADOW = juce::Colour(0x80000000);
+// 面板颜色常量定义 (简化设计)
+const juce::Colour EffectsPanel::PANEL_BACKGROUND = juce::Colour(0x80404040);  // 半透明灰色
+const juce::Colour EffectsPanel::PANEL_BORDER = juce::Colour(0xff606060);     // 简单边框
+const juce::Colour EffectsPanel::PANEL_SHADOW = juce::Colour(0x40000000);     // 简单阴影
 
 //==============================================================================
 EffectsPanel::EffectsPanel(MonitorControllerMaxAudioProcessor& processor)
@@ -30,11 +30,13 @@ EffectsPanel::EffectsPanel(MonitorControllerMaxAudioProcessor& processor)
     panelVisible = false;
     setVisible(false);
     
-    // 设置面板尺寸
-    setSize(PANEL_WIDTH, PANEL_HEIGHT);
+    // 注意：面板尺寸现在由父组件动态设置，无需在构造函数中设置固定尺寸
     
     // 初始化所有按钮
     setupButtons();
+    
+    // 设置5×5网格布局系统
+    setupEffectsGrid();
     
     VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Initialization complete");
 }
@@ -54,11 +56,19 @@ void EffectsPanel::showPanel()
         setVisible(true);
         toFront(true);  // 确保面板在最前面
         
+        // 强制触发resized()来确保布局正确
+        resized();
+        
         // 更新按钮状态以反映当前处理器状态
         updateButtonStatesFromProcessor();
         updateButtonStatesForRole();
         
-        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Panel shown");
+        // 详细调试信息
+        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Panel shown - Size: " +
+                     juce::String(getWidth()) + "x" + juce::String(getHeight()) +
+                     ", Position: " + juce::String(getX()) + "," + juce::String(getY()));
+        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: LowBoost visible: " + juce::String(lowBoostButton.isVisible() ? "YES" : "NO"));
+        VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Mono visible: " + juce::String(monoButton.isVisible() ? "YES" : "NO"));
     }
 }
 
@@ -207,6 +217,9 @@ void EffectsPanel::paint(juce::Graphics& g)
 {
     auto area = getLocalBounds();
     
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: paint() called - Area: " +
+                 juce::String(area.getWidth()) + "x" + juce::String(area.getHeight()));
+    
     // 绘制面板背景和边框
     drawPanelBackground(g, area);
     drawPanelBorder(g, area);
@@ -215,7 +228,9 @@ void EffectsPanel::paint(juce::Graphics& g)
 void EffectsPanel::resized()
 {
     auto area = getLocalBounds().reduced(10);  // 内边距
-    layoutButtons(area);
+    
+    // 使用JUCE Grid布局系统，与主界面完全一致
+    effectsGrid.performLayout(area);
 }
 
 void EffectsPanel::mouseDown(const juce::MouseEvent& event)
@@ -227,37 +242,64 @@ void EffectsPanel::mouseDown(const juce::MouseEvent& event)
 
 //==============================================================================
 // 私有绘制和布局方法
+
+void EffectsPanel::setupEffectsGrid()
+{
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: Setting up 5x5 grid layout");
+    
+    // 清空现有网格配置
+    effectsGrid.items.clear();
+    effectsGrid.setGap(juce::Grid::Px(5));  // 与主界面相同的间距
+    effectsGrid.templateRows.clear();
+    effectsGrid.templateColumns.clear();
+    
+    // 创建5×5网格布局
+    for (int i = 0; i < 5; ++i)
+    {
+        effectsGrid.templateRows.add(juce::Grid::TrackInfo(juce::Grid::Fr(1)));
+        effectsGrid.templateColumns.add(juce::Grid::TrackInfo(juce::Grid::Fr(1)));
+    }
+    
+    // 创建25个空的GridItem（代表5×5网格的所有位置）
+    std::vector<juce::GridItem> gridItems(25);
+    
+    // 将LOW BOOST按钮放置在网格位置1（左上角第一个位置）
+    gridItems[0] = juce::GridItem(lowBoostButton);
+    
+    // 将MONO按钮放置在网格位置2（第一行第二个位置）
+    gridItems[1] = juce::GridItem(monoButton);
+    
+    // 将所有GridItem添加到网格中
+    for (auto& item : gridItems)
+    {
+        effectsGrid.items.add(item);
+    }
+    
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: 5x5 grid setup complete - LOW BOOST at pos 1, MONO at pos 2");
+}
+
 void EffectsPanel::layoutButtons(juce::Rectangle<int> area)
 {
-    // 使用FlexBox进行2x1网格布局
-    juce::FlexBox buttonLayout;
-    buttonLayout.flexDirection = juce::FlexBox::Direction::row;
-    buttonLayout.justifyContent = juce::FlexBox::JustifyContent::spaceBetween;
-    buttonLayout.alignItems = juce::FlexBox::AlignItems::center;
-    
-    // 添加按钮到布局 (每个按钮占用相等空间，带边距)
-    buttonLayout.items.add(juce::FlexItem(lowBoostButton).withFlex(1).withMargin(5));
-    buttonLayout.items.add(juce::FlexItem(monoButton).withFlex(1).withMargin(5));
-    
-    // 应用布局
-    buttonLayout.performLayout(area);
+    // 这个方法现在由setupEffectsGrid()和resized()中的effectsGrid.performLayout()替代
+    // 保留用于调试目的
+    VST3_DBG_ROLE(&audioProcessor, "EffectsPanel: layoutButtons called (now using grid layout)");
 }
 
 void EffectsPanel::drawPanelBackground(juce::Graphics& g, juce::Rectangle<int> area)
 {
-    // 绘制阴影效果
+    // 简单阴影
     auto shadowArea = area.expanded(2);
     g.setColour(PANEL_SHADOW);
-    g.fillRoundedRectangle(shadowArea.toFloat(), PANEL_CORNER_RADIUS + 1.0f);
+    g.fillRoundedRectangle(shadowArea.toFloat(), PANEL_CORNER_RADIUS);
     
-    // 绘制主背景
+    // 半透明灰色背景 (可透视背后内容)
     g.setColour(PANEL_BACKGROUND);
     g.fillRoundedRectangle(area.toFloat(), PANEL_CORNER_RADIUS);
 }
 
 void EffectsPanel::drawPanelBorder(juce::Graphics& g, juce::Rectangle<int> area)
 {
-    // 绘制边框
+    // 简单边框
     g.setColour(PANEL_BORDER);
     g.drawRoundedRectangle(area.toFloat(), PANEL_CORNER_RADIUS, 1.0f);
 }

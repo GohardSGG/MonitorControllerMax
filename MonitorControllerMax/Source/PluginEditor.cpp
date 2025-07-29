@@ -1089,12 +1089,10 @@ void MonitorControllerMaxAudioProcessorEditor::setupEffectsPanel()
 {
     VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Setting up Effects panel");
     
-    // 设置Effects面板按钮
+    // 设置Effects面板按钮 (完全参照MASTER MUTE按钮的实现)
     addAndMakeVisible(effectsPanelButton);
-    effectsPanelButton.setButtonText("EFFECTS");
+    effectsPanelButton.setButtonText("EFFECT");  // 简化为单行文字
     effectsPanelButton.setClickingTogglesState(true);
-    
-    // 设置按钮颜色 (使用绿色区分于其他按钮)
     effectsPanelButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::green);
     
     // 连接按钮点击事件
@@ -1124,14 +1122,14 @@ void MonitorControllerMaxAudioProcessorEditor::handleEffectsPanelButtonClick()
         effectsPanelButton.setToggleState(false, juce::dontSendNotification);
         VST3_DBG_ROLE(&audioProcessor, "Effects panel hidden via button");
     } else {
-        // 设置面板位置 (覆盖在通道网格左上角)
+        // 设置面板位置 (完全覆盖通道网格区域)
         auto channelGridBounds = channelGridContainer.getBounds();
-        int panelX = channelGridBounds.getX() + EffectsPanel::PANEL_MARGIN;
-        int panelY = channelGridBounds.getY() + EffectsPanel::PANEL_MARGIN;
+        int panelX = channelGridBounds.getX();
+        int panelY = channelGridBounds.getY();
         
         effectsPanel.setBounds(panelX, panelY, 
-                              EffectsPanel::PANEL_WIDTH, 
-                              EffectsPanel::PANEL_HEIGHT);
+                              channelGridBounds.getWidth(), 
+                              channelGridBounds.getHeight());
         
         effectsPanel.showPanel();
         effectsPanelButton.setToggleState(true, juce::dontSendNotification);
