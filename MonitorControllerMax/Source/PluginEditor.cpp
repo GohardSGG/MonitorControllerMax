@@ -12,7 +12,7 @@
 
 //==============================================================================
 MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEditor (MonitorControllerMaxAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p), configManager(p.configManager)
+    : AudioProcessorEditor (&p), audioProcessor (p), configManager(p.configManager), effectsPanel(p)
 {
     addAndMakeVisible(globalMuteButton);
     globalMuteButton.setButtonText("MUTE");
