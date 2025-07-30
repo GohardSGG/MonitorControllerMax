@@ -60,6 +60,22 @@ private:
     std::vector<juce::String> connectionLogs;
     mutable std::mutex logsMutex;
     static const size_t maxLogEntries = 50;
+    
+    // 🚀 稳定性优化第4步：健壮性监控计数器
+    struct HealthMonitor {
+        std::atomic<uint32_t> pluginRegistrations{0};      // 插件注册次数
+        std::atomic<uint32_t> pluginUnregistrations{0};    // 插件注销次数
+        std::atomic<uint32_t> masterPromotions{0};         // Master提升次数
+        std::atomic<uint32_t> slaveConnections{0};         // Slave连接次数
+        std::atomic<uint32_t> stateChanges{0};             // 状态变化次数
+        std::atomic<uint32_t> broadcastCalls{0};           // 广播调用次数
+        std::atomic<uint32_t> exceptionsCaught{0};         // 捕获的异常次数
+        std::atomic<uint32_t> lockTimeouts{0};             // 锁超时次数
+        std::atomic<uint32_t> invalidPluginCleanups{0};   // 无效插件清理次数
+        
+        // 获取健康报告
+        juce::String getHealthReport() const;
+    } healthMonitor;
 
 public:
     // 单例访问
@@ -113,6 +129,11 @@ public:
     void addConnectionLog(const juce::String& message);
     std::vector<juce::String> getConnectionLogs() const;
     void clearConnectionLogs();
+    
+    // 🚀 稳定性优化第4步：健康监控接口
+    juce::String getHealthReport() const;
+    void resetHealthCounters();
+    uint32_t getTotalExceptions() const { return healthMonitor.exceptionsCaught.load(); }
 
 private:
     GlobalPluginState() = default;

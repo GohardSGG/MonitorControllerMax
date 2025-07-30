@@ -15,44 +15,66 @@ GlobalPluginState& GlobalPluginState::getInstance() {
 }
 
 void GlobalPluginState::registerPlugin(MonitorControllerMaxAudioProcessor* plugin) {
-    std::lock_guard<std::mutex> lock(pluginsMutex);
-    
-    if (plugin == nullptr) return;
-    
-    auto it = std::find(allPlugins.begin(), allPlugins.end(), plugin);
-    if (it == allPlugins.end()) {
-        allPlugins.push_back(plugin);
+    try {
+        std::lock_guard<std::mutex> lock(pluginsMutex);
         
-        juce::String logMsg = getCurrentTimeString() + " Plugin registered (ID: " + 
-                             juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + 
-                             ") - Total: " + juce::String(allPlugins.size());
+        if (plugin == nullptr) return;
         
-        VST3_DBG(logMsg);
-        addConnectionLog(logMsg);
+        auto it = std::find(allPlugins.begin(), allPlugins.end(), plugin);
+        if (it == allPlugins.end()) {
+            allPlugins.push_back(plugin);
+            
+            // 🚀 稳定性优化：计数器监控
+            healthMonitor.pluginRegistrations++;
+            
+            juce::String logMsg = getCurrentTimeString() + " Plugin registered (ID: " + 
+                                 juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + 
+                                 ") - Total: " + juce::String(allPlugins.size());
+            
+            VST3_DBG(logMsg);
+            addConnectionLog(logMsg);
+        }
+    }
+    catch (...) {
+        // 🚀 稳定性优化：异常处理
+        healthMonitor.exceptionsCaught++;
+        VST3_DBG("Exception caught in registerPlugin - continuing safely");
     }
 }
 
 void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plugin) {
-    std::lock_guard<std::mutex> lock(pluginsMutex);
-    
-    if (plugin == nullptr) return;
-    
-    // 从所有列表中移除
-    auto it = std::find(allPlugins.begin(), allPlugins.end(), plugin);
-    if (it != allPlugins.end()) {
-        allPlugins.erase(it);
+    try {
+        std::lock_guard<std::mutex> lock(pluginsMutex);
         
-        juce::String logMsg = getCurrentTimeString() + " Plugin unregistered (ID: " + 
-                             juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + 
-                             ") - Remaining: " + juce::String(allPlugins.size());
+        if (plugin == nullptr) return;
         
-        VST3_DBG(logMsg);
-        addConnectionLog(logMsg);
+        // 从所有列表中移除
+        auto it = std::find(allPlugins.begin(), allPlugins.end(), plugin);
+        if (it != allPlugins.end()) {
+            allPlugins.erase(it);
+            
+            // 🚀 稳定性优化：计数器监控
+            healthMonitor.pluginUnregistrations++;
+            
+            juce::String logMsg = getCurrentTimeString() + " Plugin unregistered (ID: " + 
+                                 juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + 
+                                 ") - Remaining: " + juce::String(allPlugins.size());
+            
+            VST3_DBG(logMsg);
+            addConnectionLog(logMsg);
+        }
+    }
+    catch (...) {
+        // 🚀 稳定性优化：异常处理
+        healthMonitor.exceptionsCaught++;
+        VST3_DBG("Exception caught in unregisterPlugin - continuing safely");
+        return;  // 安全退出，避免进一步处理
     }
     
-    // 如果是Master，清除Master状态
-    if (masterPlugin == plugin) {
-        masterPlugin = nullptr;
+    try {
+        // 如果是Master，清除Master状态  
+        if (masterPlugin == plugin) {
+            masterPlugin = nullptr;
         
         juce::String masterLogMsg = getCurrentTimeString() + " Master plugin unregistered - Master role available";
         VST3_DBG(masterLogMsg);
@@ -89,39 +111,56 @@ void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plu
                                     juce::String(waitingSlavePlugins.size());
         VST3_DBG(waitingLogMsg);
         addConnectionLog(waitingLogMsg);
+        }
+    }
+    catch (...) {
+        // 🚀 稳定性优化：异常处理
+        healthMonitor.exceptionsCaught++;
+        VST3_DBG("Exception caught in unregisterPlugin Master/Slave cleanup - continuing safely");
     }
 }
 
 bool GlobalPluginState::setAsMaster(MonitorControllerMaxAudioProcessor* plugin) {
-    std::lock_guard<std::mutex> lock(pluginsMutex);
-    
-    if (plugin == nullptr) return false;
-    
-    // 检查是否已经有Master
-    if (masterPlugin != nullptr && masterPlugin != plugin) {
-        juce::String logMsg = getCurrentTimeString() + " Master role denied - Master already exists";
+    try {
+        std::lock_guard<std::mutex> lock(pluginsMutex);
+        
+        if (plugin == nullptr) return false;
+        
+        // 检查是否已经有Master
+        if (masterPlugin != nullptr && masterPlugin != plugin) {
+            juce::String logMsg = getCurrentTimeString() + " Master role denied - Master already exists";
+            VST3_DBG(logMsg);
+            addConnectionLog(logMsg);
+            return false;
+        }
+        
+        // 从Slave列表移除（如果存在）
+        auto slaveIt = std::find(slavePlugins.begin(), slavePlugins.end(), plugin);
+        if (slaveIt != slavePlugins.end()) {
+            slavePlugins.erase(slaveIt);
+        }
+        
+        masterPlugin = plugin;
+        
+        // 🚀 稳定性优化：计数器监控
+        healthMonitor.masterPromotions++;
+        
+        juce::String logMsg = getCurrentTimeString() + " Master role assigned (ID: " + 
+                             juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + ")";
         VST3_DBG(logMsg);
         addConnectionLog(logMsg);
+        
+        // 将等待中的Slave提升为活跃Slave
+        promoteWaitingSlavesToActive();
+        
+        return true;
+    }
+    catch (...) {
+        // 🚀 稳定性优化：异常处理
+        healthMonitor.exceptionsCaught++;
+        VST3_DBG("Exception caught in setAsMaster - returning false safely");
         return false;
     }
-    
-    // 从Slave列表移除（如果存在）
-    auto slaveIt = std::find(slavePlugins.begin(), slavePlugins.end(), plugin);
-    if (slaveIt != slavePlugins.end()) {
-        slavePlugins.erase(slaveIt);
-    }
-    
-    masterPlugin = plugin;
-    
-    juce::String logMsg = getCurrentTimeString() + " Master role assigned (ID: " + 
-                         juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(plugin)) + ")";
-    VST3_DBG(logMsg);
-    addConnectionLog(logMsg);
-    
-    // 将等待中的Slave提升为活跃Slave
-    promoteWaitingSlavesToActive();
-    
-    return true;
 }
 
 void GlobalPluginState::removeMaster(MonitorControllerMaxAudioProcessor* plugin) {
@@ -251,25 +290,41 @@ bool GlobalPluginState::getGlobalMuteState(const juce::String& channelName) cons
 }
 
 void GlobalPluginState::broadcastStateToSlaves(const juce::String& channelName, const juce::String& action, bool state) {
-    std::lock_guard<std::mutex> lock(pluginsMutex);
-    
-    // 清理无效插件指针
-    cleanupInvalidPlugins();
-    
-    if (slavePlugins.empty()) return;
-    
-    VST3_DBG("Broadcasting " + action + " " + channelName + " = " + (state ? "true" : "false") + 
-             " to " + juce::String(slavePlugins.size()) + " slaves");
-    
-    for (auto* slave : slavePlugins) {
-        if (slave != nullptr) {
-            try {
-                // 直接调用Slave的状态接收方法 - 零延迟
-                slave->receiveMasterState(channelName, action, state);
-            } catch (const std::exception& e) {
-                VST3_DBG("Error broadcasting to slave: " + juce::String(e.what()));
+    try {
+        std::lock_guard<std::mutex> lock(pluginsMutex);
+        
+        // 清理无效插件指针
+        cleanupInvalidPlugins();
+        
+        if (slavePlugins.empty()) return;
+        
+        // 🚀 稳定性优化：计数器监控
+        healthMonitor.broadcastCalls++;
+        
+        VST3_DBG("Broadcasting " + action + " " + channelName + " = " + (state ? "true" : "false") + 
+                 " to " + juce::String(slavePlugins.size()) + " slaves");
+        
+        for (auto* slave : slavePlugins) {
+            if (slave != nullptr) {
+                try {
+                    // 直接调用Slave的状态接收方法 - 零延迟
+                    slave->receiveMasterState(channelName, action, state);
+                } catch (const std::exception& e) {
+                    // 🚀 稳定性优化：记录个别Slave通信异常
+                    healthMonitor.exceptionsCaught++;
+                    VST3_DBG("Error broadcasting to slave: " + juce::String(e.what()));
+                } catch (...) {
+                    // 🚀 稳定性优化：捕获所有类型异常
+                    healthMonitor.exceptionsCaught++;
+                    VST3_DBG("Unknown error broadcasting to slave");
+                }
             }
         }
+    }
+    catch (...) {
+        // 🚀 稳定性优化：整体异常处理
+        healthMonitor.exceptionsCaught++;
+        VST3_DBG("Exception caught in broadcastStateToSlaves - continuing safely");
     }
 }
 
@@ -497,8 +552,59 @@ void GlobalPluginState::broadcastMonoStateToSlaves(bool monoState) {
             try {
                 slave->receiveMasterBusState("mono", monoState);
             } catch (const std::exception& e) {
+                // 🚀 稳定性优化：监控总线状态广播异常
+                healthMonitor.exceptionsCaught++;
                 VST3_DBG("Error broadcasting mono state: " + juce::String(e.what()));
             }
         }
     }
+}
+
+//==============================================================================
+// 🚀 稳定性优化第4步：健康监控系统实现
+
+juce::String GlobalPluginState::HealthMonitor::getHealthReport() const {
+    juce::String report;
+    report += "=== GlobalPluginState 健康报告 ===\n";
+    report += "插件注册: " + juce::String(pluginRegistrations.load()) + "\n";
+    report += "插件注销: " + juce::String(pluginUnregistrations.load()) + "\n";
+    report += "Master提升: " + juce::String(masterPromotions.load()) + "\n";
+    report += "Slave连接: " + juce::String(slaveConnections.load()) + "\n";
+    report += "状态变化: " + juce::String(stateChanges.load()) + "\n";
+    report += "广播调用: " + juce::String(broadcastCalls.load()) + "\n";
+    report += "异常捕获: " + juce::String(exceptionsCaught.load()) + "\n";
+    report += "锁超时: " + juce::String(lockTimeouts.load()) + "\n";
+    report += "无效插件清理: " + juce::String(invalidPluginCleanups.load()) + "\n";
+    
+    // 🚀 健康状态评估
+    uint32_t totalExceptions = exceptionsCaught.load();
+    uint32_t totalOperations = pluginRegistrations.load() + pluginUnregistrations.load() + 
+                              broadcastCalls.load() + stateChanges.load();
+    
+    if (totalExceptions == 0) {
+        report += "状态: ✅ 优秀 - 无异常";
+    } else if (totalOperations > 0 && (totalExceptions * 100 / totalOperations) < 1) {
+        report += "状态: ⚠️ 良好 - 异常率低于1%";
+    } else {
+        report += "状态: ❌ 需要关注 - 异常率过高";
+    }
+    
+    return report;
+}
+
+juce::String GlobalPluginState::getHealthReport() const {
+    return healthMonitor.getHealthReport();
+}
+
+void GlobalPluginState::resetHealthCounters() {
+    // 🚀 重置所有健康监控计数器
+    healthMonitor.pluginRegistrations = 0;
+    healthMonitor.pluginUnregistrations = 0;
+    healthMonitor.masterPromotions = 0;
+    healthMonitor.slaveConnections = 0;
+    healthMonitor.stateChanges = 0;
+    healthMonitor.broadcastCalls = 0;
+    healthMonitor.exceptionsCaught = 0;
+    healthMonitor.lockTimeouts = 0;
+    healthMonitor.invalidPluginCleanups = 0;
 }
