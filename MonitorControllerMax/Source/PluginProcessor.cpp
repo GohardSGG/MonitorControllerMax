@@ -62,6 +62,10 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     masterBusProcessor.setProcessor(this);
     VST3_DBG_ROLE(this, "MasterBusProcessor initialized");
     
+    // JUCE架构重构：初始化状态管理器
+    stateManager = std::make_unique<StateManager>(*this);
+    VST3_DBG_ROLE(this, "StateManager initialized - JUCE-compliant architecture active");
+    
     // 设置OSC外部控制回调（所有角色都设置，但只有Master/Standalone处理）
     oscCommunicator.onExternalStateChange = [this](const juce::String& action, const juce::String& channelName, bool state) 
     {
@@ -304,7 +308,19 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
-
+    
+    // JUCE架构重构：使用新的无锁处理模式
+    if (stateManager != nullptr) {
+        // 获取当前渲染状态（单个原子操作）
+        const RenderState* renderState = stateManager->getCurrentRenderState();
+        if (renderState != nullptr) {
+            // 应用预计算的渲染状态（高度优化的内联函数）
+            renderState->applyToBuffer(buffer, buffer.getNumSamples());
+            return;  // 新架构处理完成，直接返回
+        }
+    }
+    
+    // 以下是旧架构的备用处理（如果StateManager未初始化）
     // 清除任何多余的输出通道，以防万一 (例如，从单声道到立体声)
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());

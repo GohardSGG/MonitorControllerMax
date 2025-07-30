@@ -20,6 +20,8 @@
 #include "OSCCommunicator.h"
 #include "GlobalPluginState.h"
 #include "MasterBusProcessor.h"
+#include "StateManager.h"
+#include "RenderState.h"
 
 //==============================================================================
 
@@ -177,6 +179,9 @@ public:
     PhysicalChannelMapper physicalMapper;
     OSCCommunicator oscCommunicator;
     MasterBusProcessor masterBusProcessor;  // v4.1: 总线效果处理器
+    
+    // JUCE架构重构：状态管理器
+    std::unique_ptr<StateManager> stateManager;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
