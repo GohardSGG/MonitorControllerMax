@@ -18,6 +18,10 @@
 MasterBusProcessor::MasterBusProcessor()
 {
     VST3_DBG("MasterBusProcessor: Initialize master bus processor");
+    
+    // 预分配缓冲区初始化
+    std::fill(monoMixBuffer.begin(), monoMixBuffer.end(), 0.0f);
+    std::fill(nonSubChannelsBuffer.begin(), nonSubChannelsBuffer.end(), 0);
 }
 
 MasterBusProcessor::~MasterBusProcessor()
@@ -29,6 +33,26 @@ MasterBusProcessor::~MasterBusProcessor()
 void MasterBusProcessor::setProcessor(MonitorControllerMaxAudioProcessor* processor)
 {
     processorPtr = processor;
+}
+
+//==============================================================================
+void MasterBusProcessor::prepare(double sampleRate, int maximumExpectedSamplesPerBlock)
+{
+    // 验证缓冲区大小足够
+    jassert(maximumExpectedSamplesPerBlock <= static_cast<int>(MAX_BLOCK_SIZE));
+    
+    if (maximumExpectedSamplesPerBlock > static_cast<int>(MAX_BLOCK_SIZE))
+    {
+        VST3_DBG("MasterBusProcessor: WARNING - Block size " << maximumExpectedSamplesPerBlock 
+                 << " exceeds MAX_BLOCK_SIZE " << MAX_BLOCK_SIZE);
+    }
+    
+    // 预热缓存 - 确保内存页面被分配和初始化
+    std::fill(monoMixBuffer.begin(), monoMixBuffer.end(), 0.0f);
+    std::fill(nonSubChannelsBuffer.begin(), nonSubChannelsBuffer.end(), 0);
+    
+    VST3_DBG("MasterBusProcessor: Prepared for sampleRate=" << sampleRate 
+             << ", maxBlockSize=" << maximumExpectedSamplesPerBlock);
 }
 
 //==============================================================================
@@ -53,41 +77,68 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
     
     // v4.1: 处理Mono效果 - 将所有非SUB通道混合成单声道并复制到所有非SUB通道
     // 重要：Mono处理只在Slave/Standalone模式下进行 (pre-calibration)
+    // 🚀 稳定性优化：使用预分配缓冲区，消除音频线程中的内存分配
     if (monoActive && processorPtr && 
         (currentRole == PluginRole::Slave || currentRole == PluginRole::Standalone))
     {
-        // 步骤1: 收集所有非SUB通道的索引
-        std::vector<int> nonSubChannels;
-        for (int channel = 0; channel < totalChannels; ++channel)
+        // 边界检查：确保不超过预分配缓冲区大小
+        if (numSamples > static_cast<int>(MAX_BLOCK_SIZE) || totalChannels > static_cast<int>(MAX_CHANNELS))
+        {
+            jassertfalse;  // Debug断言
+            return;        // Release版本安全返回，跳过Mono处理
+        }
+        
+        // 步骤1: 收集所有非SUB通道的索引（使用预分配缓冲区）
+        nonSubChannelsCount = 0;
+        for (int channel = 0; channel < totalChannels && nonSubChannelsCount < MAX_CHANNELS; ++channel)
         {
             auto channelName = processorPtr->getPhysicalMapper().getSemanticNameSafe(channel);
             if (!channelName.startsWith("SUB"))
             {
-                nonSubChannels.push_back(channel);
+                nonSubChannelsBuffer[nonSubChannelsCount++] = channel;
             }
         }
         
-        // 步骤2: 混合所有非SUB通道内容
-        if (nonSubChannels.size() > 1)
+        // 步骤2: 混合所有非SUB通道内容（使用预分配缓冲区）
+        if (nonSubChannelsCount > 1)
         {
-            // 创建混合缓冲区
-            juce::AudioBuffer<float> monoMix(1, numSamples);
-            monoMix.clear();
+            // 使用预分配的混音缓冲区
+            float* monoMix = monoMixBuffer.data();
+            
+            // 清零混音缓冲区
+            std::fill_n(monoMix, numSamples, 0.0f);
             
             // 混合所有非SUB通道到单声道
-            for (int channel : nonSubChannels)
+            for (size_t i = 0; i < nonSubChannelsCount; ++i)
             {
-                monoMix.addFrom(0, 0, buffer, channel, 0, numSamples);
+                int channel = nonSubChannelsBuffer[i];
+                const float* channelData = buffer.getReadPointer(channel);
+                
+                // 手动累加避免AudioBuffer分配
+                for (int sample = 0; sample < numSamples; ++sample)
+                {
+                    monoMix[sample] += channelData[sample];
+                }
             }
             
             // 电压补偿混合结果 (每两个通道-6dB的对数衰减)
-            float mixGain = 1.0f / static_cast<float>(nonSubChannels.size());
-            monoMix.applyGain(0, 0, numSamples, mixGain);
+            float mixGain = 1.0f / static_cast<float>(nonSubChannelsCount);
+            for (int sample = 0; sample < numSamples; ++sample)
+            {
+                monoMix[sample] *= mixGain;
+            }
             
             // 步骤3: 将混合结果复制到所有非SUB通道
-            for (int channel : nonSubChannels)
+            for (size_t i = 0; i < nonSubChannelsCount; ++i)
             {
-                buffer.copyFrom(channel, 0, monoMix, 0, 0, numSamples);
+                int channel = nonSubChannelsBuffer[i];
+                float* channelData = buffer.getWritePointer(channel);
+                
+                // 手动复制避免AudioBuffer操作
+                for (int sample = 0; sample < numSamples; ++sample)
+                {
+                    channelData[sample] = monoMix[sample];
+                }
             }
         }
     }

@@ -53,7 +53,8 @@
       "Bash(awk:*)",
       "Bash(git checkout:*)",
       "Bash(git branch:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(cd \"/mnt/c/REAPER/Effects/Masking Effects\")"
     ],
     "deny": []
   }

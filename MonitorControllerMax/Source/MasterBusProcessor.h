@@ -45,6 +45,7 @@ public:
     
     //==============================================================================
     // 音频处理接口
+    void prepare(double sampleRate, int maximumExpectedSamplesPerBlock);
     void process(juce::AudioBuffer<float>& buffer, PluginRole currentRole);
     
     //==============================================================================
@@ -96,6 +97,18 @@ private:
     //==============================================================================
     // 处理器指针（用于角色日志）
     MonitorControllerMaxAudioProcessor* processorPtr = nullptr;
+    
+    //==============================================================================
+    // 预分配音频缓冲区 - 消除音频线程中的内存分配（稳定性优化第3步）
+    static constexpr size_t MAX_BLOCK_SIZE = 8192;   // 最大音频块大小
+    static constexpr size_t MAX_CHANNELS = 32;       // 最大通道数
+    
+    // 预分配的Mono混音缓冲区（内存对齐优化）
+    alignas(64) std::array<float, MAX_BLOCK_SIZE> monoMixBuffer;
+    
+    // 预分配的通道索引缓冲区
+    alignas(64) std::array<int, MAX_CHANNELS> nonSubChannelsBuffer;
+    size_t nonSubChannelsCount = 0;  // 实际使用的非SUB通道数量
     
     //==============================================================================
     // 内部状态

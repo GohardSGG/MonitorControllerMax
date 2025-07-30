@@ -248,6 +248,10 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
     // v4.1: 处理Master Gain参数
     apvts.addParameterListener("MASTER_GAIN", this);
     
+    // 🚀 稳定性优化第3步：初始化预分配音频缓冲区，消除音频线程中的内存分配
+    masterBusProcessor.prepare(sampleRate, samplesPerBlock);
+    VST3_DBG_ROLE(this, "MasterBusProcessor prepared with preallocated buffers - sampleRate: " << sampleRate << ", maxBlockSize: " << samplesPerBlock);
+    
     // 根据当前总线布局自动选择合适的配置
     int currentChannelCount = getTotalNumInputChannels();
     if (currentChannelCount > 0)
