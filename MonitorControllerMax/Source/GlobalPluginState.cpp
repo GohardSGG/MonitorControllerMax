@@ -24,7 +24,7 @@ void GlobalPluginState::registerPlugin(MonitorControllerMaxAudioProcessor* plugi
         if (it == allPlugins.end()) {
             allPlugins.push_back(plugin);
             
-            // 🚀 稳定性优化：计数器监控
+            // Stability optimization: counter monitoring
             healthMonitor.pluginRegistrations++;
             
             juce::String logMsg = getCurrentTimeString() + " Plugin registered (ID: " + 
@@ -36,7 +36,7 @@ void GlobalPluginState::registerPlugin(MonitorControllerMaxAudioProcessor* plugi
         }
     }
     catch (...) {
-        // 🚀 稳定性优化：异常处理
+        // Stability optimization: exception handling
         healthMonitor.exceptionsCaught++;
         VST3_DBG("Exception caught in registerPlugin - continuing safely");
     }
@@ -53,7 +53,7 @@ void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plu
         if (it != allPlugins.end()) {
             allPlugins.erase(it);
             
-            // 🚀 稳定性优化：计数器监控
+            // Stability optimization: counter monitoring
             healthMonitor.pluginUnregistrations++;
             
             juce::String logMsg = getCurrentTimeString() + " Plugin unregistered (ID: " + 
@@ -65,14 +65,14 @@ void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plu
         }
     }
     catch (...) {
-        // 🚀 稳定性优化：异常处理
+        // Stability optimization: exception handling
         healthMonitor.exceptionsCaught++;
         VST3_DBG("Exception caught in unregisterPlugin - continuing safely");
-        return;  // 安全退出，避免进一步处理
+        return;  // Safe exit, avoid further processing
     }
     
     try {
-        // 如果是Master，清除Master状态  
+        // If this is Master, clear Master state  
         if (masterPlugin == plugin) {
             masterPlugin = nullptr;
         
@@ -114,7 +114,7 @@ void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plu
         }
     }
     catch (...) {
-        // 🚀 稳定性优化：异常处理
+        // Stability optimization: exception handling
         healthMonitor.exceptionsCaught++;
         VST3_DBG("Exception caught in unregisterPlugin Master/Slave cleanup - continuing safely");
     }
@@ -142,7 +142,7 @@ bool GlobalPluginState::setAsMaster(MonitorControllerMaxAudioProcessor* plugin) 
         
         masterPlugin = plugin;
         
-        // 🚀 稳定性优化：计数器监控
+        // Stability optimization: counter monitoring
         healthMonitor.masterPromotions++;
         
         juce::String logMsg = getCurrentTimeString() + " Master role assigned (ID: " + 
@@ -156,7 +156,7 @@ bool GlobalPluginState::setAsMaster(MonitorControllerMaxAudioProcessor* plugin) 
         return true;
     }
     catch (...) {
-        // 🚀 稳定性优化：异常处理
+        // Stability optimization: exception handling
         healthMonitor.exceptionsCaught++;
         VST3_DBG("Exception caught in setAsMaster - returning false safely");
         return false;
@@ -298,7 +298,7 @@ void GlobalPluginState::broadcastStateToSlaves(const juce::String& channelName, 
         
         if (slavePlugins.empty()) return;
         
-        // 🚀 稳定性优化：计数器监控
+        // Stability optimization: counter monitoring
         healthMonitor.broadcastCalls++;
         
         VST3_DBG("Broadcasting " + action + " " + channelName + " = " + (state ? "true" : "false") + 
@@ -307,14 +307,14 @@ void GlobalPluginState::broadcastStateToSlaves(const juce::String& channelName, 
         for (auto* slave : slavePlugins) {
             if (slave != nullptr) {
                 try {
-                    // 直接调用Slave的状态接收方法 - 零延迟
+                    // Direct call to Slave's state receiver - zero latency
                     slave->receiveMasterState(channelName, action, state);
                 } catch (const std::exception& e) {
-                    // 🚀 稳定性优化：记录个别Slave通信异常
+                    // Stability optimization: record individual Slave communication exceptions
                     healthMonitor.exceptionsCaught++;
                     VST3_DBG("Error broadcasting to slave: " + juce::String(e.what()));
                 } catch (...) {
-                    // 🚀 稳定性优化：捕获所有类型异常
+                    // Stability optimization: catch all exception types
                     healthMonitor.exceptionsCaught++;
                     VST3_DBG("Unknown error broadcasting to slave");
                 }
@@ -322,7 +322,7 @@ void GlobalPluginState::broadcastStateToSlaves(const juce::String& channelName, 
         }
     }
     catch (...) {
-        // 🚀 稳定性优化：整体异常处理
+        // Stability optimization: overall exception handling
         healthMonitor.exceptionsCaught++;
         VST3_DBG("Exception caught in broadcastStateToSlaves - continuing safely");
     }
@@ -552,7 +552,7 @@ void GlobalPluginState::broadcastMonoStateToSlaves(bool monoState) {
             try {
                 slave->receiveMasterBusState("mono", monoState);
             } catch (const std::exception& e) {
-                // 🚀 稳定性优化：监控总线状态广播异常
+                // Stability optimization: monitor bus state broadcast exceptions
                 healthMonitor.exceptionsCaught++;
                 VST3_DBG("Error broadcasting mono state: " + juce::String(e.what()));
             }
@@ -561,32 +561,32 @@ void GlobalPluginState::broadcastMonoStateToSlaves(bool monoState) {
 }
 
 //==============================================================================
-// 🚀 稳定性优化第4步：健康监控系统实现
+// Stability Optimization Step 4: Health Monitoring System Implementation
 
 juce::String GlobalPluginState::HealthMonitor::getHealthReport() const {
     juce::String report;
-    report += "=== GlobalPluginState 健康报告 ===\n";
-    report += "插件注册: " + juce::String(pluginRegistrations.load()) + "\n";
-    report += "插件注销: " + juce::String(pluginUnregistrations.load()) + "\n";
-    report += "Master提升: " + juce::String(masterPromotions.load()) + "\n";
-    report += "Slave连接: " + juce::String(slaveConnections.load()) + "\n";
-    report += "状态变化: " + juce::String(stateChanges.load()) + "\n";
-    report += "广播调用: " + juce::String(broadcastCalls.load()) + "\n";
-    report += "异常捕获: " + juce::String(exceptionsCaught.load()) + "\n";
-    report += "锁超时: " + juce::String(lockTimeouts.load()) + "\n";
-    report += "无效插件清理: " + juce::String(invalidPluginCleanups.load()) + "\n";
+    report += "=== GlobalPluginState Health Report ===\n";
+    report += "Plugin Registrations: " + juce::String(pluginRegistrations.load()) + "\n";
+    report += "Plugin Unregistrations: " + juce::String(pluginUnregistrations.load()) + "\n";
+    report += "Master Promotions: " + juce::String(masterPromotions.load()) + "\n";
+    report += "Slave Connections: " + juce::String(slaveConnections.load()) + "\n";
+    report += "State Changes: " + juce::String(stateChanges.load()) + "\n";
+    report += "Broadcast Calls: " + juce::String(broadcastCalls.load()) + "\n";
+    report += "Exceptions Caught: " + juce::String(exceptionsCaught.load()) + "\n";
+    report += "Lock Timeouts: " + juce::String(lockTimeouts.load()) + "\n";
+    report += "Invalid Plugin Cleanups: " + juce::String(invalidPluginCleanups.load()) + "\n";
     
-    // 🚀 健康状态评估
+    // Health status assessment
     uint32_t totalExceptions = exceptionsCaught.load();
     uint32_t totalOperations = pluginRegistrations.load() + pluginUnregistrations.load() + 
                               broadcastCalls.load() + stateChanges.load();
     
     if (totalExceptions == 0) {
-        report += "状态: ✅ 优秀 - 无异常";
+        report += "Status: EXCELLENT - No exceptions";
     } else if (totalOperations > 0 && (totalExceptions * 100 / totalOperations) < 1) {
-        report += "状态: ⚠️ 良好 - 异常率低于1%";
+        report += "Status: GOOD - Exception rate < 1%";
     } else {
-        report += "状态: ❌ 需要关注 - 异常率过高";
+        report += "Status: NEEDS ATTENTION - High exception rate";
     }
     
     return report;
@@ -597,7 +597,7 @@ juce::String GlobalPluginState::getHealthReport() const {
 }
 
 void GlobalPluginState::resetHealthCounters() {
-    // 🚀 重置所有健康监控计数器
+    // Reset all health monitoring counters
     healthMonitor.pluginRegistrations = 0;
     healthMonitor.pluginUnregistrations = 0;
     healthMonitor.masterPromotions = 0;
