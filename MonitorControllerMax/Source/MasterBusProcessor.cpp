@@ -127,7 +127,7 @@ void MasterBusProcessor::setMasterGainPercent(float gainPercent)
     
     if (processorPtr)
     {
-        VST3_DBG_ROLE(processorPtr, "Master Gain set to: " << masterGainPercent << "%");
+        // VST3_DBG_ROLE(processorPtr, "Master Gain set to: " << masterGainPercent << "%");  // 注释：音频处理实时性优化
     }
 }
 
@@ -140,8 +140,8 @@ void MasterBusProcessor::setDimActive(bool active)
         
         if (processorPtr)
         {
-            VST3_DBG_ROLE(processorPtr, "Dim " << (dimActive ? "ACTIVATED" : "DEACTIVATED") 
-                         << " (Level: " << (dimActive ? "16%" : "100%") << ")");
+            // VST3_DBG_ROLE(processorPtr, "Dim " << (dimActive ? "ACTIVATED" : "DEACTIVATED") 
+            //              << " (Level: " << (dimActive ? "16%" : "100%") << ")");  // 注释：音频处理实时性优化
             
             // v4.1: 发送OSC Dim状态 (通过PluginProcessor发送，确保角色检查)
             processorPtr->sendDimOSCState(dimActive);
@@ -164,8 +164,8 @@ void MasterBusProcessor::setLowBoostActive(bool active)
         
         if (processorPtr)
         {
-            VST3_DBG_ROLE(processorPtr, "Low Boost " << (lowBoostActive ? "ACTIVATED" : "DEACTIVATED") 
-                         << " (SUB channels: " << (lowBoostActive ? "1.5x" : "1.0x") << ")");
+            // VST3_DBG_ROLE(processorPtr, "Low Boost " << (lowBoostActive ? "ACTIVATED" : "DEACTIVATED") 
+            //              << " (SUB channels: " << (lowBoostActive ? "1.5x" : "1.0x") << ")");  // 注释：音频处理实时性优化
             
             // v4.1: 发送OSC Low Boost状态 (通过PluginProcessor发送，确保角色检查)
             processorPtr->sendLowBoostOSCState(lowBoostActive);
@@ -188,8 +188,8 @@ void MasterBusProcessor::setMasterMuteActive(bool active)
         
         if (processorPtr)
         {
-            VST3_DBG_ROLE(processorPtr, "Master Mute " << (masterMuteActive ? "ACTIVATED" : "DEACTIVATED") 
-                         << " (All channels: " << (masterMuteActive ? "MUTED" : "ACTIVE") << ")");
+            // VST3_DBG_ROLE(processorPtr, "Master Mute " << (masterMuteActive ? "ACTIVATED" : "DEACTIVATED") 
+            //              << " (All channels: " << (masterMuteActive ? "MUTED" : "ACTIVE") << ")");  // 注释：音频处理实时性优化
             
             // v4.1: 发送OSC Master Mute状态 (通过PluginProcessor发送，确保角色检查)
             processorPtr->sendMasterMuteOSCState(masterMuteActive);
@@ -212,8 +212,8 @@ void MasterBusProcessor::setMonoActive(bool active)
         
         if (processorPtr)
         {
-            VST3_DBG_ROLE(processorPtr, "Mono " << (monoActive ? "ACTIVATED" : "DEACTIVATED") 
-                         << " (Non-SUB channels: " << (monoActive ? "mono mix" : "stereo") << ")");
+            // VST3_DBG_ROLE(processorPtr, "Mono " << (monoActive ? "ACTIVATED" : "DEACTIVATED") 
+            //              << " (Non-SUB channels: " << (monoActive ? "mono mix" : "stereo") << ")");  // 注释：音频处理实时性优化
             
             // v4.1: 发送OSC Mono状态 (通过PluginProcessor发送，确保角色检查)
             processorPtr->sendMonoOSCState(monoActive);
@@ -249,7 +249,7 @@ void MasterBusProcessor::handleOSCMasterVolume(float volumePercent)
     
     if (processorPtr)
     {
-        VST3_DBG_ROLE(processorPtr, "OSC Master Volume received: " << volumePercent << "%");
+        // VST3_DBG_ROLE(processorPtr, "OSC Master Volume received: " << volumePercent << "%");  // 注释：OSC回调实时性优化
     }
 }
 
@@ -259,7 +259,7 @@ void MasterBusProcessor::handleOSCDim(bool dimState)
     
     if (processorPtr)
     {
-        VST3_DBG_ROLE(processorPtr, "OSC Dim received: " << (dimState ? "ON" : "OFF"));
+        // VST3_DBG_ROLE(processorPtr, "OSC Dim received: " << (dimState ? "ON" : "OFF"));  // 注释：OSC回调实时性优化
     }
 }
 
@@ -269,7 +269,7 @@ void MasterBusProcessor::handleOSCLowBoost(bool lowBoostState)
     
     if (processorPtr)
     {
-        VST3_DBG_ROLE(processorPtr, "OSC Low Boost received: " << (lowBoostState ? "ON" : "OFF"));
+        // VST3_DBG_ROLE(processorPtr, "OSC Low Boost received: " << (lowBoostState ? "ON" : "OFF"));  // 注释：OSC回调实时性优化
     }
 }
 
@@ -279,7 +279,7 @@ void MasterBusProcessor::handleOSCMasterMute(bool masterMuteState)
     
     if (processorPtr)
     {
-        VST3_DBG_ROLE(processorPtr, "OSC Master Mute received: " << (masterMuteState ? "ON" : "OFF"));
+        // VST3_DBG_ROLE(processorPtr, "OSC Master Mute received: " << (masterMuteState ? "ON" : "OFF"));  // 注释：OSC回调实时性优化
     }
 }
 
@@ -289,7 +289,7 @@ void MasterBusProcessor::handleOSCMono(bool monoState)
     
     if (processorPtr)
     {
-        VST3_DBG_ROLE(processorPtr, "OSC Mono received: " << (monoState ? "ON" : "OFF"));
+        // VST3_DBG_ROLE(processorPtr, "OSC Mono received: " << (monoState ? "ON" : "OFF"));  // 注释：OSC回调实时性优化
     }
 }
 

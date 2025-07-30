@@ -33,6 +33,9 @@ void SemanticChannelState::setSoloState(const juce::String& channelName, bool st
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Set Solo state - channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
+    // 写锁保护：UI线程修改状态时防止音频线程读取时崩溃
+    juce::ScopedWriteLock lock(stateLock);
+    
     soloStates[channelName] = state;
     
     // Update global solo mode
@@ -57,6 +60,9 @@ void SemanticChannelState::setMuteState(const juce::String& channelName, bool st
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Set Mute state - channel: " + channelName + ", state: " + (state ? "ON" : "OFF"));
     
+    // 写锁保护：UI线程修改状态时防止音频线程读取时崩溃
+    juce::ScopedWriteLock lock(stateLock);
+    
     muteStates[channelName] = state;
     
     // Notify state change
@@ -65,25 +71,38 @@ void SemanticChannelState::setMuteState(const juce::String& channelName, bool st
 
 bool SemanticChannelState::getSoloState(const juce::String& channelName) const
 {
+    // 读锁保护：音频线程安全读取，避免UI线程修改时的迭代器失效
+    juce::ScopedReadLock lock(stateLock);
+    
     auto it = soloStates.find(channelName);
     return it != soloStates.end() ? it->second : false;
 }
 
 bool SemanticChannelState::getMuteState(const juce::String& channelName) const
 {
+    // 读锁保护：音频线程安全读取，避免UI线程修改时的迭代器失效
+    juce::ScopedReadLock lock(stateLock);
+    
     auto it = muteStates.find(channelName);
     return it != muteStates.end() ? it->second : false;
 }
 
 bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) const
 {
+    // 读锁保护：这是音频线程中最关键的调用，必须确保线程安全
+    // 使用ReadLock避免UI线程修改map时导致的迭代器失效崩溃
+    juce::ScopedReadLock lock(stateLock);
+    
     // SUB channel logic based on original JSFX script
     if (globalSoloModeActive)
     {
         bool isChannelSUB = isSUBChannel(channelName);
         bool nonSUBSoloActive = hasAnyNonSUBSoloActive();
         bool subSoloActive = hasAnySUBSoloActive();
-        bool isSolo = getSoloState(channelName);
+        
+        // 直接查找避免递归锁
+        auto soloIt = soloStates.find(channelName);
+        bool isSolo = (soloIt != soloStates.end()) ? soloIt->second : false;
         
         if (isChannelSUB)
         {
@@ -98,7 +117,9 @@ bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) co
             else
             {
                 // When only non-SUB Solo is active, SUB channels keep user Mute setting
-                bool userMute = getMuteState(channelName);
+                // 直接查找避免递归锁
+                auto muteIt = muteStates.find(channelName);
+                bool userMute = (muteIt != muteStates.end()) ? muteIt->second : false;
                 // 删除垃圾日志 - 音频处理高频调用
                 return userMute;
             }
@@ -130,7 +151,9 @@ bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) co
     else
     {
         // Non-Solo mode, use direct Mute state
-        return getMuteState(channelName);
+        // 直接查找避免递归锁
+        auto muteIt = muteStates.find(channelName);
+        return (muteIt != muteStates.end()) ? muteIt->second : false;
     }
 }
 
@@ -157,6 +180,9 @@ void SemanticChannelState::calculateSoloModeLinkage()
 
 bool SemanticChannelState::hasAnySoloActive() const
 {
+    // 读锁保护：防止遍历时map被修改
+    juce::ScopedReadLock lock(stateLock);
+    
     for (const auto& [channelName, soloState] : soloStates)
     {
         if (soloState)
@@ -176,6 +202,9 @@ bool SemanticChannelState::isSUBChannel(const juce::String& channelName) const
 
 bool SemanticChannelState::hasAnyNonSUBSoloActive() const
 {
+    // 读锁保护：防止遍历时map被修改
+    juce::ScopedReadLock lock(stateLock);
+    
     for (const auto& [channelName, soloState] : soloStates)
     {
         if (soloState && !isSUBChannel(channelName))
@@ -188,6 +217,9 @@ bool SemanticChannelState::hasAnyNonSUBSoloActive() const
 
 bool SemanticChannelState::hasAnySUBSoloActive() const
 {
+    // 读锁保护：防止遍历时map被修改
+    juce::ScopedReadLock lock(stateLock);
+    
     for (const auto& [channelName, soloState] : soloStates)
     {
         if (soloState && isSUBChannel(channelName))
@@ -200,6 +232,9 @@ bool SemanticChannelState::hasAnySUBSoloActive() const
 
 bool SemanticChannelState::hasAnyMuteActive() const
 {
+    // 读锁保护：防止遍历时map被修改
+    juce::ScopedReadLock lock(stateLock);
+    
     for (const auto& [channelName, muteState] : muteStates)
     {
         if (muteState)
@@ -214,6 +249,9 @@ void SemanticChannelState::initializeChannel(const juce::String& channelName)
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Initialize channel - " + channelName);
     
+    // 写锁保护：初始化时修改map
+    juce::ScopedWriteLock lock(stateLock);
+    
     // Initialize with default states
     soloStates[channelName] = false;
     muteStates[channelName] = false;
@@ -222,12 +260,18 @@ void SemanticChannelState::initializeChannel(const juce::String& channelName)
 
 bool SemanticChannelState::hasChannel(const juce::String& channelName) const
 {
+    // 读锁保护：查找时防止map被修改
+    juce::ScopedReadLock lock(stateLock);
+    
     return soloStates.find(channelName) != soloStates.end();
 }
 
 void SemanticChannelState::clearAllStates()
 {
     // 删除垃圾日志 - 状态清理高频调用
+    
+    // 写锁保护：清除所有状态时修改map
+    juce::ScopedWriteLock lock(stateLock);
     
     soloStates.clear();
     muteStates.clear();
@@ -239,6 +283,9 @@ void SemanticChannelState::clearAllStates()
 void SemanticChannelState::clearAllSoloStates()
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Clear all Solo states");
+    
+    // 写锁保护：批量修改solo状态
+    juce::ScopedWriteLock lock(stateLock);
     
     for (auto& [channelName, soloState] : soloStates)
     {
@@ -257,6 +304,9 @@ void SemanticChannelState::clearAllMuteStates()
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Clear all Mute states");
     
+    // 写锁保护：批量修改mute状态
+    juce::ScopedWriteLock lock(stateLock);
+    
     for (auto& [channelName, muteState] : muteStates)
     {
         if (muteState) {  // 只处理实际改变的状态
@@ -269,6 +319,9 @@ void SemanticChannelState::clearAllMuteStates()
 
 std::vector<juce::String> SemanticChannelState::getActiveChannels() const
 {
+    // 读锁保护：遍历map时防止被修改
+    juce::ScopedReadLock lock(stateLock);
+    
     std::vector<juce::String> channels;
     
     for (const auto& [channelName, _] : soloStates)
@@ -283,6 +336,9 @@ void SemanticChannelState::saveCurrentMuteMemory()
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Save current Mute memory");
     
+    // 写锁保护：修改memory map
+    juce::ScopedWriteLock lock(stateLock);
+    
     // Save current mute states for complex logic
     for (const auto& [channelName, muteState] : muteStates)
     {
@@ -293,6 +349,9 @@ void SemanticChannelState::saveCurrentMuteMemory()
 void SemanticChannelState::restoreMuteMemory()
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Restore Mute memory");
+    
+    // 写锁保护：从memory恢复状态时修改map
+    juce::ScopedWriteLock lock(stateLock);
     
     // Restore mute states from memory
     for (const auto& [channelName, memorizedMute] : muteMemory)
@@ -305,6 +364,9 @@ void SemanticChannelState::restoreMuteMemory()
 void SemanticChannelState::clearMuteMemory()
 {
     SEMANTIC_DBG_ROLE("SemanticChannelState: Clear Mute memory");
+    
+    // 写锁保护：清除memory map
+    juce::ScopedWriteLock lock(stateLock);
     
     muteMemory.clear();
 }
@@ -321,6 +383,9 @@ void SemanticChannelState::removeStateChangeListener(StateChangeListener* listen
 
 void SemanticChannelState::logCurrentState() const
 {
+    // 读锁保护：日志记录时遍历多个map
+    juce::ScopedReadLock lock(stateLock);
+    
     // 使用DETAIL级别 - 重复内容会被智能过滤
     VST3_DBG_DETAIL("SemanticChannelState: === Current state overview ===");
     VST3_DBG_DETAIL("  Global Solo mode: " + juce::String(globalSoloModeActive ? "ACTIVE" : "OFF"));
@@ -340,7 +405,28 @@ void SemanticChannelState::logCurrentState() const
     VST3_DBG_DETAIL("  Final Mute states:");
     for (const auto& [channelName, _] : soloStates)
     {
-        bool finalMute = getFinalMuteState(channelName);
+        // 注意：getFinalMuteState会尝试获取锁，但我们已经持有读锁
+        // 这里需要避免递归锁调用，直接计算finalMute
+        bool finalMute = false;
+        if (globalSoloModeActive)
+        {
+            bool isChannelSUB = isSUBChannel(channelName);
+            auto soloIt = soloStates.find(channelName);
+            bool isSolo = (soloIt != soloStates.end()) ? soloIt->second : false;
+            
+            if (!isChannelSUB) {
+                finalMute = !isSolo;
+            } else {
+                auto muteIt = muteStates.find(channelName);
+                finalMute = (muteIt != muteStates.end()) ? muteIt->second : false;
+            }
+        }
+        else
+        {
+            auto muteIt = muteStates.find(channelName);
+            finalMute = (muteIt != muteStates.end()) ? muteIt->second : false;
+        }
+        
         VST3_DBG_DETAIL("    " + channelName + ": " + (finalMute ? "MUTED" : "ACTIVE"));
     }
     
@@ -349,10 +435,28 @@ void SemanticChannelState::logCurrentState() const
 
 juce::String SemanticChannelState::getStateDescription() const
 {
+    // 读锁保护：访问map大小和调用其他方法
+    juce::ScopedReadLock lock(stateLock);
+    
     juce::String desc = "Semantic state: ";
     desc += "Solo mode=" + juce::String(globalSoloModeActive ? "ON" : "OFF");
-    desc += ", Active Solo=" + juce::String(hasAnySoloActive() ? "YES" : "NO");
-    desc += ", Active Mute=" + juce::String(hasAnyMuteActive() ? "YES" : "NO");
+    
+    // 直接计算避免递归锁调用
+    bool anySoloActive = false;
+    bool anyMuteActive = false;
+    
+    for (const auto& [channelName, soloState] : soloStates)
+    {
+        if (soloState) anySoloActive = true;
+    }
+    
+    for (const auto& [channelName, muteState] : muteStates)
+    {
+        if (muteState) anyMuteActive = true;
+    }
+    
+    desc += ", Active Solo=" + juce::String(anySoloActive ? "YES" : "NO");
+    desc += ", Active Mute=" + juce::String(anyMuteActive ? "YES" : "NO");
     desc += ", Channels=" + juce::String(soloStates.size());
     
     return desc;
@@ -372,6 +476,9 @@ void SemanticChannelState::notifyStateChange(const juce::String& channelName, co
 
 void SemanticChannelState::notifyGlobalModeChange()
 {
+    // 注意：此方法假设调用者已经持有写锁（通常从setSoloState调用）
+    // 因此不能调用会获取锁的方法，需要直接计算状态避免递归锁
+    
     stateChangeListeners.call([](StateChangeListener& l) { l.onGlobalModeChanged(); });
     
     // When global Solo mode changes, ALWAYS broadcast all channels' final Mute states
@@ -381,9 +488,37 @@ void SemanticChannelState::notifyGlobalModeChange()
                      " - broadcasting all final mute states");
     
     // Send final Mute state for all channels - regardless of Solo mode direction
+    // 直接计算final state，避免调用getFinalMuteState()导致的递归锁
     for (const auto& [channelName, _] : soloStates)
     {
-        bool finalMuteState = getFinalMuteState(channelName);
+        bool finalMuteState = false;
+        
+        // 直接实现final mute逻辑，避免递归锁
+        if (globalSoloModeActive)
+        {
+            bool isChannelSUB = isSUBChannel(channelName);
+            auto soloIt = soloStates.find(channelName);
+            bool isSolo = (soloIt != soloStates.end()) ? soloIt->second : false;
+            
+            if (isChannelSUB)
+            {
+                // SUB channel logic - 简化版本
+                auto muteIt = muteStates.find(channelName);
+                finalMuteState = (muteIt != muteStates.end()) ? muteIt->second : false;
+            }
+            else
+            {
+                // Non-SUB channel logic
+                finalMuteState = !isSolo;
+            }
+        }
+        else
+        {
+            // Non-Solo mode, use direct Mute state
+            auto muteIt = muteStates.find(channelName);
+            finalMuteState = (muteIt != muteStates.end()) ? muteIt->second : false;
+        }
+        
         SEMANTIC_DBG_ROLE("SemanticChannelState: Broadcasting final mute state - channel: " + channelName + 
                  ", Final Mute: " + (finalMuteState ? "ON" : "OFF"));
         

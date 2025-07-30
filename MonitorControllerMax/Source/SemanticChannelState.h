@@ -66,6 +66,9 @@ public:
     juce::String getStateDescription() const;
 
 private:
+    // 线程安全的状态存储 - 使用JUCE ReadWriteLock确保音频线程安全
+    mutable juce::ReadWriteLock stateLock;  // JUCE推荐的音频线程安全锁
+    
     // Core state storage - replacement for VST3 parameters
     std::map<juce::String, bool> soloStates;
     std::map<juce::String, bool> muteStates;
