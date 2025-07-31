@@ -161,16 +161,7 @@ MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
     // Shutdown OSC communication
     oscCommunicator.shutdown();
     
-    // Remove parameter listeners - Solo/Mute parameters no longer exist
-    const int maxChannels = 26;
-    for (int i = 0; i < maxChannels; ++i)
-    {
-        auto gainId = "GAIN_" + juce::String(i + 1);
-        apvts.removeParameterListener(gainId, this);
-    }
-    
-    // v4.1: 移除Master Gain参数监听器
-    apvts.removeParameterListener("MASTER_GAIN", this);
+    // JUCE架构重构：参数监听器由StateManager管理，已在stateManager->shutdown()中移除
     
     // 注销GlobalPluginState
     unregisterFromGlobalState();
@@ -246,17 +237,8 @@ void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int s
 {
     VST3_DBG_ROLE(this, "prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
     
-    // 处理个人通道Gain参数
-    const int maxChannels = 26;
-    for (int i = 0; i < maxChannels; ++i)
-    {
-        auto gainId = "GAIN_" + juce::String(i + 1);
-        gainParams[i] = apvts.getRawParameterValue(gainId);
-        apvts.addParameterListener(gainId, this);
-    }
-    
-    // v4.1: 处理Master Gain参数
-    apvts.addParameterListener("MASTER_GAIN", this);
+    // JUCE架构重构：参数监听器已由StateManager管理，这里不需要重复注册
+    // StateManager在initialize()中会注册所有必要的参数监听器
     
     // 🚀 稳定性优化第3步：初始化预分配音频缓冲区，消除音频线程中的内存分配
     masterBusProcessor.prepare(sampleRate, samplesPerBlock);
@@ -334,7 +316,11 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     // 应用预计算的状态（高度优化的内联函数，零分配）
     renderState->applyToBuffer(buffer, numSamples);
     
-    // 完成 - 总共18行代码，严格遵循JUCE规范
+    // CRITICAL: 应用MasterBusProcessor的复杂总线效果（Mono混音等）
+    // 注意：这可能影响"零分配"原则，但保证功能完整性
+    masterBusProcessor.process(buffer, currentRole);
+    
+    // 完成 - 总共20行代码，功能完整
 }
 
 //==============================================================================
@@ -537,6 +523,12 @@ void MonitorControllerMaxAudioProcessor::setCurrentLayout(const juce::String& sp
     // Update semantic state system mapping
     VST3_DBG_ROLE(this, "Update physical channel mapping");
     physicalMapper.updateMapping(currentLayout);
+    
+    // JUCE架构重构：通知StateManager布局已改变
+    if (stateManager) {
+        stateManager->onLayoutChanged();
+        VST3_DBG_ROLE(this, "StateManager notified of layout change");
+    }
     
     // 智能更新语义通道：只初始化新通道，保持现有状态
     VST3_DBG_ROLE(this, "Smart channel update - preserving existing states");

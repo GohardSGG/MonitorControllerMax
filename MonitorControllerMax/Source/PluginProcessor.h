@@ -202,29 +202,20 @@ private:
     void shutdownOSC();
     juce::String getRoleString(PluginRole role) const;
 
-    // We'll need atomic pointers to our parameters for thread-safe access in the audio callback.
-    std::array<std::atomic<float>*, 26> muteParams{};
-    std::array<std::atomic<float>*, 26> soloParams{};
-    std::array<std::atomic<float>*, 26> gainParams{};
-    
-    
-    // Selection mode state functions
-    bool isInSoloSelectionMode() const;
-    bool isInMuteSelectionMode() const;
-    
-    // Selection mode state tracking
+    // 选择模式状态跟踪（仍然需要用于UI逻辑）
     std::atomic<bool> pendingSoloSelection{false};
     std::atomic<bool> pendingMuteSelection{false};
     
-    // Protection state management (new)
+    // 保护状态管理
     bool soloModeProtectionActive = false;
     
-    // State synchronization and validation
+    // 选择模式状态函数（UI逻辑需要）
+    bool isInSoloSelectionMode() const;
+    bool isInMuteSelectionMode() const;
+    
+    // 状态同步函数（UI回调需要）
     void updateAllStates();
     void validateStateConsistency();
-    
-    // Flag to prevent parameter update loops
-    std::atomic<bool> isUpdatingFromParameter{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MonitorControllerMaxAudioProcessor)
 };

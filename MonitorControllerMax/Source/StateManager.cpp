@@ -126,11 +126,9 @@ void StateManager::collectCurrentState(RenderState* targetState)
         targetState->channelShouldMute[i] = false;
         targetState->channelFinalGain[i] = 1.0f;
         targetState->channelIsActive[i] = false;
+        targetState->channelIsSUB[i] = false;
         targetState->monoChannelIndices[i] = 0;
     }
-    targetState->masterGainFactor = 1.0f;
-    targetState->dimFactor = 1.0f;
-    targetState->masterMuteActive = false;
     targetState->monoActive = false;
     targetState->monoChannelCount = 0;
     
@@ -165,6 +163,9 @@ void StateManager::collectChannelStates(RenderState* target)
         
         // 标记通道激活
         target->channelIsActive[physicalIndex] = true;
+        
+        // 标记SUB通道（用于LowBoost处理）
+        target->channelIsSUB[physicalIndex] = processor.getSemanticState().isSUBChannel(channelName);
     }
 }
 
@@ -172,10 +173,7 @@ void StateManager::collectMasterBusStates(RenderState* target)
 {
     const auto& masterBus = processor.masterBusProcessor;
     
-    // 直接获取MasterBusProcessor计算的最终结果
-    target->masterGainFactor = masterBus.getMasterGainPercent() * 0.01f;
-    target->dimFactor = masterBus.isDimActive() ? 0.16f : 1.0f;
-    target->masterMuteActive = masterBus.isMasterMuteActive();
+    // 只收集Mono状态用于预计算参与通道（其他Master效果由MasterBusProcessor直接处理）
     target->monoActive = masterBus.isMonoActive();
 }
 

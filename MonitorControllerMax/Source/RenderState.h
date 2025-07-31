@@ -22,12 +22,10 @@ struct RenderState
     bool channelShouldMute[MAX_CHANNELS];      // 最终静音状态（包含所有SUB逻辑）
     float channelFinalGain[MAX_CHANNELS];      // 最终增益（个人增益 + 角色处理）
     bool channelIsActive[MAX_CHANNELS];        // 通道是否在当前布局中激活
+    bool channelIsSUB[MAX_CHANNELS];           // SUB通道标识（用于LowBoost处理）
     
-    //=== Master总线最终状态（直接来自MasterBusProcessor）===
-    float masterGainFactor;                   // Master增益因子
-    float dimFactor;                           // Dim衰减因子（1.0或0.16）
-    bool masterMuteActive;                     // Master静音
-    bool monoActive;                           // Mono效果
+    //=== Master总线状态（由MasterBusProcessor处理，这里仅用于Mono预计算）===
+    bool monoActive;                           // Mono效果（用于预计算参与通道）
     
     //=== Mono效果预计算数据 ===
     uint8_t monoChannelCount;                  // 参与Mono的通道数量
@@ -44,13 +42,11 @@ struct RenderState
             channelShouldMute[i] = false;
             channelFinalGain[i] = 1.0f;
             channelIsActive[i] = false;
+            channelIsSUB[i] = false;
             monoChannelIndices[i] = 0;
         }
         
         // 初始化Master总线为默认状态
-        masterGainFactor = 1.0f;
-        dimFactor = 1.0f;
-        masterMuteActive = false;
         monoActive = false;
         monoChannelCount = 0;
     }
@@ -60,18 +56,7 @@ struct RenderState
     {
         const int numChannels = juce::jmin(buffer.getNumChannels(), MAX_CHANNELS);
         
-        // Master Mute快速路径 - 优先级最高的处理
-        if (masterMuteActive) {
-            buffer.clear();
-            return;
-        }
-        
-        // Mono效果处理（如果激活且有多个通道参与）
-        if (monoActive && monoChannelCount > 1) {
-            applyMonoEffect(buffer, numSamples);
-        }
-        
-        // 通道处理（编译器自动向量化友好的循环）
+        // 通道处理（编译器自动向量化友好的循环）- 只处理Solo/Mute/个人增益
         for (int ch = 0; ch < numChannels; ++ch) {
             // 跳过非激活通道
             if (!channelIsActive[ch]) continue;
@@ -80,12 +65,12 @@ struct RenderState
                 // 静音通道：直接清零
                 buffer.clear(ch, 0, numSamples);
             } else {
-                // 计算总增益：个人增益 * Master增益 * Dim因子
-                const float totalGain = channelFinalGain[ch] * masterGainFactor * dimFactor;
+                // 仅应用个人通道增益（Master总线效果由MasterBusProcessor处理）
+                const float channelGain = channelFinalGain[ch];
                 
                 // 只有在增益不为1.0时才应用（避免不必要的计算）
-                if (std::abs(totalGain - 1.0f) > 0.001f) {
-                    buffer.applyGain(ch, 0, numSamples, totalGain);
+                if (std::abs(channelGain - 1.0f) > 0.001f) {
+                    buffer.applyGain(ch, 0, numSamples, channelGain);
                 }
             }
         }
