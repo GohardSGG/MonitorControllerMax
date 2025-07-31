@@ -1,144 +1,137 @@
-﻿/*
-  ==============================================================================
-
-    RenderState.h
-    Created: 2025-07-30
-    Author:  GohardSGG & Claude Code
-
-    渲染状态 - 音频线程专用的预计算数据
-    特点：POD结构、缓存对齐、无动态内存
-
-    JUCE架构重构核心组件 - 实现无锁音频处理
-
-  ==============================================================================
-*/
-
-#pragma once
+﻿#pragma once
 
 #include <JuceHeader.h>
-#include <array>
 #include <atomic>
+#include <array>
 
 //==============================================================================
 /**
- * 渲染状态 - 音频线程专用的预计算数据
- * 特点：POD结构、缓存对齐、无动态内存
+ * 音频渲染状态快照 - 音频线程专用的预计算数据
+ * 特点：POD结构、无锁访问、所有数据预计算完成
+ * 
+ * 设计原则：
+ * - 严格遵循JUCE音频线程规范：零锁、零分配、零复杂计算
+ * - 所有数据在消息线程预计算，音频线程只做简单应用
+ * - 直接来自现有组件的最终结果，不重新实现任何业务逻辑
  */
 struct RenderState
 {
     static constexpr int MAX_CHANNELS = 26;
     
-    //=== 通道渲染数据 ===
-    struct ChannelData {
-        float targetGain;      // 目标增益（含个人增益、Master增益、Dim）
-        mutable float currentGain;     // 当前增益（用于平滑）- mutable允许在const方法中修改
-        bool shouldMute;       // 最终静音状态（Solo逻辑结果）
-        bool isMonoChannel;    // 是否参与Mono混合
-        uint8_t padding[2];    // 对齐到8字节
-    };
+    //=== 通道最终状态（直接来自SemanticChannelState::getFinalMuteState）===
+    bool channelShouldMute[MAX_CHANNELS];      // 最终静音状态（包含所有SUB逻辑）
+    float channelFinalGain[MAX_CHANNELS];      // 最终增益（个人增益 + 角色处理）
+    bool channelIsActive[MAX_CHANNELS];        // 通道是否在当前布局中激活
     
-    alignas(64) std::array<ChannelData, MAX_CHANNELS> channels;
+    //=== Master总线最终状态（直接来自MasterBusProcessor）===
+    float masterGainFactor;                   // Master增益因子
+    float dimFactor;                           // Dim衰减因子（1.0或0.16）
+    bool masterMuteActive;                     // Master静音
+    bool monoActive;                           // Mono效果
     
-    //=== Master总线数据 ===
-    struct MasterData {
-        bool masterMuteActive;
-        bool monoEffectActive;
-        uint8_t monoChannelCount;
-        uint8_t padding[5];
-        alignas(8) std::array<uint8_t, MAX_CHANNELS> monoChannelIndices;
-    };
+    //=== Mono效果预计算数据 ===
+    uint8_t monoChannelCount;                  // 参与Mono的通道数量
+    uint8_t monoChannelIndices[MAX_CHANNELS];  // 参与Mono的通道索引表
     
-    alignas(64) MasterData master;
+    //=== 数据版本（ABA问题防护）===
+    mutable std::atomic<uint64_t> version{0};
     
-    //=== 版本控制 ===
-    std::atomic<uint64_t> version{0};
+    //=== 构造函数：初始化为安全默认值 ===
+    RenderState() noexcept
+    {
+        // 初始化所有通道为非激活、不静音、单位增益
+        for (int i = 0; i < MAX_CHANNELS; ++i) {
+            channelShouldMute[i] = false;
+            channelFinalGain[i] = 1.0f;
+            channelIsActive[i] = false;
+            monoChannelIndices[i] = 0;
+        }
+        
+        // 初始化Master总线为默认状态
+        masterGainFactor = 1.0f;
+        dimFactor = 1.0f;
+        masterMuteActive = false;
+        monoActive = false;
+        monoChannelCount = 0;
+    }
     
-    //=== 音频线程方法（内联优化）===
-    void applyToBuffer(juce::AudioBuffer<float>& buffer, int numSamples) const noexcept;
-    void applyMonoEffect(juce::AudioBuffer<float>& buffer, int numSamples) const noexcept;
-    void smoothGainTransition(float smoothingFactor) noexcept;
+    //=== 音频处理方法（高度优化，内联，符合JUCE规范）===
+    void applyToBuffer(juce::AudioBuffer<float>& buffer, int numSamples) const noexcept
+    {
+        const int numChannels = juce::jmin(buffer.getNumChannels(), MAX_CHANNELS);
+        
+        // Master Mute快速路径 - 优先级最高的处理
+        if (masterMuteActive) {
+            buffer.clear();
+            return;
+        }
+        
+        // Mono效果处理（如果激活且有多个通道参与）
+        if (monoActive && monoChannelCount > 1) {
+            applyMonoEffect(buffer, numSamples);
+        }
+        
+        // 通道处理（编译器自动向量化友好的循环）
+        for (int ch = 0; ch < numChannels; ++ch) {
+            // 跳过非激活通道
+            if (!channelIsActive[ch]) continue;
+            
+            if (channelShouldMute[ch]) {
+                // 静音通道：直接清零
+                buffer.clear(ch, 0, numSamples);
+            } else {
+                // 计算总增益：个人增益 * Master增益 * Dim因子
+                const float totalGain = channelFinalGain[ch] * masterGainFactor * dimFactor;
+                
+                // 只有在增益不为1.0时才应用（避免不必要的计算）
+                if (std::abs(totalGain - 1.0f) > 0.001f) {
+                    buffer.applyGain(ch, 0, numSamples, totalGain);
+                }
+            }
+        }
+    }
+    
+private:
+    //=== Mono效果处理（栈分配，块处理，高性能）===
+    void applyMonoEffect(juce::AudioBuffer<float>& buffer, int numSamples) const noexcept
+    {
+        if (monoChannelCount < 2) return;
+        
+        // 使用栈分配的临时缓冲区进行块处理，避免大数组分配
+        constexpr int BLOCK_SIZE = 64;
+        
+        for (int offset = 0; offset < numSamples; offset += BLOCK_SIZE) {
+            const int samplesToProcess = juce::jmin(BLOCK_SIZE, numSamples - offset);
+            
+            // 栈分配混合缓冲区（对齐以利用SIMD）
+            alignas(16) float monoSum[BLOCK_SIZE] = {};
+            
+            // 第一步：累加所有Mono通道的信号
+            for (int i = 0; i < monoChannelCount; ++i) {
+                const int chIndex = monoChannelIndices[i];
+                if (chIndex < buffer.getNumChannels() && channelIsActive[chIndex]) {
+                    const float* src = buffer.getReadPointer(chIndex) + offset;
+                    for (int s = 0; s < samplesToProcess; ++s) {
+                        monoSum[s] += src[s];
+                    }
+                }
+            }
+            
+            // 第二步：计算平均值并写回所有Mono通道
+            const float scale = 1.0f / static_cast<float>(monoChannelCount);
+            for (int i = 0; i < monoChannelCount; ++i) {
+                const int chIndex = monoChannelIndices[i];
+                if (chIndex < buffer.getNumChannels() && channelIsActive[chIndex]) {
+                    float* dst = buffer.getWritePointer(chIndex) + offset;
+                    for (int s = 0; s < samplesToProcess; ++s) {
+                        dst[s] = monoSum[s] * scale;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 禁用拷贝构造和赋值（确保POD特性）
+    RenderState(const RenderState&) = delete;
+    RenderState& operator=(const RenderState&) = delete;
 };
-
-//==============================================================================
-// RenderState 的音频处理实现（高性能、无锁）
-inline void RenderState::applyToBuffer(juce::AudioBuffer<float>& buffer, int numSamples) const noexcept
-{
-    const int numChannels = juce::jmin(buffer.getNumChannels(), MAX_CHANNELS);
-    
-    // Master Mute 快速路径
-    if (master.masterMuteActive) {
-        buffer.clear();
-        return;
-    }
-    
-    // Mono 效果处理（如果激活）
-    if (master.monoEffectActive && master.monoChannelCount > 1) {
-        applyMonoEffect(buffer, numSamples);
-    }
-    
-    // 并行处理每个通道（编译器可自动向量化）
-    for (int ch = 0; ch < numChannels; ++ch) {
-        const ChannelData& chData = channels[ch];
-        
-        if (chData.shouldMute) {
-            buffer.clear(ch, 0, numSamples);
-        }
-        else if (std::abs(chData.currentGain - 1.0f) > 0.001f) {
-            buffer.applyGainRamp(ch, 0, numSamples, chData.currentGain, chData.targetGain);
-            // 更新当前增益（无锁，因为每个通道独立）
-            chData.currentGain = chData.targetGain;
-        }
-    }
-}
-
-//==============================================================================
-inline void RenderState::applyMonoEffect(juce::AudioBuffer<float>& buffer, int numSamples) const noexcept
-{
-    if (master.monoChannelCount < 2) return;
-    
-    // 计算所有参与Mono的通道的平均值
-    alignas(16) float monoSum[16];  // 使用小块处理，利于SIMD
-    const int blockSize = 16;
-    
-    for (int offset = 0; offset < numSamples; offset += blockSize) {
-        const int samplesToProcess = juce::jmin(blockSize, numSamples - offset);
-        
-        // 清零累加器
-        for (int i = 0; i < samplesToProcess; ++i) {
-            monoSum[i] = 0.0f;
-        }
-        
-        // 累加所有Mono通道
-        for (uint8_t i = 0; i < master.monoChannelCount; ++i) {
-            const uint8_t chIndex = master.monoChannelIndices[i];
-            if (chIndex < buffer.getNumChannels()) {
-                const float* channelData = buffer.getReadPointer(chIndex) + offset;
-                for (int s = 0; s < samplesToProcess; ++s) {
-                    monoSum[s] += channelData[s];
-                }
-            }
-        }
-        
-        // 计算平均值并写回所有Mono通道
-        const float scale = 1.0f / static_cast<float>(master.monoChannelCount);
-        for (uint8_t i = 0; i < master.monoChannelCount; ++i) {
-            const uint8_t chIndex = master.monoChannelIndices[i];
-            if (chIndex < buffer.getNumChannels()) {
-                float* channelData = buffer.getWritePointer(chIndex) + offset;
-                for (int s = 0; s < samplesToProcess; ++s) {
-                    channelData[s] = monoSum[s] * scale;
-                }
-            }
-        }
-    }
-}
-
-//==============================================================================
-inline void RenderState::smoothGainTransition(float smoothingFactor) noexcept
-{
-    for (auto& chData : channels) {
-        if (std::abs(chData.currentGain - chData.targetGain) > 0.001f) {
-            chData.currentGain += (chData.targetGain - chData.currentGain) * smoothingFactor;
-        }
-    }
-}

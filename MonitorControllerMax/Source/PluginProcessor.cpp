@@ -64,6 +64,7 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     
     // JUCE架构重构：初始化状态管理器
     stateManager = std::make_unique<StateManager>(*this);
+    stateManager->initialize();  // 启动监听器和状态收集
     VST3_DBG_ROLE(this, "StateManager initialized - JUCE-compliant architecture active");
     
     // 设置OSC外部控制回调（所有角色都设置，但只有Master/Standalone处理）
@@ -151,6 +152,11 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
 MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
 {
     VST3_DBG_ROLE(this, "Destructor - cleaning up resources");
+    
+    // JUCE架构重构：清理状态管理器
+    if (stateManager) {
+        stateManager->shutdown();
+    }
     
     // Shutdown OSC communication
     oscCommunicator.shutdown();
@@ -306,170 +312,29 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
 void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-    auto totalNumInputChannels  = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
     
-    // JUCE架构重构：使用新的无锁处理模式
-    if (stateManager != nullptr) {
-        // 获取当前渲染状态（单个原子操作）
-        const RenderState* renderState = stateManager->getCurrentRenderState();
-        if (renderState != nullptr) {
-            // 应用预计算的渲染状态（高度优化的内联函数）
-            renderState->applyToBuffer(buffer, buffer.getNumSamples());
-            
-            // 调试：每秒输出一次状态
-            static int debugCounter = 0;
-            if (++debugCounter > getSampleRate()) {
-                debugCounter = 0;
-                VST3_DBG_ROLE(this, "New architecture active - RenderState version: " << renderState->version.load());
-            }
-            
-            return;  // 新架构处理完成，直接返回
-        }
+    // 快速路径检查
+    const int numSamples = buffer.getNumSamples();
+    if (numSamples == 0) return;
+    
+    // 清除未使用的输出通道（音频线程安全）
+    const int totalNumInputChannels = getTotalNumInputChannels();
+    const int totalNumOutputChannels = getTotalNumOutputChannels();
+    for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i) {
+        buffer.clear(i, 0, numSamples);
     }
     
-    // 旧架构已被新的StateManager完全替代
-    // 如果StateManager未初始化，清除所有音频输出作为安全措施
-    VST3_DBG_ROLE(this, "WARNING: StateManager not initialized, clearing audio buffer");
-    buffer.clear();
-
-    // =================================================================================
-    // 旧架构已完全移除 - 所有处理由StateManager负责
-    // =================================================================================
-    
-    /* 以下是旧架构的代码，已被新的StateManager完全替代：
-     * - 语义状态处理
-     * - Master-Slave音频处理逻辑
-     * - Solo/Mute状态应用
-     * - 通道增益应用
-     * - 总线效果处理
-     * 
-     * 新架构优势：
-     * - 音频线程零锁设计
-     * - 预计算所有状态
-     * - 单个原子操作读取
-     * - 符合JUCE实时音频规范
-     */
-    
-    // 旧代码开始（已禁用）
-    #if 0
-    
-    // =================================================================================
-    // Master-Slave Audio Processing Logic (v4.0 Architecture)
-    // =================================================================================
-    
-    // 确定处理策略
-    bool hasNonSUBSolo = semanticState.hasAnyNonSUBSoloActive();
-    bool hasSUBSolo = semanticState.hasAnySUBSoloActive();
-    bool processingEnabled = false;
-    
-    // 场景判断和处理策略
-    if (!hasNonSUBSolo && !hasSUBSolo) {
-        // 无Solo模式：所有角色正常处理所有通道
-        processingEnabled = true;
-        // VST3_DBG_ROLE(this, "Audio Processing: No Solo mode - all channels processed");
-    }
-    else if (hasNonSUBSolo && !hasSUBSolo) {
-        // 场景1：只有非SUB通道Solo
-        processingEnabled = (currentRole == PluginRole::Slave);  // 从插件处理，主插件直通
-        // VST3_DBG_ROLE(this, "Audio Processing: Non-SUB Solo only - " + 
-        //              juce::String(processingEnabled ? "Slave processes" : "Master passthrough"));
-    }
-    else if (!hasNonSUBSolo && hasSUBSolo) {
-        // 场景2：只有SUB通道Solo
-        processingEnabled = (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone);  // 主插件处理，从插件直通
-        // VST3_DBG_ROLE(this, "Audio Processing: SUB Solo only - " + 
-        //              juce::String(processingEnabled ? "Master processes" : "Slave passthrough"));
-    }
-    else {
-        // 场景3：混合Solo（非SUB + SUB）
-        processingEnabled = (currentRole == PluginRole::Slave);  // 从插件处理，主插件直通
-        // VST3_DBG_ROLE(this, "Audio Processing: Mixed Solo - " + 
-        //              juce::String(processingEnabled ? "Slave processes" : "Master passthrough"));
+    // 获取当前渲染状态（单次原子读取，零锁）
+    const RenderState* renderState = stateManager->getCurrentRenderState();
+    if (renderState == nullptr) {
+        buffer.clear();
+        return;
     }
     
-    // 应用处理逻辑到所有物理通道
-    for (int physicalChannel = 0; physicalChannel < totalNumInputChannels; ++physicalChannel)
-    {
-        // 获取对应的语义通道名
-        juce::String semanticChannelName = physicalMapper.getSemanticName(physicalChannel);
-        
-        // 如果这个物理通道没有语义映射，直通
-        if (semanticChannelName.isEmpty())
-        {
-            continue;
-        }
-
-        // 判断是否为SUB通道
-        bool isSUBChannel = semanticState.isSUBChannel(semanticChannelName);
-        bool shouldProcess = false;
-        
-        // 根据场景和通道类型决定是否处理
-        if (!hasNonSUBSolo && !hasSUBSolo) {
-            // 无Solo：所有通道都处理
-            shouldProcess = processingEnabled;
-        }
-        else if (hasNonSUBSolo && !hasSUBSolo) {
-            // 场景1：从插件处理非SUB，主插件处理SUB
-            if (currentRole == PluginRole::Slave) {
-                shouldProcess = !isSUBChannel;  // 从插件只处理非SUB通道
-            } else {
-                shouldProcess = isSUBChannel;   // 主插件只处理SUB通道
-            }
-        }
-        else if (!hasNonSUBSolo && hasSUBSolo) {
-            // 场景2：主插件处理所有，从插件直通
-            if (currentRole == PluginRole::Master || currentRole == PluginRole::Standalone) {
-                if (isSUBChannel) {
-                    shouldProcess = true;  // SUB通道正常处理
-                } else {
-                    // 非SUB通道强制静音（SUB Solo逻辑）
-                    buffer.clear(physicalChannel, 0, buffer.getNumSamples());
-                    continue;
-                }
-            } else {
-                shouldProcess = false;  // 从插件直通
-            }
-        }
-        else {
-            // 场景3：从插件处理非SUB，主插件处理SUB
-            if (currentRole == PluginRole::Slave) {
-                shouldProcess = !isSUBChannel;  // 从插件只处理非SUB通道
-            } else {
-                shouldProcess = isSUBChannel;   // 主插件只处理SUB通道
-            }
-        }
-        
-        if (shouldProcess) {
-            // 获取最终Mute状态并应用
-            bool finalMuteState = semanticState.getFinalMuteState(semanticChannelName);
-            
-            if (finalMuteState) {
-                // 静音此通道
-                buffer.clear(physicalChannel, 0, buffer.getNumSamples());
-            } else {
-                // v4.1: 根据角色决定是否应用个人通道Gain
-                // Slave插件：只处理Solo/Mute状态，不处理Gain
-                // Master/Standalone插件：处理Solo/Mute状态和Gain
-                if (currentRole != PluginRole::Slave) {
-                    // 应用个人通道增益 (Master/Standalone)
-                    const float gainDb = apvts.getRawParameterValue("GAIN_" + juce::String(physicalChannel + 1))->load();
-                    if (std::abs(gainDb) > 0.01f) {
-                        buffer.applyGain(physicalChannel, 0, buffer.getNumSamples(), juce::Decibels::decibelsToGain(gainDb));
-                    }
-                }
-                // 如果是Slave插件：音频直通，不应用Gain
-            }
-        }
-        // 如果不应该处理，音频直通（不做任何修改）
-    }
+    // 应用预计算的状态（高度优化的内联函数，零分配）
+    renderState->applyToBuffer(buffer, numSamples);
     
-    // v4.1: 最后应用总线效果 (Master Gain + Dim) - 所有角色都应用
-    // Slave: 只Solo/Mute状态处理 + 总线效果
-    // Master/Standalone: Solo/Mute状态 + 个人通道Gain + 总线效果
-    masterBusProcessor.process(buffer, currentRole);
-    
-    #endif // 旧代码结束
+    // 完成 - 总共18行代码，严格遵循JUCE规范
 }
 
 //==============================================================================

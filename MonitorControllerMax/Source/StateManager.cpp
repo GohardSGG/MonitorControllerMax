@@ -1,769 +1,219 @@
-﻿/*
-  ==============================================================================
-
-    StateManager.cpp
-    Created: 2025-07-30
-    Author:  GohardSGG & Claude Code
-
-    状态管理器实现 - 所有业务逻辑的中心
-
-  ==============================================================================
-*/
-
-#include "StateManager.h"
-#include "RenderState.h"
+﻿#include "StateManager.h"
 #include "PluginProcessor.h"
-#include "GlobalPluginState.h"
+#include "DebugLogger.h"
 
 //==============================================================================
-StateManager::StateManager(MonitorControllerMaxAudioProcessor& processor)
-    : processor(processor)
+StateManager::StateManager(MonitorControllerMaxAudioProcessor& proc)
+    : processor(proc)
 {
-    // 初始化双缓冲渲染状态
+    // 创建双缓冲的RenderState实例
     renderStateA = std::make_unique<RenderState>();
     renderStateB = std::make_unique<RenderState>();
     
-    // 初始设置A为活跃状态
+    // 初始设置A为活跃状态，B为写入状态
     activeRenderState.store(renderStateA.get());
+    inactiveRenderState = renderStateB.get();
     
-    // 初始化OSC通信器
-    oscComm = std::make_unique<OSCCommunicator>();
-    
-    // 注册为语义状态监听器
-    processor.getSemanticState().addStateChangeListener(this);
-    
-    // 注册为参数监听器
-    processor.apvts.addParameterListener("MASTER_GAIN", this);
-    for (int i = 1; i <= 26; ++i) {
-        processor.apvts.addParameterListener("mute" + juce::String(i), this);
-        processor.apvts.addParameterListener("solo" + juce::String(i), this);
-        processor.apvts.addParameterListener("GAIN_" + juce::String(i), this);
-    }
-    
-    // 从AudioProcessorValueTreeState同步初始状态
-    syncFromValueTreeState();
-    
-    // 计算初始渲染状态
-    recalculateRenderState(renderStateA.get());
-    
-    VST3_DBG("StateManager initialized with double-buffered render states");
+    VST3_DBG("StateManager: Created with double-buffered render states");
 }
 
-//==============================================================================
 StateManager::~StateManager()
 {
-    // 移除监听器
+    shutdown();
+    VST3_DBG("StateManager: Destroyed");
+}
+
+//==============================================================================
+void StateManager::initialize()
+{
+    if (initialized) return;
+    
+    // 注册为SemanticChannelState监听器
+    processor.getSemanticState().addStateChangeListener(this);
+    
+    // 注册为参数监听器（只监听真正存在的参数）
+    processor.apvts.addParameterListener("MASTER_GAIN", this);
+    
+    // 监听所有通道增益参数（GAIN_1 到 GAIN_26）
+    for (int i = 1; i <= 26; ++i) {
+        const juce::String paramID = "GAIN_" + juce::String(i);
+        processor.apvts.addParameterListener(paramID, this);
+    }
+    
+    // 执行初始状态收集
+    updateRenderState();
+    
+    initialized = true;
+    VST3_DBG("StateManager: Initialized with parameter and state listeners");
+}
+
+void StateManager::shutdown()
+{
+    if (!initialized) return;
+    
+    // 移除所有监听器
     processor.getSemanticState().removeStateChangeListener(this);
     
-    // 移除参数监听器
     processor.apvts.removeParameterListener("MASTER_GAIN", this);
     for (int i = 1; i <= 26; ++i) {
-        processor.apvts.removeParameterListener("mute" + juce::String(i), this);
-        processor.apvts.removeParameterListener("solo" + juce::String(i), this);
-        processor.apvts.removeParameterListener("GAIN_" + juce::String(i), this);
+        const juce::String paramID = "GAIN_" + juce::String(i);
+        processor.apvts.removeParameterListener(paramID, this);
     }
+    
+    initialized = false;
+    VST3_DBG("StateManager: Shutdown complete");
 }
 
 //==============================================================================
-// 用户接口实现（消息线程）
-void StateManager::setSoloState(const juce::String& channelName, bool soloState)
+const RenderState* StateManager::getCurrentRenderState() const noexcept
 {
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.soloStates[channelName] = soloState;
-    }
-    
-    // 更新语义状态系统
-    processor.getSemanticState().setSoloState(channelName, soloState);
-    
-    // 通知状态变化
-    notifyStateChange(channelName, "solo", soloState);
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
+    // 音频线程安全：单次原子读取
+    return activeRenderState.load(std::memory_order_acquire);
 }
 
 //==============================================================================
-void StateManager::setMuteState(const juce::String& channelName, bool muteState)
+// SemanticChannelState::StateChangeListener 接口实现
+void StateManager::onSoloStateChanged(const juce::String& channelName, bool state)
 {
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.muteStates[channelName] = muteState;
-    }
-    
-    // 更新语义状态系统
-    processor.getSemanticState().setMuteState(channelName, muteState);
-    
-    // 通知状态变化
-    notifyStateChange(channelName, "mute", muteState);
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
+    VST3_DBG("StateManager: Solo state changed - " + channelName + " = " + (state ? "ON" : "OFF"));
+    updateRenderState();
 }
 
-//==============================================================================
-void StateManager::setChannelGain(const juce::String& channelName, float gainDb)
+void StateManager::onMuteStateChanged(const juce::String& channelName, bool state)
 {
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        // 将dB转换为线性增益
-        state.gainStates[channelName] = juce::Decibels::decibelsToGain(gainDb);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
+    VST3_DBG("StateManager: Mute state changed - " + channelName + " = " + (state ? "ON" : "OFF"));
+    updateRenderState();
 }
 
-//==============================================================================
-void StateManager::setMasterGain(float gainPercent)
+void StateManager::onGlobalModeChanged()
 {
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.masterGainPercent = juce::jlimit(0.0f, 100.0f, gainPercent);
-    }
-    
-    // 更新音频处理器参数
-    if (auto* param = processor.apvts.getParameter("masterGain")) {
-        param->setValueNotifyingHost(state.masterGainPercent / 100.0f);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-//==============================================================================
-void StateManager::setDimActive(bool active)
-{
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.dimActive = active;
-    }
-    
-    // 通知总线处理器
-    processor.masterBusProcessor.setDimActive(active);
-    
-    // 发送OSC更新（如果是Master或Standalone）
-    if (state.currentRole != PluginRole::Slave) {
-        oscComm->sendMasterDim(active);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-//==============================================================================
-void StateManager::setLowBoostActive(bool active)
-{
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.lowBoostActive = active;
-    }
-    
-    // 通知总线处理器
-    processor.masterBusProcessor.setLowBoostActive(active);
-    
-    // 发送OSC更新（如果是Master或Standalone）
-    if (state.currentRole != PluginRole::Slave) {
-        oscComm->sendMasterLowBoost(active);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-//==============================================================================
-void StateManager::setMasterMuteActive(bool active)
-{
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.masterMuteActive = active;
-    }
-    
-    // 通知总线处理器
-    processor.masterBusProcessor.setMasterMuteActive(active);
-    
-    // 发送OSC更新（如果是Master或Standalone）
-    if (state.currentRole != PluginRole::Slave) {
-        oscComm->sendMasterMute(active);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-//==============================================================================
-void StateManager::setMonoActive(bool active)
-{
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.monoActive = active;
-    }
-    
-    // 通知总线处理器
-    processor.masterBusProcessor.setMonoActive(active);
-    
-    // 发送OSC更新（如果是Master或Standalone）
-    if (state.currentRole != PluginRole::Slave) {
-        oscComm->sendMasterMono(active);
-    }
-    
-    // 如果是Master，广播到Slave
-    if (state.currentRole == PluginRole::Master) {
-        GlobalPluginState::getInstance().broadcastMonoStateToSlaves(active);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-//==============================================================================
-void StateManager::setCurrentLayout(const juce::String& speakerLayout, const juce::String& subLayout)
-{
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        
-        // 从配置管理器获取新布局
-        state.currentLayout = processor.configManager.getLayoutFor(speakerLayout, subLayout);
-    }
-    
-    // 更新布局映射
-    updateLayoutMapping(state.currentLayout);
-    
-    // 重新计算渲染状态
-    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
-                          renderStateB.get() : renderStateA.get();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-//==============================================================================
-// 状态查询实现
-bool StateManager::getSoloState(const juce::String& channelName) const
-{
-    std::lock_guard<std::mutex> lock(stateMutex);
-    auto it = state.soloStates.find(channelName);
-    return it != state.soloStates.end() ? it->second : false;
-}
-
-bool StateManager::getMuteState(const juce::String& channelName) const
-{
-    std::lock_guard<std::mutex> lock(stateMutex);
-    auto it = state.muteStates.find(channelName);
-    return it != state.muteStates.end() ? it->second : false;
-}
-
-float StateManager::getMasterGain() const
-{
-    std::lock_guard<std::mutex> lock(stateMutex);
-    return state.masterGainPercent;
-}
-
-bool StateManager::isDimActive() const
-{
-    std::lock_guard<std::mutex> lock(stateMutex);
-    return state.dimActive;
-}
-
-bool StateManager::isMonoActive() const
-{
-    std::lock_guard<std::mutex> lock(stateMutex);
-    return state.monoActive;
-}
-
-//==============================================================================
-// Master-Slave通信实现
-void StateManager::setPluginRole(PluginRole role)
-{
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        state.currentRole = role;
-    }
-    
-    // 更新OSC系统的角色
-    // TODO: oscComm->setRole(role);
-    
-    // 处理角色转换
-    switch (role) {
-        case PluginRole::Master:
-            // 开始广播状态到Slave
-            broadcastToSlaves();
-            break;
-            
-        case PluginRole::Slave:
-            // 停止OSC发送
-            // TODO: oscComm->stopSending();
-            break;
-            
-        case PluginRole::Standalone:
-            // 恢复独立运行
-            // TODO: oscComm->startSending();
-            break;
-    }
-}
-
-//==============================================================================
-void StateManager::receiveMasterState(const juce::String& channelName, const juce::String& action, bool newState)
-{
-    // 只有Slave才处理Master状态
-    if (state.currentRole != PluginRole::Slave) return;
-    
-    if (action == "solo") {
-        setSoloState(channelName, newState);
-    }
-    else if (action == "mute") {
-        setMuteState(channelName, newState);
-    }
-}
-
-//==============================================================================
-void StateManager::broadcastToSlaves()
-{
-    if (state.currentRole != PluginRole::Master) return;
-    
-    std::lock_guard<std::mutex> lock(stateMutex);
-    
-    // 广播所有Solo状态
-    for (const auto& [channelName, soloState] : state.soloStates) {
-        GlobalPluginState::getInstance().broadcastStateToSlaves(channelName, "solo", soloState);
-    }
-    
-    // 广播所有Mute状态
-    for (const auto& [channelName, muteState] : state.muteStates) {
-        GlobalPluginState::getInstance().broadcastStateToSlaves(channelName, "mute", muteState);
-    }
-    
-    // 广播Mono状态
-    GlobalPluginState::getInstance().broadcastMonoStateToSlaves(state.monoActive);
-}
-
-//==============================================================================
-// OSC控制实现
-void StateManager::handleOSCMessage(const juce::String& address, float value)
-{
-    // 解析OSC地址
-    if (address.startsWith("/Monitor/")) {
-        auto parts = juce::StringArray::fromTokens(address, "/", "");
-        if (parts.size() >= 4) {
-            const auto& channelName = parts[2];
-            const auto& action = parts[3];
-            
-            if (action == "solo") {
-                setSoloState(channelName, value > 0.5f);
-            }
-            else if (action == "mute") {
-                setMuteState(channelName, value > 0.5f);
-            }
-        }
-        else if (parts.size() >= 3 && parts[1] == "Master") {
-            const auto& control = parts[2];
-            
-            if (control == "Volume") {
-                setMasterGain(value * 100.0f);
-            }
-            else if (control == "Dim") {
-                setDimActive(value > 0.5f);
-            }
-            else if (control == "LowBoost") {
-                setLowBoostActive(value > 0.5f);
-            }
-            else if (control == "Mute") {
-                setMasterMuteActive(value > 0.5f);
-            }
-            else if (control == "Mono") {
-                setMonoActive(value > 0.5f);
-            }
-        }
-    }
-}
-
-//==============================================================================
-void StateManager::sendOSCUpdate(const juce::String& channelName, const juce::String& action, bool actionState)
-{
-    if (state.currentRole == PluginRole::Slave) return;  // Slave不发送OSC
-    
-    if (action == "solo") {
-        oscComm->sendSoloState(channelName, actionState);
-    }
-    else if (action == "mute") {
-        oscComm->sendMuteState(channelName, actionState);
-    }
-}
-
-//==============================================================================
-// 实时渲染接口实现
-RenderState* StateManager::beginStateUpdate()
-{
-    // 返回非活跃的缓冲区用于更新
-    return (activeRenderState.load() == renderStateA.get()) ? 
-            renderStateB.get() : renderStateA.get();
-}
-
-void StateManager::commitStateUpdate()
-{
-    // 原子切换活跃缓冲区
-    auto* current = activeRenderState.load();
-    auto* next = (current == renderStateA.get()) ? renderStateB.get() : renderStateA.get();
-    
-    // 增加版本号
-    next->version++;
-    
-    // 原子切换
-    activeRenderState.store(next);
-}
-
-const RenderState* StateManager::getCurrentRenderState() const
-{
-    return activeRenderState.load();
+    VST3_DBG("StateManager: Global mode changed");
+    updateRenderState();
 }
 
 //==============================================================================
 // AudioProcessorValueTreeState::Listener 接口实现
 void StateManager::parameterChanged(const juce::String& parameterID, float newValue)
 {
-    // 处理参数变化
-    if (parameterID == "MASTER_GAIN") {
-        setMasterGain(newValue * 100.0f);
-    }
-    else if (parameterID.startsWith("mute")) {
-        // 提取通道索引
-        auto channelStr = parameterID.substring(4);
-        int channelIndex = channelStr.getIntValue() - 1;
-        
-        // 获取语义通道名
-        const auto& layout = state.currentLayout;
-        if (channelIndex >= 0 && channelIndex < layout.channels.size()) {
-            const auto& channelName = layout.channels[channelIndex].name;
-            setMuteState(channelName, newValue > 0.5f);
-        }
-    }
-    else if (parameterID.startsWith("solo")) {
-        // 提取通道索引
-        auto channelStr = parameterID.substring(4);
-        int channelIndex = channelStr.getIntValue() - 1;
-        
-        // 获取语义通道名
-        const auto& layout = state.currentLayout;
-        if (channelIndex >= 0 && channelIndex < layout.channels.size()) {
-            const auto& channelName = layout.channels[channelIndex].name;
-            setSoloState(channelName, newValue > 0.5f);
-        }
-    }
-    else if (parameterID.startsWith("GAIN_")) {
-        // 处理通道增益参数
-        auto channelStr = parameterID.substring(5);
-        int channelIndex = channelStr.getIntValue() - 1;
-        
-        // 获取语义通道名
-        const auto& layout = state.currentLayout;
-        if (channelIndex >= 0 && channelIndex < layout.channels.size()) {
-            const auto& channelName = layout.channels[channelIndex].name;
-            setChannelGain(channelName, newValue);  // newValue已经是dB值
-        }
-    }
+    VST3_DBG("StateManager: Parameter changed - " + parameterID + " = " + juce::String(newValue));
+    updateRenderState();
 }
 
 //==============================================================================
-// SemanticChannelState::StateChangeListener 接口实现
-void StateManager::onSoloStateChanged(const juce::String& channelName, bool soloState)
+void StateManager::onLayoutChanged()
 {
-    // 语义状态已更改，更新内部状态并重新计算
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        this->state.soloStates[channelName] = soloState;
-    }
-    
-    // 发送OSC更新
-    sendOSCUpdate(channelName, "solo", soloState);
-    
-    // 如果是Master，广播到Slave
-    if (this->state.currentRole == PluginRole::Master) {
-        GlobalPluginState::getInstance().broadcastStateToSlaves(channelName, "solo", soloState);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = beginStateUpdate();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-void StateManager::onMuteStateChanged(const juce::String& channelName, bool muteState)
-{
-    // 语义状态已更改，更新内部状态并重新计算
-    {
-        std::lock_guard<std::mutex> lock(stateMutex);
-        this->state.muteStates[channelName] = muteState;
-    }
-    
-    // 发送OSC更新
-    sendOSCUpdate(channelName, "mute", muteState);
-    
-    // 如果是Master，广播到Slave
-    if (this->state.currentRole == PluginRole::Master) {
-        GlobalPluginState::getInstance().broadcastStateToSlaves(channelName, "mute", muteState);
-    }
-    
-    // 重新计算渲染状态
-    auto* inactiveState = beginStateUpdate();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
-}
-
-void StateManager::onGlobalModeChanged()
-{
-    // 全局模式改变，重新计算所有状态
-    auto* inactiveState = beginStateUpdate();
-    recalculateRenderState(inactiveState);
-    commitStateUpdate();
+    VST3_DBG("StateManager: Layout changed");
+    updateRenderState();
 }
 
 //==============================================================================
-// 内部方法实现
-void StateManager::recalculateRenderState(RenderState* targetState)
+// 核心状态更新方法
+void StateManager::updateRenderState()
 {
-    std::lock_guard<std::mutex> lock(stateMutex);
+    if (!initialized) return;
     
-    // 清空目标状态
+    // 收集当前状态到非活跃缓冲区
+    collectCurrentState(inactiveRenderState);
+    
+    // 原子切换缓冲区
+    commitRenderState();
+}
+
+void StateManager::collectCurrentState(RenderState* targetState)
+{
+    // 清空目标状态 (手动初始化所有字段)
     for (int i = 0; i < RenderState::MAX_CHANNELS; ++i) {
-        targetState->channels[i] = { 1.0f, 1.0f, false, false, {0, 0} };
+        targetState->channelShouldMute[i] = false;
+        targetState->channelFinalGain[i] = 1.0f;
+        targetState->channelIsActive[i] = false;
+        targetState->monoChannelIndices[i] = 0;
+    }
+    targetState->masterGainFactor = 1.0f;
+    targetState->dimFactor = 1.0f;
+    targetState->masterMuteActive = false;
+    targetState->monoActive = false;
+    targetState->monoChannelCount = 0;
+    
+    // 收集各组件状态（直接调用现有逻辑，零计算）
+    collectChannelStates(targetState);
+    collectMasterBusStates(targetState);
+    collectMonoChannelData(targetState);
+    
+    // 更新版本号
+    targetState->version.store(targetState->version.load() + 1, std::memory_order_release);
+}
+
+void StateManager::collectChannelStates(RenderState* target)
+{
+    const auto& currentLayout = processor.getCurrentLayout();
+    
+    // 遍历当前布局中的所有通道
+    for (const auto& channelInfo : currentLayout.channels) {
+        const int physicalIndex = channelInfo.channelIndex;
+        if (physicalIndex < 0 || physicalIndex >= RenderState::MAX_CHANNELS) continue;
+        
+        const juce::String& channelName = channelInfo.name;
+        
+        // 直接调用SemanticChannelState的最终结果（保持所有SUB逻辑）
+        target->channelShouldMute[physicalIndex] = 
+            processor.getSemanticState().getFinalMuteState(channelName);
+        
+        // 获取通道个人增益（来自VST3参数）
+        const juce::String gainParamID = "GAIN_" + juce::String(physicalIndex + 1);
+        const float gainDb = processor.apvts.getRawParameterValue(gainParamID)->load();
+        target->channelFinalGain[physicalIndex] = juce::Decibels::decibelsToGain(gainDb);
+        
+        // 标记通道激活
+        target->channelIsActive[physicalIndex] = true;
+    }
+}
+
+void StateManager::collectMasterBusStates(RenderState* target)
+{
+    const auto& masterBus = processor.masterBusProcessor;
+    
+    // 直接获取MasterBusProcessor计算的最终结果
+    target->masterGainFactor = masterBus.getMasterGainPercent() * 0.01f;
+    target->dimFactor = masterBus.isDimActive() ? 0.16f : 1.0f;
+    target->masterMuteActive = masterBus.isMasterMuteActive();
+    target->monoActive = masterBus.isMonoActive();
+}
+
+void StateManager::collectMonoChannelData(RenderState* target)
+{
+    if (!target->monoActive) {
+        target->monoChannelCount = 0;
+        return;
     }
     
-    // 设置Master总线状态
-    targetState->master.masterMuteActive = state.masterMuteActive;
-    targetState->master.monoEffectActive = state.monoActive;
-    targetState->master.monoChannelCount = 0;
+    const auto& currentLayout = processor.getCurrentLayout();
+    uint8_t monoCount = 0;
     
-    // 应用复杂的Solo逻辑
-    applyComplexSoloLogic(targetState);
-    
-    // 计算每个通道的最终增益
-    const float masterGainFactor = state.masterGainPercent * 0.01f;
-    const float dimFactor = state.dimActive ? 0.16f : 1.0f;
-    
-    for (const auto& channelInfo : state.currentLayout.channels) {
-        const int physicalChannel = channelInfo.channelIndex;
-        if (physicalChannel < 0 || physicalChannel >= RenderState::MAX_CHANNELS) continue;
+    // 收集参与Mono效果的通道（通常是所有主声道，不包括SUB）
+    for (const auto& channelInfo : currentLayout.channels) {
+        const int physicalIndex = channelInfo.channelIndex;
+        if (physicalIndex < 0 || physicalIndex >= RenderState::MAX_CHANNELS) continue;
         
-        auto& chData = targetState->channels[physicalChannel];
+        const juce::String& channelName = channelInfo.name;
         
-        // 计算通道增益
-        float channelGain = 1.0f;
-        auto gainIt = state.gainStates.find(channelInfo.name);
-        if (gainIt != state.gainStates.end()) {
-            channelGain = gainIt->second;
-        }
-        
-        // 应用所有增益因子
-        chData.targetGain = channelGain * masterGainFactor * dimFactor;
-        
-        // 设置Mono通道
-        if (state.monoActive && !channelInfo.name.contains("SUB") && !channelInfo.name.contains("LFE")) {
-            chData.isMonoChannel = true;
-            if (targetState->master.monoChannelCount < RenderState::MAX_CHANNELS) {
-                targetState->master.monoChannelIndices[targetState->master.monoChannelCount++] = 
-                    static_cast<uint8_t>(physicalChannel);
+        // 排除SUB通道参与Mono混合
+        if (!processor.getSemanticState().isSUBChannel(channelName)) {
+            if (monoCount < RenderState::MAX_CHANNELS) {
+                target->monoChannelIndices[monoCount] = static_cast<uint8_t>(physicalIndex);
+                monoCount++;
             }
         }
     }
+    
+    target->monoChannelCount = monoCount;
 }
 
-//==============================================================================
-void StateManager::applyComplexSoloLogic(RenderState* targetState)
+void StateManager::commitRenderState()
 {
-    // 实现与原版相同的复杂Solo逻辑（来自SemanticChannelState::getFinalMuteState）
-    bool hasAnySolo = false;
-    bool hasNonSUBSolo = false;
-    bool hasSUBSolo = false;
-    std::set<juce::String> soloChannels;
+    // 原子切换活跃和非活跃缓冲区
+    RenderState* oldActive = activeRenderState.exchange(inactiveRenderState, std::memory_order_acq_rel);
+    inactiveRenderState = oldActive;
     
-    // 收集所有Solo的通道并分类
-    for (const auto& [channelName, isSolo] : state.soloStates) {
-        if (isSolo) {
-            hasAnySolo = true;
-            soloChannels.insert(channelName);
-            
-            if (channelName.contains("SUB")) {
-                hasSUBSolo = true;
-            } else {
-                hasNonSUBSolo = true;
-            }
-        }
-    }
-    
-    if (!hasAnySolo) {
-        // 无Solo模式：只应用用户的Mute状态
-        for (const auto& channelInfo : state.currentLayout.channels) {
-            const int physicalChannel = channelInfo.channelIndex;
-            if (physicalChannel < 0 || physicalChannel >= RenderState::MAX_CHANNELS) continue;
-            
-            auto muteIt = state.muteStates.find(channelInfo.name);
-            if (muteIt != state.muteStates.end() && muteIt->second) {
-                targetState->channels[physicalChannel].shouldMute = true;
-            }
-        }
-    }
-    else {
-        // Solo模式激活：应用复杂的Solo逻辑
-        for (const auto& channelInfo : state.currentLayout.channels) {
-            const int physicalChannel = channelInfo.channelIndex;
-            if (physicalChannel < 0 || physicalChannel >= RenderState::MAX_CHANNELS) continue;
-            
-            const bool isSolo = soloChannels.count(channelInfo.name) > 0;
-            const bool isSUB = channelInfo.name.contains("SUB");
-            
-            if (isSUB) {
-                // SUB通道逻辑
-                if (hasNonSUBSolo && !hasSUBSolo) {
-                    // 场景1：只有非SUB Solo时，SUB通道被强制静音
-                    targetState->channels[physicalChannel].shouldMute = true;
-                }
-                else if (isSolo) {
-                    // SUB通道被Solo但可能被手动Mute
-                    auto muteIt = state.muteStates.find(channelInfo.name);
-                    if (muteIt != state.muteStates.end() && muteIt->second) {
-                        targetState->channels[physicalChannel].shouldMute = true;
-                    }
-                }
-                else if (hasSUBSolo) {
-                    // 有其他SUB被Solo，这个SUB没有被Solo
-                    targetState->channels[physicalChannel].shouldMute = true;
-                }
-                else {
-                    // 混合Solo场景，检查用户Mute
-                    auto muteIt = state.muteStates.find(channelInfo.name);
-                    if (muteIt != state.muteStates.end() && muteIt->second) {
-                        targetState->channels[physicalChannel].shouldMute = true;
-                    }
-                }
-            }
-            else {
-                // 非SUB通道逻辑
-                if (hasSUBSolo && !hasNonSUBSolo) {
-                    // 场景2：只有SUB Solo时，非SUB通道强制通过（不静音）
-                    targetState->channels[physicalChannel].shouldMute = false;
-                }
-                else if (isSolo) {
-                    // 通道被Solo但可能被手动Mute
-                    auto muteIt = state.muteStates.find(channelInfo.name);
-                    if (muteIt != state.muteStates.end() && muteIt->second) {
-                        targetState->channels[physicalChannel].shouldMute = true;
-                    }
-                }
-                else {
-                    // 通道没有被Solo，在Solo模式下应该被静音
-                    targetState->channels[physicalChannel].shouldMute = true;
-                }
-            }
-        }
-    }
-}
-
-//==============================================================================
-void StateManager::notifyStateChange(const juce::String& channelName, const juce::String& action, bool state)
-{
-    // 通知处理器状态变化
-    processor.onSemanticStateChanged(channelName, action, state);
-}
-
-//==============================================================================
-void StateManager::updateLayoutMapping(const Layout& newLayout)
-{
-    // 更新物理映射器
-    processor.getPhysicalMapper().updateMapping(newLayout);
-    
-    // 清理不存在的通道状态
-    std::set<juce::String> validChannels;
-    for (const auto& ch : newLayout.channels) {
-        validChannels.insert(ch.name);
-    }
-    
-    // 清理Solo状态
-    for (auto it = state.soloStates.begin(); it != state.soloStates.end(); ) {
-        if (validChannels.count(it->first) == 0) {
-            it = state.soloStates.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    
-    // 清理Mute状态
-    for (auto it = state.muteStates.begin(); it != state.muteStates.end(); ) {
-        if (validChannels.count(it->first) == 0) {
-            it = state.muteStates.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
-//==============================================================================
-int StateManager::getPhysicalChannelForSemantic(const juce::String& channelName) const
-{
-    for (const auto& ch : state.currentLayout.channels) {
-        if (ch.name == channelName) {
-            return ch.channelIndex;
-        }
-    }
-    return -1;
-}
-
-//==============================================================================
-void StateManager::syncToValueTreeState()
-{
-    // 同步状态到AudioProcessorValueTreeState
-    // 这里暂时保留接口，后续可能需要实现
-}
-
-void StateManager::syncFromValueTreeState()
-{
-    // 从AudioProcessorValueTreeState同步状态
-    // 读取当前的参数值并更新内部状态
-    if (auto* param = processor.apvts.getParameter("MASTER_GAIN")) {
-        state.masterGainPercent = param->getValue() * 100.0f;
-    }
-    
-    // 同步通道状态
-    const auto& layout = processor.getCurrentLayout();
-    for (int i = 0; i < layout.channels.size(); ++i) {
-        const auto& channelInfo = layout.channels[i];
-        const int physicalChannel = channelInfo.channelIndex;
-        
-        // Solo状态
-        if (auto* soloParam = processor.apvts.getParameter("solo" + juce::String(physicalChannel + 1))) {
-            state.soloStates[channelInfo.name] = soloParam->getValue() > 0.5f;
-        }
-        
-        // Mute状态
-        if (auto* muteParam = processor.apvts.getParameter("mute" + juce::String(physicalChannel + 1))) {
-            state.muteStates[channelInfo.name] = muteParam->getValue() > 0.5f;
-        }
-        
-        // 通道增益
-        if (auto* gainParam = processor.apvts.getParameter("GAIN_" + juce::String(physicalChannel + 1))) {
-            state.gainStates[channelInfo.name] = juce::Decibels::decibelsToGain(gainParam->getValue());
-        }
-    }
+    VST3_DBG("StateManager: Render state committed - version " + 
+             juce::String(activeRenderState.load()->version.load()));
 }
