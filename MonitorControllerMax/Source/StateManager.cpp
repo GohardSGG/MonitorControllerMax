@@ -32,6 +32,14 @@ StateManager::StateManager(MonitorControllerMaxAudioProcessor& processor)
     // 注册为语义状态监听器
     processor.getSemanticState().addStateChangeListener(this);
     
+    // 注册为参数监听器
+    processor.apvts.addParameterListener("MASTER_GAIN", this);
+    for (int i = 1; i <= 26; ++i) {
+        processor.apvts.addParameterListener("mute" + juce::String(i), this);
+        processor.apvts.addParameterListener("solo" + juce::String(i), this);
+        processor.apvts.addParameterListener("GAIN_" + juce::String(i), this);
+    }
+    
     // 从AudioProcessorValueTreeState同步初始状态
     syncFromValueTreeState();
     
@@ -46,6 +54,14 @@ StateManager::~StateManager()
 {
     // 移除监听器
     processor.getSemanticState().removeStateChangeListener(this);
+    
+    // 移除参数监听器
+    processor.apvts.removeParameterListener("MASTER_GAIN", this);
+    for (int i = 1; i <= 26; ++i) {
+        processor.apvts.removeParameterListener("mute" + juce::String(i), this);
+        processor.apvts.removeParameterListener("solo" + juce::String(i), this);
+        processor.apvts.removeParameterListener("GAIN_" + juce::String(i), this);
+    }
 }
 
 //==============================================================================
@@ -429,7 +445,7 @@ const RenderState* StateManager::getCurrentRenderState() const
 void StateManager::parameterChanged(const juce::String& parameterID, float newValue)
 {
     // 处理参数变化
-    if (parameterID == "masterGain") {
+    if (parameterID == "MASTER_GAIN") {
         setMasterGain(newValue * 100.0f);
     }
     else if (parameterID.startsWith("mute")) {
@@ -725,7 +741,29 @@ void StateManager::syncFromValueTreeState()
 {
     // 从AudioProcessorValueTreeState同步状态
     // 读取当前的参数值并更新内部状态
-    if (auto* param = processor.apvts.getParameter("masterGain")) {
+    if (auto* param = processor.apvts.getParameter("MASTER_GAIN")) {
         state.masterGainPercent = param->getValue() * 100.0f;
+    }
+    
+    // 同步通道状态
+    const auto& layout = processor.getCurrentLayout();
+    for (int i = 0; i < layout.channels.size(); ++i) {
+        const auto& channelInfo = layout.channels[i];
+        const int physicalChannel = channelInfo.channelIndex;
+        
+        // Solo状态
+        if (auto* soloParam = processor.apvts.getParameter("solo" + juce::String(physicalChannel + 1))) {
+            state.soloStates[channelInfo.name] = soloParam->getValue() > 0.5f;
+        }
+        
+        // Mute状态
+        if (auto* muteParam = processor.apvts.getParameter("mute" + juce::String(physicalChannel + 1))) {
+            state.muteStates[channelInfo.name] = muteParam->getValue() > 0.5f;
+        }
+        
+        // 通道增益
+        if (auto* gainParam = processor.apvts.getParameter("GAIN_" + juce::String(physicalChannel + 1))) {
+            state.gainStates[channelInfo.name] = juce::Decibels::decibelsToGain(gainParam->getValue());
+        }
     }
 }

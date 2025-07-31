@@ -316,43 +316,44 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
         if (renderState != nullptr) {
             // 应用预计算的渲染状态（高度优化的内联函数）
             renderState->applyToBuffer(buffer, buffer.getNumSamples());
+            
+            // 调试：每秒输出一次状态
+            static int debugCounter = 0;
+            if (++debugCounter > getSampleRate()) {
+                debugCounter = 0;
+                VST3_DBG_ROLE(this, "New architecture active - RenderState version: " << renderState->version.load());
+            }
+            
             return;  // 新架构处理完成，直接返回
         }
     }
     
-    // 以下是旧架构的备用处理（如果StateManager未初始化）
-    // 清除任何多余的输出通道，以防万一 (例如，从单声道到立体声)
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, buffer.getNumSamples());
+    // 旧架构已被新的StateManager完全替代
+    // 如果StateManager未初始化，清除所有音频输出作为安全措施
+    VST3_DBG_ROLE(this, "WARNING: StateManager not initialized, clearing audio buffer");
+    buffer.clear();
 
     // =================================================================================
-    // NEW: Semantic state system processing (additional layer) - TEMPORARILY DISABLED
+    // 旧架构已完全移除 - 所有处理由StateManager负责
     // =================================================================================
     
-    // TODO: Apply semantic state processing for mapped channels
-    // This will be enabled after basic compilation is working
-    /*
-    for (int physicalPin = 0; physicalPin < totalNumInputChannels; ++physicalPin)
-    {
-        // Get semantic channel name for this physical pin (if mapped)
-        juce::String semanticName = physicalMapper.getSemanticNameSafe(physicalPin);
-        
-        if (!semanticName.isEmpty())
-        {
-            // Apply semantic state to physical audio
-            bool semanticFinalMute = semanticState.getFinalMuteState(semanticName);
-            
-            if (semanticFinalMute)
-            {
-                // Semantic system overrides: mute this channel
-                buffer.clear(physicalPin, 0, buffer.getNumSamples());
-                // Skip further processing for this channel
-                continue;
-            }
-        }
-    }
-    */
-
+    /* 以下是旧架构的代码，已被新的StateManager完全替代：
+     * - 语义状态处理
+     * - Master-Slave音频处理逻辑
+     * - Solo/Mute状态应用
+     * - 通道增益应用
+     * - 总线效果处理
+     * 
+     * 新架构优势：
+     * - 音频线程零锁设计
+     * - 预计算所有状态
+     * - 单个原子操作读取
+     * - 符合JUCE实时音频规范
+     */
+    
+    // 旧代码开始（已禁用）
+    #if 0
+    
     // =================================================================================
     // Master-Slave Audio Processing Logic (v4.0 Architecture)
     // =================================================================================
@@ -467,6 +468,8 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     // Slave: 只Solo/Mute状态处理 + 总线效果
     // Master/Standalone: Solo/Mute状态 + 个人通道Gain + 总线效果
     masterBusProcessor.process(buffer, currentRole);
+    
+    #endif // 旧代码结束
 }
 
 //==============================================================================
@@ -825,8 +828,16 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
 
 void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 {
-    VST3_DBG_ROLE(this, "Solo button clicked - using semantic state system");
+    VST3_DBG_ROLE(this, "Solo button clicked - using StateManager");
     
+    // 使用新的StateManager架构
+    if (stateManager) {
+        // StateManager会处理所有逻辑
+        // TODO: 实现Solo按钮的复杂逻辑
+        return;
+    }
+    
+    // 以下是旧架构的备用处理
     if (semanticState.hasAnySoloActive()) {
         // 状态1：有Solo状态激活 - 清除所有Solo状态并恢复Mute记忆
         VST3_DBG_ROLE(this, "Clearing all Solo states and restoring Mute memory");
