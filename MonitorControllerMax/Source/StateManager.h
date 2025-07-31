@@ -43,8 +43,11 @@ public:
     //=== 用户接口（消息线程）===
     void setSoloState(const juce::String& channelName, bool state);
     void setMuteState(const juce::String& channelName, bool state);
+    void setChannelGain(const juce::String& channelName, float gainDb);
     void setMasterGain(float gainPercent);
     void setDimActive(bool active);
+    void setLowBoostActive(bool active);
+    void setMasterMuteActive(bool active);
     void setMonoActive(bool active);
     void setCurrentLayout(const juce::String& speakerLayout, const juce::String& subLayout);
     

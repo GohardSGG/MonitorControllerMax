@@ -92,6 +92,22 @@ void StateManager::setMuteState(const juce::String& channelName, bool muteState)
 }
 
 //==============================================================================
+void StateManager::setChannelGain(const juce::String& channelName, float gainDb)
+{
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        // 将dB转换为线性增益
+        state.gainStates[channelName] = juce::Decibels::decibelsToGain(gainDb);
+    }
+    
+    // 重新计算渲染状态
+    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
+                          renderStateB.get() : renderStateA.get();
+    recalculateRenderState(inactiveState);
+    commitStateUpdate();
+}
+
+//==============================================================================
 void StateManager::setMasterGain(float gainPercent)
 {
     {
@@ -125,6 +141,52 @@ void StateManager::setDimActive(bool active)
     // 发送OSC更新（如果是Master或Standalone）
     if (state.currentRole != PluginRole::Slave) {
         oscComm->sendMasterDim(active);
+    }
+    
+    // 重新计算渲染状态
+    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
+                          renderStateB.get() : renderStateA.get();
+    recalculateRenderState(inactiveState);
+    commitStateUpdate();
+}
+
+//==============================================================================
+void StateManager::setLowBoostActive(bool active)
+{
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        state.lowBoostActive = active;
+    }
+    
+    // 通知总线处理器
+    processor.masterBusProcessor.setLowBoostActive(active);
+    
+    // 发送OSC更新（如果是Master或Standalone）
+    if (state.currentRole != PluginRole::Slave) {
+        oscComm->sendMasterLowBoost(active);
+    }
+    
+    // 重新计算渲染状态
+    auto* inactiveState = (activeRenderState.load() == renderStateA.get()) ? 
+                          renderStateB.get() : renderStateA.get();
+    recalculateRenderState(inactiveState);
+    commitStateUpdate();
+}
+
+//==============================================================================
+void StateManager::setMasterMuteActive(bool active)
+{
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        state.masterMuteActive = active;
+    }
+    
+    // 通知总线处理器
+    processor.masterBusProcessor.setMasterMuteActive(active);
+    
+    // 发送OSC更新（如果是Master或Standalone）
+    if (state.currentRole != PluginRole::Slave) {
+        oscComm->sendMasterMute(active);
     }
     
     // 重新计算渲染状态
@@ -309,6 +371,12 @@ void StateManager::handleOSCMessage(const juce::String& address, float value)
             else if (control == "Dim") {
                 setDimActive(value > 0.5f);
             }
+            else if (control == "LowBoost") {
+                setLowBoostActive(value > 0.5f);
+            }
+            else if (control == "Mute") {
+                setMasterMuteActive(value > 0.5f);
+            }
             else if (control == "Mono") {
                 setMonoActive(value > 0.5f);
             }
@@ -386,6 +454,18 @@ void StateManager::parameterChanged(const juce::String& parameterID, float newVa
         if (channelIndex >= 0 && channelIndex < layout.channels.size()) {
             const auto& channelName = layout.channels[channelIndex].name;
             setSoloState(channelName, newValue > 0.5f);
+        }
+    }
+    else if (parameterID.startsWith("GAIN_")) {
+        // 处理通道增益参数
+        auto channelStr = parameterID.substring(5);
+        int channelIndex = channelStr.getIntValue() - 1;
+        
+        // 获取语义通道名
+        const auto& layout = state.currentLayout;
+        if (channelIndex >= 0 && channelIndex < layout.channels.size()) {
+            const auto& channelName = layout.channels[channelIndex].name;
+            setChannelGain(channelName, newValue);  // newValue已经是dB值
         }
     }
 }
@@ -497,20 +577,28 @@ void StateManager::recalculateRenderState(RenderState* targetState)
 //==============================================================================
 void StateManager::applyComplexSoloLogic(RenderState* targetState)
 {
-    // 实现与原版相同的复杂Solo逻辑
+    // 实现与原版相同的复杂Solo逻辑（来自SemanticChannelState::getFinalMuteState）
     bool hasAnySolo = false;
+    bool hasNonSUBSolo = false;
+    bool hasSUBSolo = false;
     std::set<juce::String> soloChannels;
     
-    // 收集所有Solo的通道
+    // 收集所有Solo的通道并分类
     for (const auto& [channelName, isSolo] : state.soloStates) {
         if (isSolo) {
             hasAnySolo = true;
             soloChannels.insert(channelName);
+            
+            if (channelName.contains("SUB")) {
+                hasSUBSolo = true;
+            } else {
+                hasNonSUBSolo = true;
+            }
         }
     }
     
     if (!hasAnySolo) {
-        // 没有Solo，只应用Mute状态
+        // 无Solo模式：只应用用户的Mute状态
         for (const auto& channelInfo : state.currentLayout.channels) {
             const int physicalChannel = channelInfo.channelIndex;
             if (physicalChannel < 0 || physicalChannel >= RenderState::MAX_CHANNELS) continue;
@@ -522,21 +610,54 @@ void StateManager::applyComplexSoloLogic(RenderState* targetState)
         }
     }
     else {
-        // 有Solo，静音所有非Solo通道（除了SUB）
+        // Solo模式激活：应用复杂的Solo逻辑
         for (const auto& channelInfo : state.currentLayout.channels) {
             const int physicalChannel = channelInfo.channelIndex;
             if (physicalChannel < 0 || physicalChannel >= RenderState::MAX_CHANNELS) continue;
             
             const bool isSolo = soloChannels.count(channelInfo.name) > 0;
-            const bool isSub = channelInfo.name.contains("SUB");
+            const bool isSUB = channelInfo.name.contains("SUB");
             
-            if (!isSolo && !isSub) {
-                targetState->channels[physicalChannel].shouldMute = true;
+            if (isSUB) {
+                // SUB通道逻辑
+                if (hasNonSUBSolo && !hasSUBSolo) {
+                    // 场景1：只有非SUB Solo时，SUB通道被强制静音
+                    targetState->channels[physicalChannel].shouldMute = true;
+                }
+                else if (isSolo) {
+                    // SUB通道被Solo但可能被手动Mute
+                    auto muteIt = state.muteStates.find(channelInfo.name);
+                    if (muteIt != state.muteStates.end() && muteIt->second) {
+                        targetState->channels[physicalChannel].shouldMute = true;
+                    }
+                }
+                else if (hasSUBSolo) {
+                    // 有其他SUB被Solo，这个SUB没有被Solo
+                    targetState->channels[physicalChannel].shouldMute = true;
+                }
+                else {
+                    // 混合Solo场景，检查用户Mute
+                    auto muteIt = state.muteStates.find(channelInfo.name);
+                    if (muteIt != state.muteStates.end() && muteIt->second) {
+                        targetState->channels[physicalChannel].shouldMute = true;
+                    }
+                }
             }
-            else if (isSolo) {
-                // Solo通道仍然可以被手动Mute
-                auto muteIt = state.muteStates.find(channelInfo.name);
-                if (muteIt != state.muteStates.end() && muteIt->second) {
+            else {
+                // 非SUB通道逻辑
+                if (hasSUBSolo && !hasNonSUBSolo) {
+                    // 场景2：只有SUB Solo时，非SUB通道强制通过（不静音）
+                    targetState->channels[physicalChannel].shouldMute = false;
+                }
+                else if (isSolo) {
+                    // 通道被Solo但可能被手动Mute
+                    auto muteIt = state.muteStates.find(channelInfo.name);
+                    if (muteIt != state.muteStates.end() && muteIt->second) {
+                        targetState->channels[physicalChannel].shouldMute = true;
+                    }
+                }
+                else {
+                    // 通道没有被Solo，在Solo模式下应该被静音
                     targetState->channels[physicalChannel].shouldMute = true;
                 }
             }
