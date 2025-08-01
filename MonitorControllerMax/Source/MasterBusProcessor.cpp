@@ -56,7 +56,7 @@ void MasterBusProcessor::prepare(double sampleRate, int maximumExpectedSamplesPe
 }
 
 //==============================================================================
-void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole currentRole)
+void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole currentRole, const bool* channelIsSUB)
 {
     // 计算当前Master Level (基于JSFX算法)
     float masterLevel = calculateMasterLevel();
@@ -92,8 +92,9 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
         nonSubChannelsCount = 0;
         for (int channel = 0; channel < totalChannels && nonSubChannelsCount < MAX_CHANNELS; ++channel)
         {
-            auto channelName = processorPtr->getPhysicalMapper().getSemanticNameSafe(channel);
-            if (!channelName.startsWith("SUB"))
+            // 使用预计算的SUB映射，避免音频线程中的字符串操作
+            bool isSUBChannel = (channelIsSUB != nullptr && channel < 26) ? channelIsSUB[channel] : false;
+            if (!isSUBChannel)
             {
                 nonSubChannelsBuffer[nonSubChannelsCount++] = channel;
             }
@@ -149,11 +150,11 @@ void MasterBusProcessor::process(juce::AudioBuffer<float>& buffer, PluginRole cu
         float channelGain = masterLevel;
         
         // v4.1: 检查是否是SUB通道并应用Low Boost
-        if (lowBoostActive && processorPtr)
+        if (lowBoostActive && channelIsSUB != nullptr)
         {
-            // 获取通道名称来判断是否为SUB通道
-            auto channelName = processorPtr->getPhysicalMapper().getSemanticNameSafe(channel);
-            if (channelName.startsWith("SUB"))
+            // 使用预计算的SUB映射，避免音频线程中的字符串操作
+            bool isSUBChannel = (channel < 26) ? channelIsSUB[channel] : false;
+            if (isSUBChannel)
             {
                 channelGain *= LOW_BOOST_FACTOR;  // 1.5x boost for SUB channels
             }

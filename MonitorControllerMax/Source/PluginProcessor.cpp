@@ -317,8 +317,8 @@ void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>&
     renderState->applyToBuffer(buffer, numSamples);
     
     // CRITICAL: 应用MasterBusProcessor的复杂总线效果（Mono混音等）
-    // 注意：这可能影响"零分配"原则，但保证功能完整性
-    masterBusProcessor.process(buffer, currentRole);
+    // 传递预计算的SUB映射，避免音频线程中的字符串操作
+    masterBusProcessor.process(buffer, currentRole, renderState->channelIsSUB);
     
     // 完成 - 总共20行代码，功能完整
 }

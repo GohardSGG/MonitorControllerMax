@@ -46,7 +46,7 @@ public:
     //==============================================================================
     // 音频处理接口
     void prepare(double sampleRate, int maximumExpectedSamplesPerBlock);
-    void process(juce::AudioBuffer<float>& buffer, PluginRole currentRole);
+    void process(juce::AudioBuffer<float>& buffer, PluginRole currentRole, const bool* channelIsSUB = nullptr);
     
     //==============================================================================
     // Master Gain控制 (VST3参数，0-100%)
