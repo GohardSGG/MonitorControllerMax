@@ -434,7 +434,8 @@ bool StateManager::hasAnySoloActive() const noexcept
     if (!initialized) return false;
     
     try {
-        return const_cast<StateManager*>(this)->getSemanticState().hasAnySoloActive();
+        // 🛡️ const安全修复：使用const版本的访问器
+        return processor.getSemanticState().hasAnySoloActive();
     } catch (...) {
         return false;
     }
@@ -445,7 +446,8 @@ bool StateManager::hasAnyMuteActive() const noexcept
     if (!initialized) return false;
     
     try {
-        return const_cast<StateManager*>(this)->getSemanticState().hasAnyMuteActive();
+        // 🛡️ const安全修复：使用const版本的访问器
+        return processor.getSemanticState().hasAnyMuteActive();
     } catch (...) {
         return false;
     }
@@ -456,6 +458,11 @@ bool StateManager::hasAnyMuteActive() const noexcept
 //==============================================================================
 
 SemanticChannelState& StateManager::getSemanticState()
+{
+    return processor.getSemanticState();
+}
+
+const SemanticChannelState& StateManager::getSemanticState() const
 {
     return processor.getSemanticState();
 }

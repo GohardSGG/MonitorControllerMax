@@ -39,6 +39,7 @@ private:
     // 单例模式 - 线程安全
     static std::unique_ptr<GlobalPluginState> instance;
     static std::mutex instanceMutex;
+    static std::atomic<bool> shuttingDown; // 🛡️ 关闭状态标志
     
     // 全局状态存储
     std::map<juce::String, bool> globalSoloStates;
@@ -80,6 +81,10 @@ private:
 public:
     // 单例访问
     static GlobalPluginState& getInstance();
+    
+    // 🛡️ 生命周期安全管理
+    static void shutdown();
+    static bool isShuttingDown();
     
     // 析构函数（需要public用于std::unique_ptr）
     ~GlobalPluginState() = default;

@@ -95,6 +95,7 @@ private:
     
     //=== 业务逻辑委托方法（保持职责分离）===
     SemanticChannelState& getSemanticState();
+    const SemanticChannelState& getSemanticState() const; // 🛡️ const安全版本
     void triggerStateUpdate(); // 触发状态更新到音频线程
     void updateProcessorPendingStates(); // 同步processor的pending状态
     

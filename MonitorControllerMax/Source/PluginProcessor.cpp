@@ -8,6 +8,12 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+
+// 🛡️ 生命周期安全：全局实例计数器
+static std::atomic<int>& getInstanceCount() {
+    static std::atomic<int> instanceCount{0};
+    return instanceCount;
+}
 #include "DebugLogger.h"
 #include "MasterBusProcessor.h"
 
@@ -145,6 +151,9 @@ MonitorControllerMaxAudioProcessor::MonitorControllerMaxAudioProcessor()
     VST3_DBG_ROLE(this, "OSC initialization deferred until role is determined");
     
     // Initialize legacy StateManager (will be phased out)
+    
+    // 🛡️ 生命周期安全：实例计数管理
+    getInstanceCount().fetch_add(1);
 }
 
 
@@ -165,6 +174,15 @@ MonitorControllerMaxAudioProcessor::~MonitorControllerMaxAudioProcessor()
     
     // 注销GlobalPluginState
     unregisterFromGlobalState();
+    
+    // 🛡️ 生命周期安全：如果这是最后一个插件实例，关闭GlobalPluginState
+    static std::once_flag shutdownFlag;
+    
+    if (getInstanceCount().fetch_sub(1) == 1) { // 最后一个实例
+        std::call_once(shutdownFlag, []() {
+            GlobalPluginState::shutdown();
+        });
+    }
     
     // 手动关闭日志系统并清理日志文件
     DebugLogger::getInstance().shutdown();
@@ -291,36 +309,48 @@ bool MonitorControllerMaxAudioProcessor::isBusesLayoutSupported (const BusesLayo
 }
 #endif
 
-void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void MonitorControllerMaxAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) noexcept
 {
-    juce::ScopedNoDenormals noDenormals;
-    
-    // 快速路径检查
-    const int numSamples = buffer.getNumSamples();
-    if (numSamples == 0) return;
-    
-    // 清除未使用的输出通道（音频线程安全）
-    const int totalNumInputChannels = getTotalNumInputChannels();
-    const int totalNumOutputChannels = getTotalNumOutputChannels();
-    for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i) {
-        buffer.clear(i, 0, numSamples);
+    // 🛡️ 音频线程异常边界 - 防止异常传播到DAW导致崩溃
+    try {
+        juce::ScopedNoDenormals noDenormals;
+        
+        // 快速路径检查
+        const int numSamples = buffer.getNumSamples();
+        if (numSamples == 0) return;
+        
+        // 清除未使用的输出通道（音频线程安全）
+        const int totalNumInputChannels = getTotalNumInputChannels();
+        const int totalNumOutputChannels = getTotalNumOutputChannels();
+        for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i) {
+            buffer.clear(i, 0, numSamples);
+        }
+        
+        // 获取当前渲染状态（单次原子读取，零锁）
+        const RenderState* renderState = stateManager->getCurrentRenderState();
+        if (renderState == nullptr) {
+            buffer.clear();
+            return;
+        }
+        
+        // 应用预计算的状态（高度优化的内联函数，零分配）
+        renderState->applyToBuffer(buffer, numSamples);
+        
+        // CRITICAL: 应用MasterBusProcessor的复杂总线效果（Mono混音等）
+        // 传递预计算的SUB映射，避免音频线程中的字符串操作
+        masterBusProcessor.process(buffer, currentRole, renderState->channelIsSUB);
+        
+        // 完成 - 总共20行代码，功能完整
     }
-    
-    // 获取当前渲染状态（单次原子读取，零锁）
-    const RenderState* renderState = stateManager->getCurrentRenderState();
-    if (renderState == nullptr) {
-        buffer.clear();
-        return;
+    catch (const std::exception& e) {
+        // 🚨 异常捕获：记录错误但不传播，确保DAW稳定性
+        buffer.clear(); // 安全清空缓冲区
+        // 注意：不在音频线程中调用DBG，避免可能的分配
     }
-    
-    // 应用预计算的状态（高度优化的内联函数，零分配）
-    renderState->applyToBuffer(buffer, numSamples);
-    
-    // CRITICAL: 应用MasterBusProcessor的复杂总线效果（Mono混音等）
-    // 传递预计算的SUB映射，避免音频线程中的字符串操作
-    masterBusProcessor.process(buffer, currentRole, renderState->channelIsSUB);
-    
-    // 完成 - 总共20行代码，功能完整
+    catch (...) {
+        // 🚨 捕获所有异常：最后的安全网
+        buffer.clear(); // 安全清空缓冲区
+    }
 }
 
 //==============================================================================

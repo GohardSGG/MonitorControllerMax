@@ -5,16 +5,64 @@
 // 静态成员初始化
 std::unique_ptr<GlobalPluginState> GlobalPluginState::instance = nullptr;
 std::mutex GlobalPluginState::instanceMutex;
+std::atomic<bool> GlobalPluginState::shuttingDown{false}; // 🛡️ 关闭状态标志
 
 GlobalPluginState& GlobalPluginState::getInstance() {
     std::lock_guard<std::mutex> lock(instanceMutex);
+    
+    // 🛡️ 关闭检查：防止在程序退出时创建新实例
+    if (shuttingDown.load()) {
+        static GlobalPluginState dummyInstance; // 安全的哑对象
+        return dummyInstance;
+    }
+    
     if (!instance) {
         instance = std::unique_ptr<GlobalPluginState>(new GlobalPluginState());
     }
     return *instance;
 }
 
+// 🛡️ 显式关闭机制
+void GlobalPluginState::shutdown() {
+    std::lock_guard<std::mutex> lock(instanceMutex);
+    
+    shuttingDown.store(true);
+    
+    if (instance) {
+        // 清理所有插件引用
+        {
+            std::lock_guard<std::mutex> pluginsLock(instance->pluginsMutex);
+            instance->allPlugins.clear();
+            instance->slavePlugins.clear();
+            instance->waitingSlavePlugins.clear();
+            instance->masterPlugin = nullptr;
+        }
+        
+        // 清理状态数据
+        {
+            std::lock_guard<std::mutex> stateLock(instance->stateMutex);
+            instance->globalSoloStates.clear();
+            instance->globalMuteStates.clear();
+        }
+        
+        // 清理日志
+        {
+            std::lock_guard<std::mutex> logsLock(instance->logsMutex);
+            instance->connectionLogs.clear();
+        }
+        
+        instance.reset();
+    }
+}
+
+bool GlobalPluginState::isShuttingDown() {
+    return shuttingDown.load();
+}
+
 void GlobalPluginState::registerPlugin(MonitorControllerMaxAudioProcessor* plugin) {
+    // 🛡️ 关闭检查：防止在程序退出时操作
+    if (shuttingDown.load()) return;
+    
     try {
         std::lock_guard<std::mutex> lock(pluginsMutex);
         
@@ -43,6 +91,7 @@ void GlobalPluginState::registerPlugin(MonitorControllerMaxAudioProcessor* plugi
 }
 
 void GlobalPluginState::unregisterPlugin(MonitorControllerMaxAudioProcessor* plugin) {
+    // 🛡️ 关闭检查：允许在关闭时注销插件
     try {
         std::lock_guard<std::mutex> lock(pluginsMutex);
         
