@@ -687,99 +687,28 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 {
     VST3_DBG_ROLE(this, "Solo button clicked - using unified StateManager");
     
-    // 🚀 彻底修复：统一使用StateManager控制器
+    // 🚀 统一使用StateManager控制器
     if (stateManager) {
-        stateManager->handleSoloButtonClick(); // ✅ 现在有完整实现
+        stateManager->handleSoloButtonClick();
         return;
     }
     
-    // 以下是旧架构的备用处理
-    if (semanticState.hasAnySoloActive()) {
-        // 状态1：有Solo状态激活 - 清除所有Solo状态并恢复Mute记忆
-        VST3_DBG_ROLE(this, "Clearing all Solo states and restoring Mute memory");
-        
-        // 清除选择模式
-        pendingSoloSelection.store(false);
-        pendingMuteSelection.store(false);
-        
-        // 清除所有Solo状态
-        semanticState.clearAllSoloStates();
-        
-        // 恢复之前保存的Mute记忆状态
-        semanticState.restoreMuteMemory();
-        
-        // 关闭保护状态
-        soloModeProtectionActive = false;
-        
-    } else if (pendingSoloSelection.load()) {
-        // 状态2：无Solo状态，但在Solo选择模式 - 退出选择模式并恢复记忆
-        VST3_DBG_ROLE(this, "Exiting Solo selection mode and restoring Mute memory");
-        
-        // 恢复之前保存的Mute记忆状态
-        semanticState.restoreMuteMemory();
-        
-        pendingSoloSelection.store(false);
-        pendingMuteSelection.store(false);
-        
-    } else {
-        // 状态3：初始状态 - 进入Solo选择模式
-        // → 保存当前Mute记忆 + 清空所有当前Mute状态 + 进入Solo选择模式
-        VST3_DBG_ROLE(this, "Entering Solo selection mode - saving Mute memory and clearing current Mute states");
-        
-        // 保存当前Mute记忆并清空现场，让UI显示干净状态
-        semanticState.saveCurrentMuteMemory();
-        semanticState.clearAllMuteStates();
-        
-        pendingSoloSelection.store(true);
-        pendingMuteSelection.store(false);  // 切换到Solo选择模式会取消Mute选择模式
-    }
-    
-    // 更新所有状态
-    updateAllStates();
+    // 无StateManager时的错误处理
+    VST3_DBG_ROLE(this, "ERROR: StateManager not available for Solo button handling");
 }
 
 void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
 {
     VST3_DBG_ROLE(this, "Mute button clicked - using unified StateManager");
     
-    // 🚀 彻底修复：统一使用StateManager控制器（消除架构不一致）
+    // 🚀 统一使用StateManager控制器
     if (stateManager) {
-        stateManager->handleMuteButtonClick(); // ✅ 统一架构
+        stateManager->handleMuteButtonClick();
         return;
     }
     
-    // 降级处理（当StateManager不可用时）
-    VST3_DBG_ROLE(this, "StateManager not available, using fallback semantic state system");
-    
-    // Solo Priority Rule: If any Solo state is active, Mute button is disabled
-    if (semanticState.hasAnySoloActive()) {
-        VST3_DBG_ROLE(this, "Mute button ignored - Solo priority rule active");
-        return;
-    }
-    
-    if (semanticState.hasAnyMuteActive()) {
-        // 状态1：有Mute状态激活 - 清除所有Mute状态
-        VST3_DBG_ROLE(this, "Clearing all Mute states");
-        pendingSoloSelection.store(false);
-        pendingMuteSelection.store(false);
-        
-        // 清除所有Mute状态
-        semanticState.clearAllMuteStates();
-        
-    } else if (pendingMuteSelection.load()) {
-        // 状态2：无Mute状态，但在Mute选择模式 - 退出选择模式
-        VST3_DBG_ROLE(this, "Exiting Mute selection mode - returning to initial state");
-        pendingSoloSelection.store(false);
-        pendingMuteSelection.store(false);
-    } else {
-        // 状态3：初始状态 - 进入Mute选择模式
-        VST3_DBG_ROLE(this, "Entering Mute selection mode - waiting for channel clicks");
-        pendingMuteSelection.store(true);
-        pendingSoloSelection.store(false);  // 切换到Mute选择模式会取消Solo选择模式
-    }
-    
-    // 更新所有状态
-    updateAllStates();
+    // 无StateManager时的错误处理
+    VST3_DBG_ROLE(this, "ERROR: StateManager not available for Mute button handling");
 }
 
 bool MonitorControllerMaxAudioProcessor::hasAnySoloActive() const
@@ -792,33 +721,49 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
     return semanticState.hasAnyMuteActive();
 }
 
-// Selection mode state functions based on button activation
+// Selection mode state functions - 现在委托给StateManager
 bool MonitorControllerMaxAudioProcessor::isInSoloSelectionMode() const
 {
-    // Solo选择模式：待定Solo选择或已有Solo参数激活时
-    bool result = pendingSoloSelection.load() || semanticState.hasAnySoloActive();
-    // 删除垃圾日志 - 选择模式状态检查高频调用
-    return result;
+    // 优先使用StateManager的状态，降级使用本地状态
+    if (stateManager) {
+        return stateManager->isInSoloSelectionMode();
+    }
+    
+    // 降级处理：使用本地pending状态或Solo激活状态
+    return pendingSoloSelection.load() || semanticState.hasAnySoloActive();
 }
 
 bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 {
-    // Mute选择模式：待定Mute选择或已有Mute参数激活时（且没有Solo优先级干扰）
-    bool result = (pendingMuteSelection.load() || semanticState.hasAnyMuteActive()) && !semanticState.hasAnySoloActive();
-    // 删除垃圾日志 - 选择模式状态检查高频调用
-    return result;
+    // 优先使用StateManager的状态，降级使用本地状态
+    if (stateManager) {
+        return stateManager->isInMuteSelectionMode();
+    }
+    
+    // 降级处理：使用本地pending状态和Solo优先级规则
+    return (pendingMuteSelection.load() || semanticState.hasAnyMuteActive()) && !semanticState.hasAnySoloActive();
 }
 
-// Dual state button activation functions
+// Dual state button activation functions - 委托给StateManager
 bool MonitorControllerMaxAudioProcessor::isSoloButtonActive() const
 {
-    // Solo按钮激活状态 = 有通道被Solo OR 处于Solo选择模式
+    // 优先使用StateManager的状态
+    if (stateManager) {
+        return stateManager->hasAnySoloActive() || stateManager->isInSoloSelectionMode();
+    }
+    
+    // 降级处理：Solo状态或选择模式
     return semanticState.hasAnySoloActive() || pendingSoloSelection.load();
 }
 
 bool MonitorControllerMaxAudioProcessor::isMuteButtonActive() const
 {
-    // Mute按钮激活状态 = 有通道被Mute OR 处于Mute选择模式（且没有Solo优先级干扰）
+    // 优先使用StateManager的状态
+    if (stateManager) {
+        return (stateManager->hasAnyMuteActive() || stateManager->isInMuteSelectionMode()) && !stateManager->hasAnySoloActive();
+    }
+    
+    // 降级处理：Mute状态或选择模式（考虑Solo优先级）
     return (semanticState.hasAnyMuteActive() || pendingMuteSelection.load()) && !semanticState.hasAnySoloActive();
 }
 
