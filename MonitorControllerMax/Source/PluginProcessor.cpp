@@ -685,12 +685,11 @@ void MonitorControllerMaxAudioProcessor::parameterChanged(const juce::String& pa
 
 void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 {
-    VST3_DBG_ROLE(this, "Solo button clicked - using StateManager");
+    VST3_DBG_ROLE(this, "Solo button clicked - using unified StateManager");
     
-    // 使用新的StateManager架构
+    // 🚀 彻底修复：统一使用StateManager控制器
     if (stateManager) {
-        // StateManager会处理所有逻辑
-        // TODO: 实现Solo按钮的复杂逻辑
+        stateManager->handleSoloButtonClick(); // ✅ 现在有完整实现
         return;
     }
     
@@ -741,7 +740,16 @@ void MonitorControllerMaxAudioProcessor::handleSoloButtonClick()
 
 void MonitorControllerMaxAudioProcessor::handleMuteButtonClick()
 {
-    VST3_DBG_ROLE(this, "Mute button clicked - using semantic state system");
+    VST3_DBG_ROLE(this, "Mute button clicked - using unified StateManager");
+    
+    // 🚀 彻底修复：统一使用StateManager控制器（消除架构不一致）
+    if (stateManager) {
+        stateManager->handleMuteButtonClick(); // ✅ 统一架构
+        return;
+    }
+    
+    // 降级处理（当StateManager不可用时）
+    VST3_DBG_ROLE(this, "StateManager not available, using fallback semantic state system");
     
     // Solo Priority Rule: If any Solo state is active, Mute button is disabled
     if (semanticState.hasAnySoloActive()) {

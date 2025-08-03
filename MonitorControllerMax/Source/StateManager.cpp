@@ -215,3 +215,263 @@ void StateManager::commitRenderState()
     VST3_DBG("StateManager: Render state committed - version " + 
              juce::String(activeRenderState.load()->version.load()));
 }
+
+//==============================================================================
+// 🚀 彻底修复：StateManager统一UI控制实现
+// 遵循原始设计意图和JUCE规范
+//==============================================================================
+
+void StateManager::handleSoloButtonClick()
+{
+    VST3_DBG("StateManager: Solo button clicked - unified control");
+    
+    // 确保在消息线程中执行（JUCE规范）
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    
+    if (!initialized) {
+        VST3_DBG("StateManager: Not initialized, ignoring Solo button click");
+        return;
+    }
+    
+    try {
+        auto& semanticState = getSemanticState();
+        
+        if (semanticState.hasAnySoloActive()) {
+            // 状态1：有Solo状态激活 - 清除所有Solo状态并恢复Mute记忆
+            VST3_DBG("StateManager: Clearing all Solo states and restoring Mute memory");
+            
+            // 清除选择模式
+            soloSelectionMode.store(false);
+            muteSelectionMode.store(false);
+            
+            // 清除所有Solo状态
+            semanticState.clearAllSoloStates();
+            
+            // 恢复之前保存的Mute记忆状态
+            semanticState.restoreMuteMemory();
+            
+            // 同步processor状态
+            updateProcessorPendingStates();
+            
+        } else if (soloSelectionMode.load()) {
+            // 状态2：无Solo状态，但在Solo选择模式 - 退出选择模式并恢复记忆
+            VST3_DBG("StateManager: Exiting Solo selection mode and restoring Mute memory");
+            
+            // 恢复之前保存的Mute记忆状态
+            semanticState.restoreMuteMemory();
+            
+            soloSelectionMode.store(false);
+            muteSelectionMode.store(false);
+            
+            // 同步processor状态
+            updateProcessorPendingStates();
+            
+        } else {
+            // 状态3：初始状态 - 进入Solo选择模式
+            VST3_DBG("StateManager: Entering Solo selection mode - saving Mute memory and clearing current Mute states");
+            
+            // 保存当前Mute记忆并清空现场，让UI显示干净状态
+            semanticState.saveCurrentMuteMemory();
+            semanticState.clearAllMuteStates();
+            
+            soloSelectionMode.store(true);
+            muteSelectionMode.store(false);  // 切换到Solo选择模式会取消Mute选择模式
+            
+            // 同步processor状态
+            updateProcessorPendingStates();
+        }
+        
+        // 触发状态更新到音频线程
+        triggerStateUpdate();
+        
+    } catch (const std::exception& e) {
+        VST3_DBG("StateManager: Exception in handleSoloButtonClick: " + juce::String(e.what()));
+    } catch (...) {
+        VST3_DBG("StateManager: Unknown exception in handleSoloButtonClick");
+    }
+}
+
+void StateManager::handleMuteButtonClick()
+{
+    VST3_DBG("StateManager: Mute button clicked - unified control");
+    
+    // 确保在消息线程中执行（JUCE规范）
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    
+    if (!initialized) {
+        VST3_DBG("StateManager: Not initialized, ignoring Mute button click");
+        return;
+    }
+    
+    try {
+        auto& semanticState = getSemanticState();
+        
+        // Solo Priority Rule: If any Solo state is active, Mute button is disabled
+        if (semanticState.hasAnySoloActive()) {
+            VST3_DBG("StateManager: Mute button ignored - Solo priority rule active");
+            return;
+        }
+        
+        if (semanticState.hasAnyMuteActive()) {
+            // 状态1：有Mute状态激活 - 清除所有Mute状态
+            VST3_DBG("StateManager: Clearing all Mute states");
+            soloSelectionMode.store(false);
+            muteSelectionMode.store(false);
+            
+            semanticState.clearAllMuteStates();
+            
+            // 同步processor状态
+            updateProcessorPendingStates();
+            
+        } else if (muteSelectionMode.load()) {
+            // 状态2：无Mute状态，但在Mute选择模式 - 退出选择模式
+            VST3_DBG("StateManager: Exiting Mute selection mode");
+            muteSelectionMode.store(false);
+            soloSelectionMode.store(false);
+            
+            // 同步processor状态
+            updateProcessorPendingStates();
+            
+        } else {
+            // 状态3：初始状态 - 进入Mute选择模式
+            VST3_DBG("StateManager: Entering Mute selection mode");
+            
+            muteSelectionMode.store(true);
+            soloSelectionMode.store(false);  // 切换到Mute选择模式会取消Solo选择模式
+            
+            // 同步processor状态
+            updateProcessorPendingStates();
+        }
+        
+        // 触发状态更新到音频线程
+        triggerStateUpdate();
+        
+    } catch (const std::exception& e) {
+        VST3_DBG("StateManager: Exception in handleMuteButtonClick: " + juce::String(e.what()));
+    } catch (...) {
+        VST3_DBG("StateManager: Unknown exception in handleMuteButtonClick");
+    }
+}
+
+void StateManager::handleChannelSoloClick(const juce::String& channelName, bool newState)
+{
+    VST3_DBG("StateManager: Channel Solo click - " + channelName + ", state: " + (newState ? "ON" : "OFF"));
+    
+    // 确保在消息线程中执行（JUCE规范）
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    
+    if (!initialized || !soloSelectionMode.load()) {
+        VST3_DBG("StateManager: Not in Solo selection mode, ignoring channel Solo click");
+        return;
+    }
+    
+    try {
+        auto& semanticState = getSemanticState();
+        
+        // 委托给SemanticChannelState处理业务逻辑
+        semanticState.setSoloState(channelName, newState);
+        
+        // 触发状态更新到音频线程
+        triggerStateUpdate();
+        
+    } catch (const std::exception& e) {
+        VST3_DBG("StateManager: Exception in handleChannelSoloClick: " + juce::String(e.what()));
+    } catch (...) {
+        VST3_DBG("StateManager: Unknown exception in handleChannelSoloClick");
+    }
+}
+
+void StateManager::handleChannelMuteClick(const juce::String& channelName, bool newState)
+{
+    VST3_DBG("StateManager: Channel Mute click - " + channelName + ", state: " + (newState ? "ON" : "OFF"));
+    
+    // 确保在消息线程中执行（JUCE规范）
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    
+    if (!initialized || !muteSelectionMode.load()) {
+        VST3_DBG("StateManager: Not in Mute selection mode, ignoring channel Mute click");
+        return;
+    }
+    
+    try {
+        auto& semanticState = getSemanticState();
+        
+        // Solo Priority Rule检查
+        if (semanticState.hasAnySoloActive()) {
+            VST3_DBG("StateManager: Channel Mute ignored - Solo priority rule active");
+            return;
+        }
+        
+        // 委托给SemanticChannelState处理业务逻辑
+        semanticState.setMuteState(channelName, newState);
+        
+        // 触发状态更新到音频线程
+        triggerStateUpdate();
+        
+    } catch (const std::exception& e) {
+        VST3_DBG("StateManager: Exception in handleChannelMuteClick: " + juce::String(e.what()));
+    } catch (...) {
+        VST3_DBG("StateManager: Unknown exception in handleChannelMuteClick");
+    }
+}
+
+//==============================================================================
+// 状态查询接口（线程安全）
+//==============================================================================
+
+bool StateManager::isInSoloSelectionMode() const noexcept
+{
+    return soloSelectionMode.load();
+}
+
+bool StateManager::isInMuteSelectionMode() const noexcept
+{
+    return muteSelectionMode.load();
+}
+
+bool StateManager::hasAnySoloActive() const noexcept
+{
+    if (!initialized) return false;
+    
+    try {
+        return const_cast<StateManager*>(this)->getSemanticState().hasAnySoloActive();
+    } catch (...) {
+        return false;
+    }
+}
+
+bool StateManager::hasAnyMuteActive() const noexcept
+{
+    if (!initialized) return false;
+    
+    try {
+        return const_cast<StateManager*>(this)->getSemanticState().hasAnyMuteActive();
+    } catch (...) {
+        return false;
+    }
+}
+
+//==============================================================================
+// 业务逻辑委托方法（保持职责分离）
+//==============================================================================
+
+SemanticChannelState& StateManager::getSemanticState()
+{
+    return processor.getSemanticState();
+}
+
+void StateManager::triggerStateUpdate()
+{
+    // 触发render state更新，将最新状态传递到音频线程
+    updateRenderState();
+    
+    // 通知processor更新所有状态
+    processor.updateAllStates();
+}
+
+void StateManager::updateProcessorPendingStates()
+{
+    // 同步StateManager的选择模式状态到processor
+    processor.pendingSoloSelection.store(soloSelectionMode.load());
+    processor.pendingMuteSelection.store(muteSelectionMode.load());
+}

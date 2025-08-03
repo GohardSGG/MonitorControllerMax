@@ -184,6 +184,7 @@ public:
     std::unique_ptr<StateManager> stateManager;
 
 private:
+    friend class StateManager;  // StateManager友元访问权限
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     //==============================================================================
     // Master-Slave角色管理

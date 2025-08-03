@@ -11,14 +11,20 @@ class MonitorControllerMaxAudioProcessor;
 
 //==============================================================================
 /**
- * 状态管理器 - 收集各组件状态，生成音频快照
+ * 状态管理器 - 统一状态控制和收集系统
  * 
- * 职责：作为各组件的状态收集器，不做任何业务逻辑计算
+ * 🚀 彻底修复 v2.0：从纯收集器升级为完整控制器
+ * 
+ * 新职责：
+ * 1. **状态控制器**: 统一所有UI控制逻辑（Solo/Mute按钮处理）
+ * 2. **状态收集器**: 收集各组件状态，生成音频快照
+ * 
  * 设计原则：
- * - 只收集现有组件的最终计算结果
- * - 不重新实现任何Solo/Mute/总线逻辑
+ * - 统一所有状态管理到一个类，消除架构不一致
+ * - 业务逻辑委托给SemanticChannelState（保持职责分离）
  * - 线程安全的双缓冲系统
  * - 严格遵循JUCE消息线程/音频线程分离原则
+ * - 保持向后兼容，不破坏现有音频处理逻辑
  */
 class StateManager : public SemanticChannelState::StateChangeListener,
                      public juce::AudioProcessorValueTreeState::Listener
@@ -45,6 +51,22 @@ public:
     //=== 布局变化处理 ===
     void onLayoutChanged();
     
+    // 🚀 彻底修复：StateManager统一状态控制接口
+    // 遵循原始设计意图：统一所有状态管理到StateManager
+    //=== UI控制接口（消息线程）===
+    void handleSoloButtonClick();
+    void handleMuteButtonClick();
+    
+    //=== 通道控制接口（消息线程）===
+    void handleChannelSoloClick(const juce::String& channelName, bool newState);
+    void handleChannelMuteClick(const juce::String& channelName, bool newState);
+    
+    //=== 状态查询接口（线程安全）===
+    bool isInSoloSelectionMode() const noexcept;
+    bool isInMuteSelectionMode() const noexcept;
+    bool hasAnySoloActive() const noexcept;
+    bool hasAnyMuteActive() const noexcept;
+    
 private:
     MonitorControllerMaxAudioProcessor& processor;
     
@@ -66,6 +88,15 @@ private:
     
     //=== 内部状态 ===
     bool initialized = false;
+    
+    // 🚀 彻底修复：UI状态模式管理（线程安全）
+    std::atomic<bool> soloSelectionMode{false};
+    std::atomic<bool> muteSelectionMode{false};
+    
+    //=== 业务逻辑委托方法（保持职责分离）===
+    SemanticChannelState& getSemanticState();
+    void triggerStateUpdate(); // 触发状态更新到音频线程
+    void updateProcessorPendingStates(); // 同步processor的pending状态
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StateManager)
 };
