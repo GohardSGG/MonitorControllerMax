@@ -721,50 +721,54 @@ bool MonitorControllerMaxAudioProcessor::hasAnyMuteActive() const
     return semanticState.hasAnyMuteActive();
 }
 
-// Selection mode state functions - 现在委托给StateManager
+// Selection mode state functions - 完全委托给StateManager（唯一权威）
 bool MonitorControllerMaxAudioProcessor::isInSoloSelectionMode() const
 {
-    // 优先使用StateManager的状态，降级使用本地状态
-    if (stateManager) {
-        return stateManager->isInSoloSelectionMode();
+    // StateManager是Solo/Mute控制的唯一权威，不应该为null
+    jassert(stateManager != nullptr);
+    if (!stateManager) {
+        VST3_DBG_ROLE(this, "CRITICAL ERROR: StateManager is null in isInSoloSelectionMode()");
+        return false;  // 安全降级到非选择模式
     }
     
-    // 降级处理：使用本地pending状态或Solo激活状态
-    return pendingSoloSelection.load() || semanticState.hasAnySoloActive();
+    return stateManager->isInSoloSelectionMode();
 }
 
 bool MonitorControllerMaxAudioProcessor::isInMuteSelectionMode() const
 {
-    // 优先使用StateManager的状态，降级使用本地状态
-    if (stateManager) {
-        return stateManager->isInMuteSelectionMode();
+    // StateManager是Solo/Mute控制的唯一权威，不应该为null
+    jassert(stateManager != nullptr);
+    if (!stateManager) {
+        VST3_DBG_ROLE(this, "CRITICAL ERROR: StateManager is null in isInMuteSelectionMode()");
+        return false;  // 安全降级到非选择模式
     }
     
-    // 降级处理：使用本地pending状态和Solo优先级规则
-    return (pendingMuteSelection.load() || semanticState.hasAnyMuteActive()) && !semanticState.hasAnySoloActive();
+    return stateManager->isInMuteSelectionMode();
 }
 
-// Dual state button activation functions - 委托给StateManager
+// Dual state button activation functions - 完全委托给StateManager（唯一权威）
 bool MonitorControllerMaxAudioProcessor::isSoloButtonActive() const
 {
-    // 优先使用StateManager的状态
-    if (stateManager) {
-        return stateManager->hasAnySoloActive() || stateManager->isInSoloSelectionMode();
+    // StateManager是Solo/Mute控制的唯一权威，不应该为null
+    jassert(stateManager != nullptr);
+    if (!stateManager) {
+        VST3_DBG_ROLE(this, "CRITICAL ERROR: StateManager is null in isSoloButtonActive()");
+        return semanticState.hasAnySoloActive();  // 仅使用SemanticState的Solo状态
     }
     
-    // 降级处理：Solo状态或选择模式
-    return semanticState.hasAnySoloActive() || pendingSoloSelection.load();
+    return stateManager->hasAnySoloActive() || stateManager->isInSoloSelectionMode();
 }
 
 bool MonitorControllerMaxAudioProcessor::isMuteButtonActive() const
 {
-    // 优先使用StateManager的状态
-    if (stateManager) {
-        return (stateManager->hasAnyMuteActive() || stateManager->isInMuteSelectionMode()) && !stateManager->hasAnySoloActive();
+    // StateManager是Solo/Mute控制的唯一权威，不应该为null
+    jassert(stateManager != nullptr);
+    if (!stateManager) {
+        VST3_DBG_ROLE(this, "CRITICAL ERROR: StateManager is null in isMuteButtonActive()");
+        return semanticState.hasAnyMuteActive() && !semanticState.hasAnySoloActive();  // 仅使用SemanticState
     }
     
-    // 降级处理：Mute状态或选择模式（考虑Solo优先级）
-    return (semanticState.hasAnyMuteActive() || pendingMuteSelection.load()) && !semanticState.hasAnySoloActive();
+    return (stateManager->hasAnyMuteActive() || stateManager->isInMuteSelectionMode()) && !stateManager->hasAnySoloActive();
 }
 
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
@@ -843,24 +847,9 @@ void MonitorControllerMaxAudioProcessor::updateAllStates()
 
 void MonitorControllerMaxAudioProcessor::validateStateConsistency()
 {
-    // 验证状态标志的一致性
-    bool soloActive = hasAnySoloActive();
-    bool muteActive = hasAnyMuteActive();
-    bool soloSelection = pendingSoloSelection.load();
-    bool muteSelection = pendingMuteSelection.load();
-    
-    // 记录状态用于调试
-    // 删除垃圾日志 - 状态检查高频调用
-    
-    // CRITICAL FIX: 只修复真正不合理的状态组合
-    if (soloActive && muteSelection) {
-        VST3_DBG_ROLE(this, "WARNING: Inconsistent state - Solo active but Mute selection pending - auto-fixing");
-        pendingMuteSelection.store(false);
-    }
-    
-    // REMOVED: 删除错误的孤立状态检查
-    // 正常情况：!soloActive && !muteActive && !soloSelection && muteSelection
-    // 这是用户点击Mute按钮进入选择模式的正常状态，不应该被清除
+    // REMOVED: 状态一致性验证已迁移到StateManager
+    // StateManager现在是Solo/Mute状态的唯一权威，负责内部一致性验证
+    // 不再需要在PluginProcessor层面进行状态一致性检查
 }
 
 //==============================================================================

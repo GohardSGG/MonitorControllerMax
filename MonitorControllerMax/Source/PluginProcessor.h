@@ -203,12 +203,8 @@ private:
     void shutdownOSC();
     juce::String getRoleString(PluginRole role) const;
 
-    // 选择模式状态跟踪（仍然需要用于UI逻辑）
-    std::atomic<bool> pendingSoloSelection{false};
-    std::atomic<bool> pendingMuteSelection{false};
-    
-    // 保护状态管理
-    bool soloModeProtectionActive = false;
+    // REMOVED: 选择模式状态已迁移到StateManager统一管理
+    // StateManager是Solo/Mute控制的唯一权威，不再需要本地pending状态
     
     // 选择模式状态函数（UI逻辑需要）
     bool isInSoloSelectionMode() const;

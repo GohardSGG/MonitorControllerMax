@@ -471,7 +471,7 @@ void StateManager::triggerStateUpdate()
 
 void StateManager::updateProcessorPendingStates()
 {
-    // 同步StateManager的选择模式状态到processor
-    processor.pendingSoloSelection.store(soloSelectionMode.load());
-    processor.pendingMuteSelection.store(muteSelectionMode.load());
+    // REMOVED: PluginProcessor中的pending状态变量已删除
+    // StateManager现在是选择模式状态的唯一权威，不再需要同步到processor
+    // processor通过StateManager的查询接口访问状态
 }
