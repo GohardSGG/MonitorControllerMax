@@ -46,7 +46,20 @@ public:
         auto cornerSize = 6.0f;
         auto originalBounds = button.getLocalBounds();
 
-        auto baseColour = backgroundColour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
+        // 🚀 关键修复：检查按钮的toggle状态，使用正确的颜色ID
+        auto* textButton = dynamic_cast<const juce::TextButton*>(&button);
+        bool isToggleOn = textButton ? textButton->getToggleState() : false;
+        
+        // 根据toggle状态选择正确的颜色ID
+        auto colourId = isToggleOn ? juce::TextButton::buttonOnColourId : juce::TextButton::buttonColourId;
+        auto actualColour = button.findColour(colourId);
+        
+        // 如果都是默认色，使用我们设置的buttonColourId
+        if (actualColour == juce::LookAndFeel::getDefaultLookAndFeel().findColour(colourId)) {
+            actualColour = button.findColour(juce::TextButton::buttonColourId);
+        }
+        
+        auto baseColour = actualColour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
 
         // Remove mouse hover effects - only respond to button press
         if (shouldDrawButtonAsDown)
@@ -184,6 +197,12 @@ private:
     
     // For detecting bus layout changes
     int lastKnownChannelCount = 0;
+    
+    // 🚀 稳定性优化：UI初始化状态管理，防止Timer竞态条件
+    std::atomic<bool> uiInitializationComplete{false};
+    std::atomic<bool> safeToUpdateUI{true};  // UI更新安全标志
+    std::atomic<uint32_t> timerCallCount{0};  // 🚀 实例级Timer计数器，避免static竞争
+    std::atomic<uint32_t> updateButtonStatesCount{0};  // 🚀 实例级按钮更新计数器
 
     // Private function declarations
     void updatePluginConfiguration(); // Update plugin configuration and notify host immediately

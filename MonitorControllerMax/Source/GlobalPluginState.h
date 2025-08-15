@@ -50,11 +50,19 @@ private:
     
     mutable std::mutex stateMutex;
     
-    // 插件实例管理
+    // 🚀 生命周期安全：增强的插件实例管理
     MonitorControllerMaxAudioProcessor* masterPlugin = nullptr;
     std::vector<MonitorControllerMaxAudioProcessor*> slavePlugins;
     std::vector<MonitorControllerMaxAudioProcessor*> waitingSlavePlugins;  // 等待Master的Slave插件
     std::vector<MonitorControllerMaxAudioProcessor*> allPlugins;
+    
+    // 🛡️ 生命周期跟踪系统 - 双重验证机制
+    std::map<MonitorControllerMaxAudioProcessor*, juce::String> pluginIds;  // 插件->唯一ID映射
+    std::map<juce::String, MonitorControllerMaxAudioProcessor*> idToPlugin;  // ID->插件映射
+    std::set<juce::String> validPluginIds;  // 有效插件ID集合
+    std::set<MonitorControllerMaxAudioProcessor*> invalidatedPlugins; // 已失效的插件集合
+    std::atomic<uint32_t> cleanupCounter{0};  // 清理操作计数器
+    
     mutable std::mutex pluginsMutex;
     
     // 连接日志记录
@@ -89,7 +97,7 @@ public:
     // 析构函数（需要public用于std::unique_ptr）
     ~GlobalPluginState() = default;
     
-    // 插件生命周期管理
+    // 🚀 生命周期安全：增强的插件管理接口
     void registerPlugin(MonitorControllerMaxAudioProcessor* plugin);
     void unregisterPlugin(MonitorControllerMaxAudioProcessor* plugin);
     
@@ -147,7 +155,15 @@ private:
     GlobalPluginState(const GlobalPluginState&) = delete;
     GlobalPluginState& operator=(const GlobalPluginState&) = delete;
     
-    // 内部辅助方法
-    void cleanupInvalidPlugins();
+    // 🚀 生命周期安全：内部辅助方法
+    void cleanupInvalidPlugins();           // 清理失效的插件指针
+    void performHealthyCleanup();           // 定期健康检查和清理
+    void performSafeCleanup();              // 安全的插件清理（双重验证）
+    juce::String generateUniquePluginId(MonitorControllerMaxAudioProcessor* plugin);  // 生成唯一插件ID
+    bool isPluginValid(MonitorControllerMaxAudioProcessor* plugin) const;  // 检查插件是否有效
+    bool isPluginSafeToAccess(MonitorControllerMaxAudioProcessor* plugin) const; // 双重安全检查
+    void invalidatePlugin(MonitorControllerMaxAudioProcessor* plugin);     // 标记插件为无效
+    void removeFromAllLists(MonitorControllerMaxAudioProcessor* plugin);   // 从所有列表中安全移除
+    void notifySlavePluginsAboutMasterLoss();  // 通知Slave插件Master已丢失
     juce::String getCurrentTimeString() const;
 };

@@ -798,7 +798,13 @@ bool MonitorControllerMaxAudioProcessor::isMuteButtonActive() const
         return semanticState.hasAnyMuteActive() && !semanticState.hasAnySoloActive();  // 仅使用SemanticState
     }
     
-    return (stateManager->hasAnyMuteActive() || stateManager->isInMuteSelectionMode()) && !stateManager->hasAnySoloActive();
+    // 🚀 修复Auto-Mute显示：当有Solo激活时，Auto-Mute使MUTE按钮也应该显示为激活
+    // 逻辑：手动Mute激活 OR Mute选择模式 OR Solo激活导致Auto-Mute生效
+    bool hasManualMute = stateManager->hasAnyMuteActive();
+    bool inMuteSelectionMode = stateManager->isInMuteSelectionMode();
+    bool hasAutoMuteFromSolo = stateManager->hasAnySoloActive();  // Solo激活时产生Auto-Mute
+    
+    return (hasManualMute || inMuteSelectionMode || hasAutoMuteFromSolo);
 }
 
 void MonitorControllerMaxAudioProcessor::handleChannelClick(int channelIndex)
@@ -890,6 +896,11 @@ void MonitorControllerMaxAudioProcessor::onSoloStateChanged(const juce::String& 
 {
     VST3_DBG_ROLE(this, "Solo state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
     
+    // 🚀 紧急修复：通知StateManager处理外部状态变化
+    if (stateManager) {
+        stateManager->onExternalStateChange(channelName, "solo", state);
+    }
+    
     // 使用新的统一状态处理方法
     onSemanticStateChanged(channelName, "solo", state);
 }
@@ -897,6 +908,11 @@ void MonitorControllerMaxAudioProcessor::onSoloStateChanged(const juce::String& 
 void MonitorControllerMaxAudioProcessor::onMuteStateChanged(const juce::String& channelName, bool state)
 {
     VST3_DBG_ROLE(this, "Mute state change callback - channel: " + channelName + ", new state: " + (state ? "ON" : "OFF"));
+    
+    // 🚀 紧急修复：通知StateManager处理外部状态变化
+    if (stateManager) {
+        stateManager->onExternalStateChange(channelName, "mute", state);
+    }
     
     // 使用新的统一状态处理方法
     onSemanticStateChanged(channelName, "mute", state);
@@ -957,11 +973,21 @@ void MonitorControllerMaxAudioProcessor::handleExternalOSCControl(const juce::St
     {
         semanticState.setSoloState(channelName, state);
         VST3_DBG_ROLE(this, "External OSC " + juce::String(state ? "activated" : "deactivated") + " Solo for channel " + channelName);
+        
+        // 🚀 关键修复：通知StateManager处理外部状态变化，确保UI更新
+        if (stateManager) {
+            stateManager->onExternalStateChange(channelName, "solo", state);
+        }
     }
     else if (action == "Mute")
     {
         semanticState.setMuteState(channelName, state);
         VST3_DBG_ROLE(this, "External OSC " + juce::String(state ? "activated" : "deactivated") + " Mute for channel " + channelName);
+        
+        // 🚀 关键修复：通知StateManager处理外部状态变化，确保UI更新
+        if (stateManager) {
+            stateManager->onExternalStateChange(channelName, "mute", state);
+        }
     }
     else
     {

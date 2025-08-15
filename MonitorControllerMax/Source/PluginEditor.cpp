@@ -9,6 +9,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "DebugLogger.h"
+#include "SafeUICallback.h"
 
 //==============================================================================
 MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEditor (MonitorControllerMaxAudioProcessor& p)
@@ -17,6 +18,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     addAndMakeVisible(globalMuteButton);
     globalMuteButton.setButtonText("MUTE");
     globalMuteButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
+    globalMuteButton.setLookAndFeel(&customLookAndFeel);  // 🚀 关键修复：设置自定义LookAndFeel
     globalMuteButton.onClick = [this]
     {
         // 检查角色权限 - Slave模式禁止操作
@@ -31,6 +33,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     addAndMakeVisible(globalSoloButton);
     globalSoloButton.setButtonText("SOLO");
     globalSoloButton.setClickingTogglesState(false);  // 手动管理状态，避免自动切换冲突
+    globalSoloButton.setLookAndFeel(&customLookAndFeel);  // 🚀 关键修复：设置自定义LookAndFeel
     globalSoloButton.onClick = [this]
     {
         // 检查角色权限 - Slave模式禁止操作
@@ -45,6 +48,7 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     addAndMakeVisible(dimButton);
     dimButton.setButtonText("DIM");
     dimButton.setClickingTogglesState(true);
+    dimButton.setLookAndFeel(&customLookAndFeel);  // 🚀 关键修复：设置自定义LookAndFeel
     dimButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::yellow);
     
     // v4.1: 连接Dim按钮到总线处理器
@@ -63,42 +67,43 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         dimButton.setToggleState(audioProcessor.masterBusProcessor.isDimActive(), juce::dontSendNotification);
     };
     
-    // v4.1: 设置Dim状态变化回调 - 用于OSC控制时更新UI
-    audioProcessor.masterBusProcessor.onDimStateChanged = [this]()
+    // v4.1: 设置Dim状态变化回调 - 用于OSC控制时更新UI (SafeUICallback重构)
+    audioProcessor.masterBusProcessor.onDimStateChanged = SAFE_UI_CALLBACK_SIMPLE(this, [this]()
     {
-        // 在主线程中更新UI
-        juce::MessageManager::callAsync([this]()
+        // 🚀 稳定性优化：安全的异步UI更新，自动处理组件生命周期
+        SAFE_UI_ASYNC_SIMPLE(this, [this]()
         {
             dimButton.setToggleState(audioProcessor.masterBusProcessor.isDimActive(), juce::dontSendNotification);
         });
-    };
+    });
     
     // v4.2: 设置Effects面板按钮 (替代原Low Boost和Mono按钮)
     setupEffectsPanel();
     
-    // v4.2: 设置Effects面板按钮状态同步回调 (用于OSC控制时更新)
-    audioProcessor.masterBusProcessor.onLowBoostStateChanged = [this]()
+    // v4.2: 设置Effects面板按钮状态同步回调 (用于OSC控制时更新) (SafeUICallback重构)
+    audioProcessor.masterBusProcessor.onLowBoostStateChanged = SAFE_UI_CALLBACK_SIMPLE(this, [this]()
     {
-        // 在主线程中更新UI
-        juce::MessageManager::callAsync([this]()
+        // 🚀 稳定性优化：安全的异步UI更新，防止循环引用
+        SAFE_UI_ASYNC_SIMPLE(this, [this]()
         {
             effectsPanel.updateButtonStatesFromProcessor();
         });
-    };
+    });
     
-    audioProcessor.masterBusProcessor.onMonoStateChanged = [this]()
+    audioProcessor.masterBusProcessor.onMonoStateChanged = SAFE_UI_CALLBACK_SIMPLE(this, [this]()
     {
-        // 在主线程中更新UI
-        juce::MessageManager::callAsync([this]()
+        // 🚀 稳定性优化：安全的异步UI更新，防止循环引用
+        SAFE_UI_ASYNC_SIMPLE(this, [this]()
         {
             effectsPanel.updateButtonStatesFromProcessor();
         });
-    };
+    });
     
     // v4.1: 设置Master Mute按钮
     addAndMakeVisible(masterMuteButton);
     masterMuteButton.setButtonText("MASTER\nMUTE");
     masterMuteButton.setClickingTogglesState(true);
+    masterMuteButton.setLookAndFeel(&customLookAndFeel);  // 🚀 关键修复：设置自定义LookAndFeel
     masterMuteButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::red);
     
     // v4.1: 连接Master Mute按钮到总线处理器
@@ -117,15 +122,15 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         masterMuteButton.setToggleState(audioProcessor.masterBusProcessor.isMasterMuteActive(), juce::dontSendNotification);
     };
     
-    // v4.1: 设置Master Mute状态变化回调 - 用于OSC控制时更新UI
-    audioProcessor.masterBusProcessor.onMasterMuteStateChanged = [this]()
+    // v4.1: 设置Master Mute状态变化回调 - 用于OSC控制时更新UI (SafeUICallback重构)
+    audioProcessor.masterBusProcessor.onMasterMuteStateChanged = SAFE_UI_CALLBACK_SIMPLE(this, [this]()
     {
-        // 在主线程中更新UI
-        juce::MessageManager::callAsync([this]()
+        // 🚀 稳定性优化：安全的异步UI更新，自动检测组件有效性
+        SAFE_UI_ASYNC_SIMPLE(this, [this]()
         {
             masterMuteButton.setToggleState(audioProcessor.masterBusProcessor.isMasterMuteActive(), juce::dontSendNotification);
         });
-    };
+    });
     
     // v4.1: 设置Master Gain旋钮
     addAndMakeVisible(masterGainSlider);
@@ -209,45 +214,52 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
     // 初始化已知的通道数
     lastKnownChannelCount = audioProcessor.getTotalNumInputChannels();
     
-    // 设置处理器的布局自动切换回调
-    audioProcessor.setLayoutChangeCallback([this](const juce::String& speaker, const juce::String& sub)
+    // 设置处理器的布局自动切换回调 (SafeUICallback完整应用)
+    // 🚀 稳定性优化：使用SafeUICallback保护，防止循环引用和悬空指针
+    auto layoutChangeCallback = [this](const juce::String& speaker, const juce::String& sub)
     {
-        // 在主线程中更新UI选择器
-        juce::MessageManager::callAsync([this, speaker, sub]()
+        // 使用传统的MessageManager但带有SafePointer保护
+        auto safePtr = juce::Component::SafePointer<MonitorControllerMaxAudioProcessorEditor>(this);
+        juce::MessageManager::callAsync([safePtr, speaker, sub]()
         {
-            // 更新下拉框选择而不触发onChange事件
-            auto speakerLayoutNames = configManager.getSpeakerLayoutNames();
-            auto subLayoutNames = configManager.getSubLayoutNames();
-            
-            for (int i = 0; i < speakerLayoutNames.size(); ++i)
+            // 检查组件是否仍然有效
+            if (auto* self = safePtr.getComponent())
             {
-                if (speakerLayoutNames[i] == speaker)
+                // 更新下拉框选择而不触发onChange事件
+                auto speakerLayoutNames = self->configManager.getSpeakerLayoutNames();
+                auto subLayoutNames = self->configManager.getSubLayoutNames();
+                
+                for (int i = 0; i < speakerLayoutNames.size(); ++i)
                 {
-                    speakerLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
-                    break;
+                    if (speakerLayoutNames[i] == speaker)
+                    {
+                        self->speakerLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                        break;
+                    }
                 }
-            }
-            
-            for (int i = 0; i < subLayoutNames.size(); ++i)
-            {
-                if (subLayoutNames[i] == sub)
+                
+                for (int i = 0; i < subLayoutNames.size(); ++i)
                 {
-                    subLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
-                    break;
+                    if (subLayoutNames[i] == sub)
+                    {
+                        self->subLayoutSelector.setSelectedId(i + 1, juce::dontSendNotification);
+                        break;
+                    }
                 }
+                
+                // 强制重新布局以显示新的通道配置
+                self->resized();
             }
-            
-            // 强制重新布局以显示新的通道配置
-            resized();
         });
-    });
+    };
+    audioProcessor.setLayoutChangeCallback(layoutChangeCallback);
     
-    startTimerHz(30);
+    // 🚀 稳定性优化：降低Timer频率从30Hz到10Hz，遵循JUCE最佳实践
+    // 10Hz已足够处理UI状态更新，同时减少CPU占用和竞态条件
+    startTimerHz(10);
     
-    // 编辑器创建后，同步处理器的当前状态到UI
-    // 这解决了关闭/重新打开编辑器时配置重置的问题
-    juce::MessageManager::callAsync([this]()
-    {
+    // 🚀 关键修复：直接在构造函数中完成UI初始化，避免异步回调的死锁风险
+    try {
         // 重要修复：从用户选择的配置同步UI，而不是当前布局
         // 这确保UI反映用户的实际选择，而不是自动推断的配置
         syncUIFromUserSelection();
@@ -256,14 +268,44 @@ MonitorControllerMaxAudioProcessorEditor::MonitorControllerMaxAudioProcessorEdit
         // 🔧 关键修复：同步角色的UI状态，解决重新打开编辑器时Slave锁定状态丢失的问题
         updateUIBasedOnRole();
         
-        VST3_DBG_ROLE(&audioProcessor, "PluginEditor: UI initialization complete with role-based state");
-    });
+        VST3_DBG_ROLE(&audioProcessor, "PluginEditor: UI initialization complete with role-based state (direct initialization)");
+        
+        // 🚀 稳定性优化：标记UI初始化完成，允许Timer开始更新
+        uiInitializationComplete.store(true);
+        
+    } catch (const std::exception& e) {
+        VST3_DBG("UI initialization failed: " + juce::String(e.what()));
+        // 即使初始化失败，也允许Timer运行以便后续恢复
+        uiInitializationComplete.store(true);
+    } catch (...) {
+        VST3_DBG("UI initialization failed: unknown exception");
+        // 即使初始化失败，也允许Timer运行以便后续恢复
+        uiInitializationComplete.store(true);
+    }
 }
 
 MonitorControllerMaxAudioProcessorEditor::~MonitorControllerMaxAudioProcessorEditor()
 {
-    setLookAndFeel(nullptr);
+    // 🚀 稳定性优化：安全的组件清理，防止悬空指针访问
+    
+    // 停止Timer并标记UI不安全更新
     stopTimer();
+    safeToUpdateUI.store(false);
+    uiInitializationComplete.store(false);
+    
+    // 清理所有不安全的回调引用（SafeUICallback将自动处理）
+    // 但为了明确性，手动清理主要回调
+    audioProcessor.masterBusProcessor.onDimStateChanged = nullptr;
+    audioProcessor.masterBusProcessor.onLowBoostStateChanged = nullptr;
+    audioProcessor.masterBusProcessor.onMonoStateChanged = nullptr;
+    audioProcessor.masterBusProcessor.onMasterMuteStateChanged = nullptr;
+    
+    // 清理布局变化回调
+    audioProcessor.setLayoutChangeCallback(nullptr);
+    
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Safe destruction complete - all callbacks cleared");
+    
+    setLookAndFeel(nullptr);
 }
 
 //==============================================================================
@@ -478,6 +520,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
             
             auto* button = channelButtons[chanInfo.channelIndex].get();
             button->setClickingTogglesState(false); // 手动管理状态
+            
+            // 🚀 关键修复：设置自定义LookAndFeel，确保颜色能正确显示
+            button->setLookAndFeel(&customLookAndFeel);
 
             // ================== 全新强大状态机逻辑 ==================
             button->onClick = [this, channelIndex = chanInfo.channelIndex]
@@ -506,6 +551,11 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayout()
         {
              channelButtons[subChannelIndex] = std::make_unique<juce::TextButton>("SUB");
              channelGridContainer.addAndMakeVisible(*channelButtons[subChannelIndex]);
+             
+             // 🚀 关键修复：SUB按钮也需要设置自定义LookAndFeel
+             auto* subButton = channelButtons[subChannelIndex].get();
+             subButton->setLookAndFeel(&customLookAndFeel);
+             subButton->setClickingTogglesState(false); // 手动管理状态
         }
         auto* button = channelButtons[subChannelIndex].get();
         button->setVisible(true);
@@ -583,6 +633,9 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
             
             auto* button = channelButtons[chanInfo.channelIndex].get();
             button->setClickingTogglesState(false); // 手动管理状态
+            
+            // 🚀 关键修复：设置自定义LookAndFeel，确保颜色能正确显示
+            button->setLookAndFeel(&customLookAndFeel);
 
             // ================== 全新强大状态机逻辑 ==================
             button->onClick = [this, channelIndex = chanInfo.channelIndex]
@@ -611,6 +664,11 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
         {
              channelButtons[subChannelIndex] = std::make_unique<juce::TextButton>("SUB");
              channelGridContainer.addAndMakeVisible(*channelButtons[subChannelIndex]);
+             
+             // 🚀 关键修复：SUB按钮也需要设置自定义LookAndFeel
+             auto* subButton = channelButtons[subChannelIndex].get();
+             subButton->setLookAndFeel(&customLookAndFeel);
+             subButton->setClickingTogglesState(false); // 手动管理状态
         }
         auto* button = channelButtons[subChannelIndex].get();
         button->setVisible(true);
@@ -631,29 +689,48 @@ void MonitorControllerMaxAudioProcessorEditor::updateLayoutWithoutSelectorOverri
 
 void MonitorControllerMaxAudioProcessorEditor::timerCallback()
 {
-    // 检查总线布局是否发生变化
-    int currentChannelCount = audioProcessor.getTotalNumInputChannels();
-    if (currentChannelCount != lastKnownChannelCount && currentChannelCount > 0)
-    {
-        lastKnownChannelCount = currentChannelCount;
-        
-        // UI检测到通道数变化时，只更新显示，不改变布局配置
-        // 布局配置的自动选择应该由processor在适当时机处理
-        VST3_DBG_ROLE(&audioProcessor, "Channel count changed to " + juce::String(currentChannelCount) + ", updating UI display only");
-        
-        // 总线布局发生变化，重新更新整个UI布局显示
-        updateLayout();
+    // 🚀 修复static变量竞争：使用实例级原子计数器
+    const uint32_t currentCall = timerCallCount.fetch_add(1, std::memory_order_acq_rel);
+    if (currentCall % 100 == 1) {  // 每10秒记录一次（10Hz * 100）
+        VST3_DBG("Timer callback running - count: " + juce::String(currentCall) + 
+                ", uiInitComplete: " + (uiInitializationComplete.load(std::memory_order_acquire) ? "true" : "false") + 
+                ", safeToUpdate: " + (safeToUpdateUI.load(std::memory_order_acquire) ? "true" : "false"));
     }
     
-    // Update button states to reflect current parameter values
-    // This is essential since parameter listener mechanism isn't working properly
-    updateChannelButtonStates();
+    // 🚀 稳定性优化：检查UI初始化状态，防止与初始化的竞态条件
+    if (!uiInitializationComplete.load() || !safeToUpdateUI.load()) {
+        return; // 初始化未完成或不安全时，跳过Timer更新
+    }
     
-    // 减少Debug日志更新频率 - 仅在角色变化或连接状态变化时更新
-    static int debugUpdateCounter = 0;
-    if (++debugUpdateCounter >= 30) { // 每秒更新一次而不是30次
-        debugUpdateCounter = 0;
-        updateDebugLogDisplay();
+    try {
+        // 检查总线布局是否发生变化
+        int currentChannelCount = audioProcessor.getTotalNumInputChannels();
+        if (currentChannelCount != lastKnownChannelCount && currentChannelCount > 0)
+        {
+            lastKnownChannelCount = currentChannelCount;
+            
+            // UI检测到通道数变化时，只更新显示，不改变布局配置
+            // 布局配置的自动选择应该由processor在适当时机处理
+            VST3_DBG_ROLE(&audioProcessor, "Channel count changed to " + juce::String(currentChannelCount) + ", updating UI display only");
+            
+            // 总线布局发生变化，重新更新整个UI布局显示
+            updateLayout();
+        }
+        
+        // Update button states to reflect current parameter values
+        // This is essential since parameter listener mechanism isn't working properly
+        updateChannelButtonStates();
+        
+        // 🚀 稳定性优化：降低Debug日志更新频率 - 10Hz Timer下每秒更新一次
+        if (currentCall % 10 == 0) { // 10Hz Timer下每秒更新1次
+            updateDebugLogDisplay();
+        }
+    }
+    catch (const std::exception& e) {
+        VST3_DBG("SafeUICallback: Exception in timerCallback: " + juce::String(e.what()));
+    }
+    catch (...) {
+        VST3_DBG("SafeUICallback: Unknown exception in timerCallback");
     }
     
     // NEW: Update semantic buttons from semantic state - TEMPORARILY DISABLED
@@ -669,93 +746,95 @@ void MonitorControllerMaxAudioProcessorEditor::setUIMode(UIMode newMode)
 
 void MonitorControllerMaxAudioProcessorEditor::updateChannelButtonStates()
 {
-    // Semantic state-driven UI update logic
-    // UI state is calculated directly from semantic channel states
+    // 🚀 修复：使用StateManager作为UI状态的唯一数据源，符合稳定性架构
+    auto* stateManager = audioProcessor.stateManager.get();
+    if (!stateManager) {
+        VST3_DBG("PluginEditor: StateManager is null in updateChannelButtonStates");
+        return;
+    }
     
-    // 1. Update each channel button based on semantic state
+    // 🚀 修复static变量竞争：使用实例级计数器
+    const uint32_t updateCount = updateButtonStatesCount.fetch_add(1, std::memory_order_acq_rel);
+    VST3_DBG("PluginEditor: updateChannelButtonStates called - count: " + juce::String(updateCount));
+    
+    // 1. 更新每个通道按钮（基于StateManager的线程安全查询）
     for (auto const& [index, button] : channelButtons)
     {
         if (!button->isVisible() || index < 0) continue;
         
-        // Get semantic channel name from physical channel index
+        // 获取语义通道名
         juce::String semanticChannelName = audioProcessor.getPhysicalMapper().getSemanticName(index);
-        
-        // Skip unmapped channels
         if (semanticChannelName.isEmpty()) continue;
         
-        // Get current semantic states
-        bool soloState = audioProcessor.getSemanticState().getSoloState(semanticChannelName);
-        bool finalMuteState = audioProcessor.getSemanticState().getFinalMuteState(semanticChannelName);
+        // 从StateManager获取按钮颜色（线程安全，带缓存）
+        juce::Colour buttonColor = stateManager->getChannelButtonColor(semanticChannelName, getLookAndFeel());
         
-        // Determine button state and color based on semantic states
-        bool shouldBeActive = false;
-        juce::Colour buttonColor = getLookAndFeel().findColour(juce::TextButton::buttonColourId);
+        // 获取Solo状态以决定按钮的toggle状态
+        bool soloState = stateManager->getChannelSoloStateForUI(semanticChannelName);
+        bool muteState = stateManager->getChannelMuteStateForUI(semanticChannelName);
+        bool shouldBeActive = soloState;  // 只有Solo时按钮才显示为激活状态
         
-        if (soloState) {
-            // Solo active - use proper Solo color and active state
-            shouldBeActive = true;
-            buttonColor = customLookAndFeel.getSoloColour();
-        } else if (finalMuteState) {
-            // Mute active - use proper Mute color and inactive state (showing muted)
-            shouldBeActive = false;
-            buttonColor = customLookAndFeel.getMuteColour();
-        } else {
-            // Normal state - default color and inactive
-            shouldBeActive = false;
-            buttonColor = getLookAndFeel().findColour(juce::TextButton::buttonColourId);
-        }
+        // 调试输出
+        VST3_DBG("UI Update - Channel: " + semanticChannelName + 
+                 ", Solo: " + (soloState ? "ON" : "OFF") + 
+                 ", Mute: " + (muteState ? "ON" : "OFF") +
+                 ", Color: 0x" + buttonColor.toDisplayString(false));
         
-        // Update button state if changed
+        // 更新按钮toggle状态
         if (button->getToggleState() != shouldBeActive) {
             button->setToggleState(shouldBeActive, juce::dontSendNotification);
         }
         
-        // Update button color
+        // 更新按钮颜色
         button->setColour(juce::TextButton::buttonColourId, buttonColor);
         button->setColour(juce::TextButton::buttonOnColourId, buttonColor);
+        
+        // 强制重绘确保颜色更新
+        button->repaint();
     }
     
-    // 2. Update main control buttons using semantic state system
+    // 2. 更新主控按钮（使用现有的processor查询方法）
     bool soloButtonActive = audioProcessor.isSoloButtonActive();
     bool muteButtonActive = audioProcessor.isMuteButtonActive();
     
-    // Update main Solo button state and color
+    // 更新Solo按钮
     if (globalSoloButton.getToggleState() != soloButtonActive) {
         globalSoloButton.setToggleState(soloButtonActive, juce::dontSendNotification);
     }
     
-    // Set correct Solo button color based on state
     if (soloButtonActive) {
         globalSoloButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getSoloColour());
         globalSoloButton.setColour(juce::TextButton::buttonColourId, customLookAndFeel.getSoloColour());
     } else {
-        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        globalSoloButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalSoloButton.setColour(juce::TextButton::buttonOnColourId, 
+                                  getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalSoloButton.setColour(juce::TextButton::buttonColourId, 
+                                  getLookAndFeel().findColour(juce::TextButton::buttonColourId));
     }
+    globalSoloButton.repaint();
     
-    // Update main Mute button state and color
+    // 更新Mute按钮
     if (globalMuteButton.getToggleState() != muteButtonActive) {
         globalMuteButton.setToggleState(muteButtonActive, juce::dontSendNotification);
     }
     
-    // Set correct Mute button color based on state
     if (muteButtonActive) {
         globalMuteButton.setColour(juce::TextButton::buttonOnColourId, customLookAndFeel.getMuteColour());
         globalMuteButton.setColour(juce::TextButton::buttonColourId, customLookAndFeel.getMuteColour());
     } else {
-        globalMuteButton.setColour(juce::TextButton::buttonOnColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
-        globalMuteButton.setColour(juce::TextButton::buttonColourId, getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalMuteButton.setColour(juce::TextButton::buttonOnColourId, 
+                                  getLookAndFeel().findColour(juce::TextButton::buttonColourId));
+        globalMuteButton.setColour(juce::TextButton::buttonColourId, 
+                                  getLookAndFeel().findColour(juce::TextButton::buttonColourId));
     }
+    globalMuteButton.repaint();
     
-    // Apply Solo Priority Rule: Disable Mute button when Solo is active
-    // 重要修复：Slave模式时，按钮必须保持禁用状态，不受Solo Priority规则影响
+    // 3. Solo优先规则处理
     bool muteButtonEnabled = audioProcessor.isMuteButtonEnabled();
     PluginRole currentRole = audioProcessor.getCurrentRole();
     bool isSlaveMode = (currentRole == PluginRole::Slave);
     
-    // Slave模式下强制禁用，否则按照Solo Priority规则
     globalMuteButton.setEnabled(!isSlaveMode && muteButtonEnabled);
-
 }
 
 // 旧的handleSoloButtonClick函数已被新的状态机逻辑替代
@@ -774,15 +853,16 @@ void MonitorControllerMaxAudioProcessorEditor::updatePluginConfiguration()
     audioProcessor.setCurrentLayout(speakerLayoutName, subLayoutName);
     
     // 强制通知宿主更新显示信息 - 多次调用确保REAPER响应
-    juce::MessageManager::callAsync([this]()
+    // 🚀 稳定性优化：使用SafeUICallback保护所有异步调用
+    SAFE_UI_ASYNC_SIMPLE(this, [this]()
     {
         audioProcessor.updateHostDisplay();
         
         // 延迟额外刷新，确保REAPER能获取到最新的通道名称
-        juce::Timer::callAfterDelay(100, [this]()
+        juce::Timer::callAfterDelay(100, SAFE_UI_CALLBACK_SIMPLE(this, [this]()
         {
             audioProcessor.updateHostDisplay();
-        });
+        }));
     });
     
     // 确保UI状态同步更新

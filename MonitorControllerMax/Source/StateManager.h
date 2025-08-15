@@ -67,6 +67,17 @@ public:
     bool hasAnySoloActive() const noexcept;
     bool hasAnyMuteActive() const noexcept;
     
+    //=== UI状态查询接口（线程安全，供UI使用）===
+    // 获取通道的Solo状态（用于UI显示）
+    bool getChannelSoloStateForUI(const juce::String& channelName) const;
+    // 获取通道的Mute状态（用于UI显示）
+    bool getChannelMuteStateForUI(const juce::String& channelName) const;
+    // 获取通道的最终Mute状态（包含Solo联动）
+    bool getChannelFinalMuteStateForUI(const juce::String& channelName) const;
+    // 获取通道按钮应该显示的颜色
+    juce::Colour getChannelButtonColor(const juce::String& channelName, 
+                                      const juce::LookAndFeel& lookAndFeel) const;
+    
 private:
     MonitorControllerMaxAudioProcessor& processor;
     
@@ -98,6 +109,27 @@ private:
     const SemanticChannelState& getSemanticState() const; // 🛡️ const安全版本
     void triggerStateUpdate(); // 触发状态更新到音频线程
     void updateProcessorPendingStates(); // 同步processor的pending状态
+    
+    //=== UI状态缓存（避免频繁查询）===
+    mutable juce::ReadWriteLock uiStateCacheLock;
+    struct UIStateCache {
+        std::map<juce::String, bool> soloStates;
+        std::map<juce::String, bool> muteStates;
+        std::map<juce::String, bool> finalMuteStates;
+        uint64_t cacheVersion = 0;
+    };
+    mutable UIStateCache uiStateCache;
+    mutable std::atomic<uint64_t> currentStateVersion{0};
+    
+    // 更新UI状态缓存
+    void updateUIStateCache() const;
+    void updateUIStateCacheUnsafe(uint64_t targetVersion) const;  // 调用者必须持有写锁
+    
+public:
+    //=== 🚀 外部状态变化处理 ===
+    void onExternalStateChange(const juce::String& channelName, const juce::String& action, bool state); // 处理OSC等外部控制
+    
+private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StateManager)
 };

@@ -469,6 +469,9 @@ const SemanticChannelState& StateManager::getSemanticState() const
 
 void StateManager::triggerStateUpdate()
 {
+    // 🚀 使用正确的内存顺序：增加状态版本号，使UI缓存失效
+    currentStateVersion.fetch_add(1, std::memory_order_acq_rel);
+    
     // 触发render state更新，将最新状态传递到音频线程
     updateRenderState();
     
@@ -481,4 +484,215 @@ void StateManager::updateProcessorPendingStates()
     // REMOVED: PluginProcessor中的pending状态变量已删除
     // StateManager现在是选择模式状态的唯一权威，不再需要同步到processor
     // processor通过StateManager的查询接口访问状态
+}
+
+void StateManager::onExternalStateChange(const juce::String& channelName, const juce::String& action, bool state)
+{
+    // 🚀 简化修复：处理OSC等外部控制对StateManager选择模式的影响
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    
+    VST3_DBG("StateManager handling external state change: " + action + " " + channelName + " = " + (state ? "ON" : "OFF"));
+    
+    // 简化逻辑：根据当前语义状态更新选择模式
+    auto& semanticState = getSemanticState();
+    
+    if (action == "solo") {
+        // Solo状态变化：如果有任何Solo激活，进入Solo选择模式；否则退出
+        if (semanticState.hasAnySoloActive()) {
+            if (!soloSelectionMode.load()) {
+                VST3_DBG("External Solo change - entering Solo selection mode");
+                soloSelectionMode.store(true);
+                muteSelectionMode.store(false);
+            }
+        } else {
+            if (soloSelectionMode.load()) {
+                VST3_DBG("No Solo states remaining - exiting Solo selection mode");
+                soloSelectionMode.store(false);
+                // 恢复Mute记忆
+                semanticState.restoreMuteMemory();
+            }
+        }
+    }
+    else if (action == "mute") {
+        // Mute状态变化：Solo优先级规则
+        if (!semanticState.hasAnySoloActive()) {
+            if (semanticState.hasAnyMuteActive()) {
+                if (!muteSelectionMode.load()) {
+                    VST3_DBG("External Mute change - entering Mute selection mode");
+                    muteSelectionMode.store(true);
+                    soloSelectionMode.store(false);
+                }
+            } else {
+                if (muteSelectionMode.load()) {
+                    VST3_DBG("No Mute states remaining - exiting Mute selection mode");
+                    muteSelectionMode.store(false);
+                }
+            }
+        }
+    }
+    
+    // 通知processor更新所有状态，确保UI能获取到最新状态
+    triggerStateUpdate();
+}
+
+//==============================================================================
+// UI状态查询接口实现（线程安全）
+//==============================================================================
+
+bool StateManager::getChannelSoloStateForUI(const juce::String& channelName) const
+{
+    if (!initialized) return false;
+    
+    try {
+        const uint64_t currentVersion = currentStateVersion.load(std::memory_order_acquire);
+        
+        // 🚀 修复TOCTOU竞态：使用双重检查锁定
+        {
+            juce::ScopedReadLock readLock(uiStateCacheLock);
+            if (uiStateCache.cacheVersion == currentVersion) {
+                // 缓存有效，直接返回
+                auto it = uiStateCache.soloStates.find(channelName);
+                if (it != uiStateCache.soloStates.end()) {
+                    return it->second;
+                }
+                // 通道不存在于缓存中，返回false
+                return false;
+            }
+        }
+        
+        // 需要更新缓存：使用写锁确保原子性
+        {
+            juce::ScopedWriteLock writeLock(uiStateCacheLock);
+            // 再次检查版本，防止在获取写锁期间其他线程已更新
+            if (uiStateCache.cacheVersion != currentVersion) {
+                updateUIStateCacheUnsafe(currentVersion);
+            }
+            
+            auto it = uiStateCache.soloStates.find(channelName);
+            return it != uiStateCache.soloStates.end() ? it->second : false;
+        }
+        
+    } catch (...) {
+        return false;
+    }
+}
+
+bool StateManager::getChannelMuteStateForUI(const juce::String& channelName) const
+{
+    if (!initialized) return false;
+    
+    try {
+        const uint64_t currentVersion = currentStateVersion.load(std::memory_order_acquire);
+        
+        // 🚀 修复TOCTOU竞态：使用双重检查锁定
+        {
+            juce::ScopedReadLock readLock(uiStateCacheLock);
+            if (uiStateCache.cacheVersion == currentVersion) {
+                auto it = uiStateCache.muteStates.find(channelName);
+                if (it != uiStateCache.muteStates.end()) {
+                    return it->second;
+                }
+                return false;
+            }
+        }
+        
+        // 需要更新缓存：使用写锁确保原子性
+        {
+            juce::ScopedWriteLock writeLock(uiStateCacheLock);
+            if (uiStateCache.cacheVersion != currentVersion) {
+                updateUIStateCacheUnsafe(currentVersion);
+            }
+            
+            auto it = uiStateCache.muteStates.find(channelName);
+            return it != uiStateCache.muteStates.end() ? it->second : false;
+        }
+        
+    } catch (...) {
+        return false;
+    }
+}
+
+bool StateManager::getChannelFinalMuteStateForUI(const juce::String& channelName) const
+{
+    if (!initialized) return false;
+    
+    try {
+        const uint64_t currentVersion = currentStateVersion.load();
+        
+        {
+            juce::ScopedReadLock lock(uiStateCacheLock);
+            if (uiStateCache.cacheVersion == currentVersion) {
+                auto it = uiStateCache.finalMuteStates.find(channelName);
+                if (it != uiStateCache.finalMuteStates.end()) {
+                    return it->second;
+                }
+            }
+        }
+        
+        updateUIStateCache();
+        
+        juce::ScopedReadLock lock(uiStateCacheLock);
+        auto it = uiStateCache.finalMuteStates.find(channelName);
+        return it != uiStateCache.finalMuteStates.end() ? it->second : false;
+        
+    } catch (...) {
+        return false;
+    }
+}
+
+juce::Colour StateManager::getChannelButtonColor(const juce::String& channelName, 
+                                                 const juce::LookAndFeel& lookAndFeel) const
+{
+    // 🚀 修复Auto-Mute显示：使用最终状态而非手动状态
+    bool soloState = getChannelSoloStateForUI(channelName);
+    bool finalMuteState = getChannelFinalMuteStateForUI(channelName);  // 使用最终Mute状态（包含Auto-Mute）
+    
+    // 根据状态返回对应颜色
+    if (soloState) {
+        // Solo激活 - 绿色
+        return juce::Colour(0xff2a8c4a);  // 与CustomLookAndFeel中的soloColour一致
+    } else if (finalMuteState) {
+        // 最终Mute激活（包含Auto-Mute）- 红色
+        return juce::Colour(0xffd13a3a);  // 与CustomLookAndFeel中的muteColour一致
+    } else {
+        // 正常状态 - 默认灰色
+        return lookAndFeel.findColour(juce::TextButton::buttonColourId);
+    }
+}
+
+void StateManager::updateUIStateCache() const
+{
+    juce::ScopedWriteLock lock(uiStateCacheLock);
+    const uint64_t currentVersion = currentStateVersion.load(std::memory_order_acquire);
+    updateUIStateCacheUnsafe(currentVersion);
+}
+
+void StateManager::updateUIStateCacheUnsafe(uint64_t targetVersion) const
+{
+    // 🚀 线程不安全版本，调用者必须持有写锁
+    
+    // 清空旧缓存
+    uiStateCache.soloStates.clear();
+    uiStateCache.muteStates.clear();
+    uiStateCache.finalMuteStates.clear();
+    
+    // 从SemanticChannelState获取最新状态
+    const auto& semanticState = processor.getSemanticState();
+    const auto& physicalMapper = processor.getPhysicalMapper();
+    
+    // 获取所有活动的语义通道
+    auto activeChannels = physicalMapper.getActiveSemanticChannels();
+    
+    // 缓存每个通道的状态
+    for (const auto& channelName : activeChannels) {
+        uiStateCache.soloStates[channelName] = semanticState.getSoloState(channelName);
+        uiStateCache.muteStates[channelName] = semanticState.getMuteState(channelName);
+        uiStateCache.finalMuteStates[channelName] = semanticState.getFinalMuteState(channelName);
+    }
+    
+    // 原子更新缓存版本
+    uiStateCache.cacheVersion = targetVersion;
+    
+    // 调试输出
+    VST3_DBG("StateManager: UI cache updated (thread-safe) - version: " + juce::String(targetVersion));
 }

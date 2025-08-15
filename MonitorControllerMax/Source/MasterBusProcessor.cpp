@@ -297,7 +297,18 @@ void MasterBusProcessor::setMonoActive(bool active)
 //==============================================================================
 void MasterBusProcessor::handleOSCMasterVolume(float volumePercent)
 {
-    setMasterGainPercent(volumePercent);
+    // 🚀 稳定性优化：确保线程安全
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        setMasterGainPercent(volumePercent);
+    }
+    else
+    {
+        juce::MessageManager::callAsync([this, volumePercent]()
+        {
+            setMasterGainPercent(volumePercent);
+        });
+    }
     
     if (processorPtr)
     {
@@ -307,7 +318,21 @@ void MasterBusProcessor::handleOSCMasterVolume(float volumePercent)
 
 void MasterBusProcessor::handleOSCDim(bool dimState)
 {
-    setDimActive(dimState);
+    // 🚀 稳定性优化：虽然OSC现在已在消息线程，但为了代码清晰和未来兼容性
+    // 仍然确保在消息线程中执行状态更新
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        // 已在消息线程，直接执行
+        setDimActive(dimState);
+    }
+    else
+    {
+        // 从其他线程调用，安全地切换到消息线程
+        juce::MessageManager::callAsync([this, dimState]()
+        {
+            setDimActive(dimState);
+        });
+    }
     
     if (processorPtr)
     {
@@ -317,7 +342,18 @@ void MasterBusProcessor::handleOSCDim(bool dimState)
 
 void MasterBusProcessor::handleOSCLowBoost(bool lowBoostState)
 {
-    setLowBoostActive(lowBoostState);
+    // 🚀 稳定性优化：确保线程安全
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        setLowBoostActive(lowBoostState);
+    }
+    else
+    {
+        juce::MessageManager::callAsync([this, lowBoostState]()
+        {
+            setLowBoostActive(lowBoostState);
+        });
+    }
     
     if (processorPtr)
     {
@@ -327,7 +363,18 @@ void MasterBusProcessor::handleOSCLowBoost(bool lowBoostState)
 
 void MasterBusProcessor::handleOSCMasterMute(bool masterMuteState)
 {
-    setMasterMuteActive(masterMuteState);
+    // 🚀 稳定性优化：确保线程安全
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        setMasterMuteActive(masterMuteState);
+    }
+    else
+    {
+        juce::MessageManager::callAsync([this, masterMuteState]()
+        {
+            setMasterMuteActive(masterMuteState);
+        });
+    }
     
     if (processorPtr)
     {
@@ -337,7 +384,18 @@ void MasterBusProcessor::handleOSCMasterMute(bool masterMuteState)
 
 void MasterBusProcessor::handleOSCMono(bool monoState)
 {
-    setMonoActive(monoState);
+    // 🚀 稳定性优化：确保线程安全
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        setMonoActive(monoState);
+    }
+    else
+    {
+        juce::MessageManager::callAsync([this, monoState]()
+        {
+            setMonoActive(monoState);
+        });
+    }
     
     if (processorPtr)
     {

@@ -55,7 +55,11 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(cd \"/mnt/c/REAPER/Effects/Masking Effects\")",
-      "WebFetch(domain:juce.com)"
+      "WebFetch(domain:juce.com)",
+      "Bash(cd \"/mnt/c/REAPER/Effects/Masking Effects/MonitorControllerMax/Source\")",
+      "Bash(grep -n \"pendingSoloSelection\\|pendingMuteSelection\" *.cpp)",
+      "Bash(grep -n \"setSoloState\\|setMuteState\" *.cpp)",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

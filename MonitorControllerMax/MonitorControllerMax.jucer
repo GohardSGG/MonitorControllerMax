@@ -6,6 +6,8 @@
               pluginManufacturer="Masking Effects">
   <MAINGROUP id="fEulgD" name="MonitorControllerMax">
     <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
+      <FILE id="gWOFx6" name="SafeUICallback.h" compile="0" resource="0"
+            file="Source/SafeUICallback.h"/>
       <FILE id="ZHUjhn" name="RenderState.h" compile="0" resource="0" file="Source/RenderState.h"/>
       <FILE id="Z59SW9" name="StateManager.cpp" compile="1" resource="0"
             file="Source/StateManager.cpp"/>

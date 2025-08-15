@@ -28,7 +28,9 @@ class MonitorControllerMaxAudioProcessor;
  * - 对所有状态变化发送确认反馈
  * - 实现控制器与插件的真正双向状态同步
  */
-class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::RealtimeCallback>
+// 🚀 稳定性修复：从RealtimeCallback改为MessageLoopCallback
+// 避免在实时线程中触发UI更新，严格遵循JUCE线程模型
+class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::MessageLoopCallback>
 {
 public:
     OSCCommunicator();
