@@ -30,7 +30,9 @@ class MonitorControllerMaxAudioProcessor;
  */
 // 🚀 稳定性修复：从RealtimeCallback改为MessageLoopCallback
 // 避免在实时线程中触发UI更新，严格遵循JUCE线程模型
-class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::MessageLoopCallback>
+// 🚀 v4.2: 增加Timer支持实现批量发送优化
+class OSCCommunicator : public juce::OSCReceiver::Listener<juce::OSCReceiver::MessageLoopCallback>,
+                       public juce::Timer
 {
 public:
     OSCCommunicator();
@@ -89,6 +91,32 @@ private:
     
     // Processor指针用于角色日志
     MonitorControllerMaxAudioProcessor* processorPtr = nullptr;
+    
+    // 🚀 性能优化：消息队列系统
+    struct OSCMessage {
+        juce::String address;
+        float value;
+        int priority;  // 0 = 高优先级, 1 = 中等, 2 = 低优先级
+        juce::int64 timestamp;
+        
+        OSCMessage(const juce::String& addr, float val, int prio = 1) 
+            : address(addr), value(val), priority(prio)
+            , timestamp(juce::Time::getCurrentTime().toMilliseconds()) {}
+    };
+    
+    mutable std::mutex messageQueueMutex;
+    std::vector<OSCMessage> messageQueue;
+    
+    // 消息合并优化
+    std::map<juce::String, size_t> addressToQueueIndex;  // 地址到队列索引的映射
+    
+    // 🚀 队列处理方法
+    void queueOSCMessage(const juce::String& address, float value, int priority = 1);
+    void processBatchSend();  // 批量发送处理
+    bool sendQueuedMessage(const OSCMessage& msg);  // 返回发送是否成功
+    
+    // Timer回调 (继承自juce::Timer)
+    void timerCallback() override;
     
     // 内部工具方法
     void handleIncomingOSCMessage(const juce::OSCMessage& message);

@@ -671,28 +671,66 @@ void StateManager::updateUIStateCacheUnsafe(uint64_t targetVersion) const
 {
     // 🚀 线程不安全版本，调用者必须持有写锁
     
-    // 清空旧缓存
-    uiStateCache.soloStates.clear();
-    uiStateCache.muteStates.clear();
-    uiStateCache.finalMuteStates.clear();
-    
-    // 从SemanticChannelState获取最新状态
-    const auto& semanticState = processor.getSemanticState();
-    const auto& physicalMapper = processor.getPhysicalMapper();
-    
-    // 获取所有活动的语义通道
-    auto activeChannels = physicalMapper.getActiveSemanticChannels();
-    
-    // 缓存每个通道的状态
-    for (const auto& channelName : activeChannels) {
-        uiStateCache.soloStates[channelName] = semanticState.getSoloState(channelName);
-        uiStateCache.muteStates[channelName] = semanticState.getMuteState(channelName);
-        uiStateCache.finalMuteStates[channelName] = semanticState.getFinalMuteState(channelName);
+    // 检查是否有待更新的通道（增量更新）
+    if (!pendingChannelUpdates.empty()) {
+        // 🚀 增量更新：只更新变化的通道
+        const auto& semanticState = processor.getSemanticState();
+        
+        for (const auto& channelName : pendingChannelUpdates) {
+            uiStateCache.soloStates[channelName] = semanticState.getSoloState(channelName);
+            uiStateCache.muteStates[channelName] = semanticState.getMuteState(channelName);
+            uiStateCache.finalMuteStates[channelName] = semanticState.getFinalMuteState(channelName);
+        }
+        
+        // 清空待更新列表
+        pendingChannelUpdates.clear();
+        
+        VST3_DBG("StateManager: UI cache incrementally updated " << pendingChannelUpdates.size() << " channels - version: " + juce::String(targetVersion));
+    } else {
+        // 🚀 全量更新：首次初始化或重大状态变化
+        // 清空旧缓存
+        uiStateCache.soloStates.clear();
+        uiStateCache.muteStates.clear();
+        uiStateCache.finalMuteStates.clear();
+        
+        // 从SemanticChannelState获取最新状态
+        const auto& semanticState = processor.getSemanticState();
+        const auto& physicalMapper = processor.getPhysicalMapper();
+        
+        // 获取所有活动的语义通道
+        auto activeChannels = physicalMapper.getActiveSemanticChannels();
+        
+        // 缓存每个通道的状态
+        for (const auto& channelName : activeChannels) {
+            uiStateCache.soloStates[channelName] = semanticState.getSoloState(channelName);
+            uiStateCache.muteStates[channelName] = semanticState.getMuteState(channelName);
+            uiStateCache.finalMuteStates[channelName] = semanticState.getFinalMuteState(channelName);
+        }
+        
+        VST3_DBG("StateManager: UI cache fully updated - version: " + juce::String(targetVersion));
     }
     
     // 原子更新缓存版本
     uiStateCache.cacheVersion = targetVersion;
+}
+
+// 🚀 新增：单通道增量更新机制
+void StateManager::updateSingleChannelCache(const juce::String& channelName) const
+{
+    juce::ScopedWriteLock lock(uiStateCacheLock);
     
-    // 调试输出
-    VST3_DBG("StateManager: UI cache updated (thread-safe) - version: " + juce::String(targetVersion));
+    // 添加到待更新列表
+    pendingChannelUpdates.insert(channelName);
+    
+    // 立即更新该通道的状态
+    const auto& semanticState = processor.getSemanticState();
+    uiStateCache.soloStates[channelName] = semanticState.getSoloState(channelName);
+    uiStateCache.muteStates[channelName] = semanticState.getMuteState(channelName);
+    uiStateCache.finalMuteStates[channelName] = semanticState.getFinalMuteState(channelName);
+    
+    // 更新缓存版本
+    const uint64_t currentVersion = currentStateVersion.fetch_add(1, std::memory_order_acq_rel);
+    uiStateCache.cacheVersion = currentVersion;
+    
+    VST3_DBG("StateManager: Single channel '" + channelName + "' cache updated - version: " + juce::String(currentVersion));
 }

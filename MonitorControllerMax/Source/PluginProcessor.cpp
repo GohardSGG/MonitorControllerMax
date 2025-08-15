@@ -253,34 +253,58 @@ void MonitorControllerMaxAudioProcessor::changeProgramName (int index, const juc
 //==============================================================================
 void MonitorControllerMaxAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    VST3_DBG_ROLE(this, "prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
-    
-    // JUCE架构重构：参数监听器已由StateManager管理，这里不需要重复注册
-    // StateManager在initialize()中会注册所有必要的参数监听器
-    
-    // 🚀 稳定性优化第3步：初始化预分配音频缓冲区，消除音频线程中的内存分配
-    masterBusProcessor.prepare(sampleRate, samplesPerBlock);
-    VST3_DBG_ROLE(this, "MasterBusProcessor prepared with preallocated buffers - sampleRate: " << sampleRate << ", maxBlockSize: " << samplesPerBlock);
-    
-    // 根据当前总线布局自动选择合适的配置
-    int currentChannelCount = getTotalNumInputChannels();
-    if (currentChannelCount > 0)
-    {
-        autoSelectLayoutForChannelCount(currentChannelCount);
+    // 🛡️ 异常边界保护 - 防止初始化异常影响DAW
+    try {
+        VST3_DBG_ROLE(this, "prepareToPlay - sampleRate: " << sampleRate << ", samplesPerBlock: " << samplesPerBlock);
+        
+        // JUCE架构重构：参数监听器已由StateManager管理，这里不需要重复注册
+        // StateManager在initialize()中会注册所有必要的参数监听器
+        
+        // 🚀 稳定性优化第3步：初始化预分配音频缓冲区，消除音频线程中的内存分配
+        masterBusProcessor.prepare(sampleRate, samplesPerBlock);
+        VST3_DBG_ROLE(this, "MasterBusProcessor prepared with preallocated buffers - sampleRate: " << sampleRate << ", maxBlockSize: " << samplesPerBlock);
+        
+        // 根据当前总线布局自动选择合适的配置
+        int currentChannelCount = getTotalNumInputChannels();
+        if (currentChannelCount > 0)
+        {
+            autoSelectLayoutForChannelCount(currentChannelCount);
+        }
+        
+        // OSC广播现在在角色确定后由initializeOSCForRole()处理
+        // 如果是首次加载且没有保存的状态，初始化默认角色的OSC
+        if (currentRole == PluginRole::Standalone) {
+            // 第一次加载时的默认角色初始化
+            initializeOSCForRole();
+        }
     }
-    
-    // OSC广播现在在角色确定后由initializeOSCForRole()处理
-    // 如果是首次加载且没有保存的状态，初始化默认角色的OSC
-    if (currentRole == PluginRole::Standalone) {
-        // 第一次加载时的默认角色初始化
-        initializeOSCForRole();
+    catch (const std::exception& e) {
+        // 🚨 初始化异常：记录但继续，确保插件可用
+        VST3_DBG_CRITICAL("prepareToPlay exception: " << e.what());
+        // 不重新抛出，确保插件能继续工作
+    }
+    catch (...) {
+        // 🚨 捕获所有初始化异常
+        VST3_DBG_CRITICAL("prepareToPlay unknown exception caught");
     }
 }
 
 void MonitorControllerMaxAudioProcessor::releaseResources()
 {
-    // When playback stops, you can use this as an opportunity to free up any
-    // spare memory, etc.
+    // 🛡️ 异常边界保护 - 防止资源清理异常影响DAW
+    try {
+        // When playback stops, you can use this as an opportunity to free up any
+        // spare memory, etc.
+        VST3_DBG_ROLE(this, "releaseResources - cleaning up audio resources");
+    }
+    catch (const std::exception& e) {
+        // 🚨 资源清理异常：记录但不传播
+        VST3_DBG_CRITICAL("releaseResources exception: " << e.what());
+    }
+    catch (...) {
+        // 🚨 捕获所有资源清理异常
+        VST3_DBG_CRITICAL("releaseResources unknown exception caught");
+    }
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -1032,7 +1056,7 @@ void MonitorControllerMaxAudioProcessor::sendMonoOSCState(bool monoState)
 
 void MonitorControllerMaxAudioProcessor::registerToGlobalState() {
     if (!isRegisteredToGlobalState) {
-        GlobalPluginState::getInstance().registerPlugin(this);
+        GlobalPluginState::getRef().registerPlugin(this);
         isRegisteredToGlobalState = true;
         VST3_DBG_ROLE(this, "Plugin registered to GlobalPluginState");
     }
@@ -1040,7 +1064,7 @@ void MonitorControllerMaxAudioProcessor::registerToGlobalState() {
 
 void MonitorControllerMaxAudioProcessor::unregisterFromGlobalState() {
     if (isRegisteredToGlobalState) {
-        GlobalPluginState::getInstance().unregisterPlugin(this);
+        GlobalPluginState::getRef().unregisterPlugin(this);
         isRegisteredToGlobalState = false;
         VST3_DBG_ROLE(this, "Plugin unregistered from GlobalPluginState");
     }
@@ -1049,7 +1073,7 @@ void MonitorControllerMaxAudioProcessor::unregisterFromGlobalState() {
 void MonitorControllerMaxAudioProcessor::switchToStandalone() {
     if (currentRole == PluginRole::Standalone) return;
     
-    auto& globalState = GlobalPluginState::getInstance();
+    auto& globalState = GlobalPluginState::getRef();
     
     if (currentRole == PluginRole::Master) {
         globalState.removeMaster(this);
@@ -1064,7 +1088,7 @@ void MonitorControllerMaxAudioProcessor::switchToStandalone() {
 void MonitorControllerMaxAudioProcessor::switchToMaster() {
     if (currentRole == PluginRole::Master) return;
     
-    auto& globalState = GlobalPluginState::getInstance();
+    auto& globalState = GlobalPluginState::getRef();
     
     if (globalState.setAsMaster(this)) {
         if (currentRole == PluginRole::Slave) {
@@ -1091,7 +1115,7 @@ void MonitorControllerMaxAudioProcessor::switchToMaster() {
 }
 
 void MonitorControllerMaxAudioProcessor::switchToSlave() {
-    auto& globalState = GlobalPluginState::getInstance();
+    auto& globalState = GlobalPluginState::getRef();
     
     if (currentRole == PluginRole::Master) {
         globalState.removeMaster(this);
@@ -1208,22 +1232,22 @@ void MonitorControllerMaxAudioProcessor::onMasterConnected() {
 }
 
 bool MonitorControllerMaxAudioProcessor::isMasterWithSlaves() const {
-    return currentRole == PluginRole::Master && GlobalPluginState::getInstance().getSlaveCount() > 0;
+    return currentRole == PluginRole::Master && GlobalPluginState::getRef().getSlaveCount() > 0;
 }
 
 bool MonitorControllerMaxAudioProcessor::isSlaveConnected() const {
-    return currentRole == PluginRole::Slave && GlobalPluginState::getInstance().hasMaster();
+    return currentRole == PluginRole::Slave && GlobalPluginState::getRef().hasMaster();
 }
 
 int MonitorControllerMaxAudioProcessor::getConnectedSlaveCount() const {
     if (currentRole == PluginRole::Master) {
-        return GlobalPluginState::getInstance().getSlaveCount();
+        return GlobalPluginState::getRef().getSlaveCount();
     }
     return 0;
 }
 
 juce::String MonitorControllerMaxAudioProcessor::getConnectionStatusText() const {
-    auto& globalState = GlobalPluginState::getInstance();
+    auto& globalState = GlobalPluginState::getRef();
     
     switch (currentRole) {
         case PluginRole::Standalone:
@@ -1289,7 +1313,7 @@ void MonitorControllerMaxAudioProcessor::onSemanticStateChanged(const juce::Stri
     
     // 新增主从同步（最小侵入）
     if (currentRole == PluginRole::Master) {
-        auto& globalState = GlobalPluginState::getInstance();
+        auto& globalState = GlobalPluginState::getRef();
         
         // 更新全局状态
         if (action == "solo") {

@@ -13,26 +13,33 @@
  * - 严格遵循JUCE音频线程规范：零锁、零分配、零复杂计算
  * - 所有数据在消息线程预计算，音频线程只做简单应用
  * - 直接来自现有组件的最终结果，不重新实现任何业务逻辑
+ * 
+ * 🚀 性能优化：内存对齐设计
+ * - 结构体级别缓存行对齐，减少false sharing
+ * - 数组级别SIMD对齐，利用向量化指令
+ * - 热点数据聚合，提升缓存局部性
  */
-struct RenderState
+struct alignas(64) RenderState  // 🚀 64字节缓存行对齐
 {
     static constexpr int MAX_CHANNELS = 26;
     
-    //=== 通道最终状态（直接来自SemanticChannelState::getFinalMuteState）===
-    bool channelShouldMute[MAX_CHANNELS];      // 最终静音状态（包含所有SUB逻辑）
-    float channelFinalGain[MAX_CHANNELS];      // 最终增益（个人增益 + 角色处理）
-    bool channelIsActive[MAX_CHANNELS];        // 通道是否在当前布局中激活
-    bool channelIsSUB[MAX_CHANNELS];           // SUB通道标识（用于LowBoost处理）
+    //=== 🚀 热点数据区域1：通道状态（SIMD优化，16字节对齐）===
+    alignas(16) bool channelShouldMute[MAX_CHANNELS];     // 最终静音状态（包含所有SUB逻辑）
+    alignas(16) bool channelIsActive[MAX_CHANNELS];       // 通道是否在当前布局中激活  
+    alignas(16) bool channelIsSUB[MAX_CHANNELS];          // SUB通道标识（用于LowBoost处理）
     
-    //=== Master总线状态（由MasterBusProcessor处理，这里仅用于Mono预计算）===
-    bool monoActive;                           // Mono效果（用于预计算参与通道）
+    //=== 🚀 热点数据区域2：增益数据（浮点SIMD优化，16字节对齐）===
+    alignas(16) float channelFinalGain[MAX_CHANNELS];     // 最终增益（个人增益 + 角色处理）
     
-    //=== Mono效果预计算数据 ===
-    uint8_t monoChannelCount;                  // 参与Mono的通道数量
-    uint8_t monoChannelIndices[MAX_CHANNELS];  // 参与Mono的通道索引表
+    //=== 🚀 控制数据区域：Master总线状态（缓存行开始）===
+    alignas(64) bool monoActive;                          // Mono效果（用于预计算参与通道）
     
-    //=== 数据版本（ABA问题防护）===
-    mutable std::atomic<uint64_t> version{0};
+    //=== Mono效果预计算数据（紧凑布局）===
+    uint8_t monoChannelCount;                             // 参与Mono的通道数量
+    uint8_t monoChannelIndices[MAX_CHANNELS];             // 参与Mono的通道索引表
+    
+    //=== 🚀 版本控制区域（独立缓存行，避免写竞争）===
+    alignas(64) mutable std::atomic<uint64_t> version{0}; // ABA问题防护
     
     //=== 构造函数：初始化为安全默认值 ===
     RenderState() noexcept

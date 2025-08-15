@@ -36,10 +36,11 @@ enum class PluginRole {
  */
 class GlobalPluginState {
 private:
-    // 单例模式 - 线程安全
-    static std::unique_ptr<GlobalPluginState> instance;
+    // 🚀 升级：引用计数单例模式 - 确定性生命周期管理
+    static std::shared_ptr<GlobalPluginState> instance;
     static std::mutex instanceMutex;
     static std::atomic<bool> shuttingDown; // 🛡️ 关闭状态标志
+    static std::atomic<int> refCount; // 🚀 引用计数器，确保安全销毁
     
     // 全局状态存储
     std::map<juce::String, bool> globalSoloStates;
@@ -87,14 +88,22 @@ private:
     } healthMonitor;
 
 public:
-    // 单例访问
-    static GlobalPluginState& getInstance();
+    // 🚀 升级：引用计数单例访问 - 确保生命周期安全
+    static std::shared_ptr<GlobalPluginState> getInstance();
+    
+    // 🔄 兼容性：便利方法，返回引用（为了代码兼容性）
+    static GlobalPluginState& getRef() {
+        auto inst = getInstance();
+        return *inst;
+    }
     
     // 🛡️ 生命周期安全管理
     static void shutdown();
     static bool isShuttingDown();
+    static void releaseReference(); // 🚀 引用计数释放
     
-    // 析构函数（需要public用于std::unique_ptr）
+    // 🚀 构造和析构函数（需要public用于std::shared_ptr）
+    GlobalPluginState() = default;
     ~GlobalPluginState() = default;
     
     // 🚀 生命周期安全：增强的插件管理接口
@@ -149,8 +158,6 @@ public:
     uint32_t getTotalExceptions() const { return healthMonitor.exceptionsCaught.load(); }
 
 private:
-    GlobalPluginState() = default;
-    
     // 防止复制
     GlobalPluginState(const GlobalPluginState&) = delete;
     GlobalPluginState& operator=(const GlobalPluginState&) = delete;

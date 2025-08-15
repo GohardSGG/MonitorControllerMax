@@ -2,24 +2,29 @@
 #include "PluginProcessor.h"
 #include "DebugLogger.h"
 
-// 静态成员初始化
-std::unique_ptr<GlobalPluginState> GlobalPluginState::instance = nullptr;
+// 🚀 静态成员初始化 - 引用计数生命周期管理
+std::shared_ptr<GlobalPluginState> GlobalPluginState::instance = nullptr;
 std::mutex GlobalPluginState::instanceMutex;
 std::atomic<bool> GlobalPluginState::shuttingDown{false}; // 🛡️ 关闭状态标志
+std::atomic<int> GlobalPluginState::refCount{0}; // 🚀 引用计数器
 
-GlobalPluginState& GlobalPluginState::getInstance() {
+std::shared_ptr<GlobalPluginState> GlobalPluginState::getInstance() {
     std::lock_guard<std::mutex> lock(instanceMutex);
     
     // 🛡️ 关闭检查：防止在程序退出时创建新实例
     if (shuttingDown.load()) {
-        static GlobalPluginState dummyInstance; // 安全的哑对象
+        static auto dummyInstance = std::make_shared<GlobalPluginState>(); // 安全的哑对象
         return dummyInstance;
     }
     
-    if (!instance) {
-        instance = std::unique_ptr<GlobalPluginState>(new GlobalPluginState());
+    // 🚀 引用计数管理：首次创建时初始化实例
+    if (refCount.fetch_add(1) == 0) {
+        // 第一个引用，创建实例 - 使用make_shared的私有构造函数友元技巧
+        instance = std::make_shared<GlobalPluginState>();
+        VST3_DBG("GlobalPluginState: Created instance with reference counting");
     }
-    return *instance;
+    
+    return instance;
 }
 
 // 🛡️ 显式关闭机制
@@ -63,6 +68,35 @@ void GlobalPluginState::shutdown() {
 
 bool GlobalPluginState::isShuttingDown() {
     return shuttingDown.load();
+}
+
+// 🚀 新增：引用计数释放机制
+void GlobalPluginState::releaseReference() {
+    std::lock_guard<std::mutex> lock(instanceMutex);
+    
+    int currentRefs = refCount.fetch_sub(1);
+    VST3_DBG("GlobalPluginState: Released reference, remaining: " << (currentRefs - 1));
+    
+    // 当引用计数归零时，安全销毁实例
+    if (currentRefs == 1) { // 减1后为0
+        VST3_DBG("GlobalPluginState: Reference count reached zero, destroying instance");
+        if (instance) {
+            // 清理操作
+            {
+                std::lock_guard<std::mutex> pluginsLock(instance->pluginsMutex);
+                instance->allPlugins.clear();
+                instance->slavePlugins.clear();
+                instance->waitingSlavePlugins.clear();
+                instance->masterPlugin = nullptr;
+                instance->pluginIds.clear();
+                instance->idToPlugin.clear();
+                instance->validPluginIds.clear();
+                instance->invalidatedPlugins.clear();
+            }
+            
+            instance.reset(); // 安全销毁
+        }
+    }
 }
 
 //==============================================================================

@@ -125,6 +125,10 @@ private:
     void updateUIStateCache() const;
     void updateUIStateCacheUnsafe(uint64_t targetVersion) const;  // 调用者必须持有写锁
     
+    // 🚀 性能优化：增量更新机制 - 只更新变化的通道
+    void updateSingleChannelCache(const juce::String& channelName) const;
+    mutable std::set<juce::String> pendingChannelUpdates; // 待更新的通道列表
+    
 public:
     //=== 🚀 外部状态变化处理 ===
     void onExternalStateChange(const juce::String& channelName, const juce::String& action, bool state); // 处理OSC等外部控制

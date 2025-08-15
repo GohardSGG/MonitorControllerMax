@@ -118,14 +118,8 @@ void OSCCommunicator::sendSoloState(const juce::String& channelName, bool state)
     juce::String address = formatOSCAddress("Solo", channelName);
     float value = state ? 1.0f : 0.0f;
     
-    if (sender->send(address, value))
-    {
-        OSC_DBG_ROLE("OSCCommunicator: Sent Solo state - " + address + " = " + juce::String(value));
-    }
-    else
-    {
-        OSC_DBG_ROLE("OSCCommunicator: Failed to send Solo state - " + address);
-    }
+    // 🚀 优化：使用消息队列，优先级1（中等）
+    queueOSCMessage(address, value, 1);
 }
 
 void OSCCommunicator::sendMuteState(const juce::String& channelName, bool state)
@@ -139,14 +133,8 @@ void OSCCommunicator::sendMuteState(const juce::String& channelName, bool state)
     juce::String address = formatOSCAddress("Mute", channelName);
     float value = state ? 1.0f : 0.0f;
     
-    if (sender->send(address, value))
-    {
-        OSC_DBG_ROLE("OSCCommunicator: Sent Mute state - " + address + " = " + juce::String(value));
-    }
-    else
-    {
-        OSC_DBG_ROLE("OSCCommunicator: Failed to send Mute state - " + address);
-    }
+    // 🚀 优化：使用消息队列，优先级1（中等）
+    queueOSCMessage(address, value, 1);
 }
 
 void OSCCommunicator::sendMasterVolume(float volumePercent)
@@ -511,4 +499,107 @@ bool OSCCommunicator::isValidChannelName(const juce::String& channelName) const
     }
     
     return false;
+}
+
+//==============================================================================
+// 🚀 性能优化：OSC消息队列系统实现
+//==============================================================================
+
+void OSCCommunicator::queueOSCMessage(const juce::String& address, float value, int priority)
+{
+    std::lock_guard<std::mutex> lock(messageQueueMutex);
+    
+    // 🚀 消息合并优化：检查是否已有相同地址的消息
+    auto existingIt = addressToQueueIndex.find(address);
+    if (existingIt != addressToQueueIndex.end())
+    {
+        // 更新现有消息的值，避免重复发送
+        size_t index = existingIt->second;
+        if (index < messageQueue.size())
+        {
+            messageQueue[index].value = value;
+            messageQueue[index].timestamp = juce::Time::getCurrentTime().toMilliseconds();
+            messageQueue[index].priority = juce::jmin(messageQueue[index].priority, priority); // 使用更高优先级
+            OSC_DBG_ROLE("OSCCommunicator: Message merged - " + address + " = " + juce::String(value));
+            return;
+        }
+    }
+    
+    // 添加新消息到队列
+    messageQueue.emplace_back(address, value, priority);
+    addressToQueueIndex[address] = messageQueue.size() - 1;
+    
+    OSC_DBG_ROLE("OSCCommunicator: Message queued - " + address + " = " + juce::String(value) + " (priority: " + juce::String(priority) + ")");
+    
+    // 🚀 自适应批量发送：根据队列大小调整发送频率
+    if (messageQueue.size() >= 5) {
+        // 队列较满时，立即触发发送
+        if (!isTimerRunning()) {
+            startTimer(1); // 1ms后立即发送
+        }
+    } else if (!isTimerRunning()) {
+        // 正常情况下，每10ms批量发送一次
+        startTimer(10);
+    }
+}
+
+void OSCCommunicator::timerCallback()
+{
+    // 🚀 批量发送定时器回调
+    processBatchSend();
+    stopTimer(); // 单次触发，处理完成后停止
+}
+
+void OSCCommunicator::processBatchSend()
+{
+    std::lock_guard<std::mutex> lock(messageQueueMutex);
+    
+    if (messageQueue.empty() || !isConnected())
+    {
+        return;
+    }
+    
+    // 🚀 优先级排序：高优先级消息优先发送
+    std::sort(messageQueue.begin(), messageQueue.end(), 
+        [](const OSCMessage& a, const OSCMessage& b) {
+            if (a.priority != b.priority) return a.priority < b.priority; // 数字小 = 优先级高
+            return a.timestamp < b.timestamp; // 同优先级按时间顺序
+        });
+    
+    // 批量发送所有消息
+    size_t successCount = 0;
+    for (const auto& msg : messageQueue)
+    {
+        if (sendQueuedMessage(msg))
+        {
+            successCount++;
+        }
+    }
+    
+    OSC_DBG_ROLE("OSCCommunicator: Batch sent " + juce::String(successCount) + "/" + juce::String(messageQueue.size()) + " messages");
+    
+    // 清空队列和索引映射
+    messageQueue.clear();
+    addressToQueueIndex.clear();
+}
+
+bool OSCCommunicator::sendQueuedMessage(const OSCMessage& msg)
+{
+    if (!sender || !isConnected())
+    {
+        return false;
+    }
+    
+    bool success = sender->send(msg.address, msg.value);
+    
+    if (success)
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Sent queued message - " + msg.address + " = " + juce::String(msg.value));
+    }
+    else
+    {
+        OSC_DBG_ROLE("OSCCommunicator: Failed to send queued message - " + msg.address);
+    }
+    
+    return success;
 }

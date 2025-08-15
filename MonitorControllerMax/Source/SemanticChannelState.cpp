@@ -89,18 +89,35 @@ bool SemanticChannelState::getMuteState(const juce::String& channelName) const
 
 bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) const
 {
-    // 读锁保护：这是音频线程中最关键的调用，必须确保线程安全
-    // 使用ReadLock避免UI线程修改map时导致的迭代器失效崩溃
+    // 🚀 优化：读锁保护，但避免嵌套锁调用，提升音频线程性能
     juce::ScopedReadLock lock(stateLock);
     
     // SUB channel logic based on original JSFX script
     if (globalSoloModeActive)
     {
         bool isChannelSUB = isSUBChannel(channelName);
-        bool nonSUBSoloActive = hasAnyNonSUBSoloActive();
-        bool subSoloActive = hasAnySUBSoloActive();
         
-        // 直接查找避免递归锁
+        // 🚀 性能优化：在已持有锁的情况下直接计算Solo状态，避免嵌套锁
+        bool nonSUBSoloActive = false;
+        bool subSoloActive = false;
+        
+        // 单次遍历计算所有Solo状态 - 避免多次调用和嵌套锁
+        for (const auto& [chName, soloState] : soloStates)
+        {
+            if (soloState)
+            {
+                if (isSUBChannel(chName)) {
+                    subSoloActive = true;
+                } else {
+                    nonSUBSoloActive = true;
+                }
+                
+                // 🚀 早期退出优化：如果两种类型的Solo都找到了，无需继续遍历
+                if (nonSUBSoloActive && subSoloActive) break;
+            }
+        }
+        
+        // 直接查找当前通道状态 - 已在锁保护下
         auto soloIt = soloStates.find(channelName);
         bool isSolo = (soloIt != soloStates.end()) ? soloIt->second : false;
         
@@ -117,7 +134,7 @@ bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) co
             else
             {
                 // When only non-SUB Solo is active, SUB channels keep user Mute setting
-                // 直接查找避免递归锁
+                // 直接查找 - 已在锁保护下
                 auto muteIt = muteStates.find(channelName);
                 bool userMute = (muteIt != muteStates.end()) ? muteIt->second : false;
                 // 删除垃圾日志 - 音频处理高频调用
@@ -151,7 +168,7 @@ bool SemanticChannelState::getFinalMuteState(const juce::String& channelName) co
     else
     {
         // Non-Solo mode, use direct Mute state
-        // 直接查找避免递归锁
+        // 直接查找 - 已在锁保护下
         auto muteIt = muteStates.find(channelName);
         return (muteIt != muteStates.end()) ? muteIt->second : false;
     }

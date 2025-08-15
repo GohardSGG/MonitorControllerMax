@@ -275,7 +275,7 @@ void MasterBusProcessor::setMonoActive(bool active)
                 processorPtr->getCurrentRole() == PluginRole::Standalone)
             {
                 // 更新全局状态
-                auto& globalState = GlobalPluginState::getInstance();
+                auto& globalState = GlobalPluginState::getRef();
                 globalState.setGlobalMonoState(monoActive);
                 
                 // 如果是Master模式，广播状态到所有Slave

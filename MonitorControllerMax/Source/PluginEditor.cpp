@@ -293,6 +293,33 @@ MonitorControllerMaxAudioProcessorEditor::~MonitorControllerMaxAudioProcessorEdi
     safeToUpdateUI.store(false);
     uiInitializationComplete.store(false);
     
+    // 🛡️ JUCE LookAndFeel生命周期修复：清理所有组件的LookAndFeel引用
+    // 必须在customLookAndFeel对象销毁前清理所有WeakReference
+    globalMuteButton.setLookAndFeel(nullptr);
+    globalSoloButton.setLookAndFeel(nullptr);
+    dimButton.setLookAndFeel(nullptr);
+    masterMuteButton.setLookAndFeel(nullptr);
+    effectsPanelButton.setLookAndFeel(nullptr);
+    
+    // 清理所有语义通道按钮的LookAndFeel引用
+    for (auto& [channelName, buttonPair] : semanticChannelButtons)
+    {
+        if (buttonPair && buttonPair->soloButton)
+            buttonPair->soloButton->setLookAndFeel(nullptr);
+        if (buttonPair && buttonPair->muteButton)
+            buttonPair->muteButton->setLookAndFeel(nullptr);
+    }
+    
+    // 清理传统通道按钮的LookAndFeel引用
+    for (auto& [channelIndex, button] : channelButtons)
+    {
+        if (button)
+            button->setLookAndFeel(nullptr);
+    }
+    
+    // 清理主编辑器的LookAndFeel引用
+    setLookAndFeel(nullptr);
+    
     // 清理所有不安全的回调引用（SafeUICallback将自动处理）
     // 但为了明确性，手动清理主要回调
     audioProcessor.masterBusProcessor.onDimStateChanged = nullptr;
@@ -303,9 +330,7 @@ MonitorControllerMaxAudioProcessorEditor::~MonitorControllerMaxAudioProcessorEdi
     // 清理布局变化回调
     audioProcessor.setLayoutChangeCallback(nullptr);
     
-    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Safe destruction complete - all callbacks cleared");
-    
-    setLookAndFeel(nullptr);
+    VST3_DBG_ROLE(&audioProcessor, "PluginEditor: Safe destruction complete - all callbacks and LookAndFeel cleared");
 }
 
 //==============================================================================
@@ -1122,7 +1147,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateUIBasedOnRole()
 void MonitorControllerMaxAudioProcessorEditor::updateDebugLogDisplay()
 {
     // 获取连接日志
-    auto& globalState = GlobalPluginState::getInstance();
+    auto& globalState = GlobalPluginState::getRef();
     auto logs = globalState.getConnectionLogs();
     
     juce::String logText;
@@ -1155,7 +1180,7 @@ void MonitorControllerMaxAudioProcessorEditor::updateDebugLogDisplay()
 
 void MonitorControllerMaxAudioProcessorEditor::clearDebugLog()
 {
-    auto& globalState = GlobalPluginState::getInstance();
+    auto& globalState = GlobalPluginState::getRef();
     globalState.clearConnectionLogs();
     updateDebugLogDisplay();
     
