@@ -1,0 +1,22 @@
+[package]
+name = "monitor_controller_max"
+version = "5.0.0"
+edition = "2021"
+authors = ["GohardSGG"]
+description = "MonitorControllerMax Rust Edition"
+
+[lib]
+path = "Src/Lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { workspace = true, features = ["assert_process_allocs"] }
+nih_plug_egui = { workspace = true }
+# egui = { workspace = true }  <-- 移除这行，避免版本冲突
+serde = { workspace = true }
+serde_json = { workspace = true }
+lazy_static = { workspace = true }
+atomic_float = { workspace = true }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+log = { workspace = true }

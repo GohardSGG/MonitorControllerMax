@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "Source/Plugin",
+    "Source/Xtask"
+]
+resolver = "2"
+
+[workspace.dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+egui = "0.28" 
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+lazy_static = "1.4"
+atomic_float = "0.1"
+crossbeam = "0.8"
+parking_lot = "0.12"
+log = "0.4"
+anyhow = "1.0"

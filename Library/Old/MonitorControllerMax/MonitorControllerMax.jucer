@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="sDeyhF" name="MonitorControllerMax" projectType="audioplug"
+              useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              pluginChannelsIn="26" pluginChannelsOut="26" pluginFormats="buildAAX,buildAU,buildAUv3,buildStandalone,buildVST3"
+              pluginManufacturer="Masking Effects">
+  <MAINGROUP id="fEulgD" name="MonitorControllerMax">
+    <GROUP id="{715AC71C-0159-A7BC-A0E1-B7C3400B30AB}" name="Source">
+      <FILE id="gWOFx6" name="SafeUICallback.h" compile="0" resource="0"
+            file="Source/SafeUICallback.h"/>
+      <FILE id="ZHUjhn" name="RenderState.h" compile="0" resource="0" file="Source/RenderState.h"/>
+      <FILE id="Z59SW9" name="StateManager.cpp" compile="1" resource="0"
+            file="Source/StateManager.cpp"/>
+      <FILE id="t8SSSk" name="StateManager.h" compile="0" resource="0" file="Source/StateManager.h"/>
+      <FILE id="QWmIe5" name="EffectsPanel.cpp" compile="1" resource="0"
+            file="Source/EffectsPanel.cpp"/>
+      <FILE id="BIMIzK" name="EffectsPanel.h" compile="0" resource="0" file="Source/EffectsPanel.h"/>
+      <FILE id="rnV7U9" name="MasterBusProcessor.cpp" compile="1" resource="0"
+            file="Source/MasterBusProcessor.cpp"/>
+      <FILE id="HJFmXh" name="MasterBusProcessor.h" compile="0" resource="0"
+            file="Source/MasterBusProcessor.h"/>
+      <FILE id="PfztzT" name="GlobalPluginState.cpp" compile="1" resource="0"
+            file="Source/GlobalPluginState.cpp"/>
+      <FILE id="nBxO0T" name="GlobalPluginState.h" compile="0" resource="0"
+            file="Source/GlobalPluginState.h"/>
+      <FILE id="l5zTf3" name="OSCCommunicator.cpp" compile="1" resource="0"
+            file="Source/OSCCommunicator.cpp"/>
+      <FILE id="JnvGwl" name="OSCCommunicator.h" compile="0" resource="0"
+            file="Source/OSCCommunicator.h"/>
+      <FILE id="kD91kL" name="SemanticChannelButton.cpp" compile="1" resource="0"
+            file="Source/SemanticChannelButton.cpp"/>
+      <FILE id="BMIJlh" name="SemanticChannelButton.h" compile="0" resource="0"
+            file="Source/SemanticChannelButton.h"/>
+      <FILE id="AO2WnM" name="SemanticChannelState.cpp" compile="1" resource="0"
+            file="Source/SemanticChannelState.cpp"/>
+      <FILE id="FrdHWS" name="SemanticChannelState.h" compile="0" resource="0"
+            file="Source/SemanticChannelState.h"/>
+      <FILE id="PhyMap1" name="PhysicalChannelMapper.cpp" compile="1" resource="0"
+            file="Source/PhysicalChannelMapper.cpp"/>
+      <FILE id="PhyMap2" name="PhysicalChannelMapper.h" compile="0" resource="0"
+            file="Source/PhysicalChannelMapper.h"/>
+      <FILE id="gxPKeb" name="DebugLogger.h" compile="0" resource="0" file="Source/DebugLogger.h"/>
+      <GROUP id="{74052EAE-9C3B-EE4A-5A60-52EA12D40821}" name="Config">
+        <FILE id="saGkwp" name="Speaker_Config.json" compile="0" resource="1"
+              file="Source/Config/Speaker_Config.json"/>
+      </GROUP>
+      <FILE id="yjLqUi" name="ConfigManager.cpp" compile="1" resource="0"
+            file="Source/ConfigManager.cpp"/>
+      <FILE id="GTs46V" name="ConfigManager.h" compile="0" resource="0" file="Source/ConfigManager.h"/>
+      <FILE id="LJC5NX" name="ConfigModels.h" compile="0" resource="0" file="Source/ConfigModels.h"/>
+      <FILE id="P6ewaS" name="PluginProcessor.cpp" compile="1" resource="0"
+            file="Source/PluginProcessor.cpp"/>
+      <FILE id="MlHfy7" name="PluginProcessor.h" compile="0" resource="0"
+            file="Source/PluginProcessor.h"/>
+      <FILE id="lPC0DQ" name="PluginEditor.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.cpp"/>
+      <FILE id="kFWZ7K" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_javascript" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_osc" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
+  <EXPORTFORMATS>
+    <VS2022 targetFolder="Builds/VisualStudio2022">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="MonitorControllerMax"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="MonitorControllerMax"
+                       enablePluginBinaryCopyStep="1"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_javascript" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+        <MODULEPATH id="juce_osc" path="../../../../Code/JUCE/SDK/JUCE/modules"/>
+      </MODULEPATHS>
+    </VS2022>
+  </EXPORTFORMATS>
+</JUCERPROJECT>
