@@ -4,6 +4,7 @@ use nih_plug::prelude::*;
 use std::sync::Arc;
 
 // 引入模块
+pub mod Components; // 公开组件模块，供 Editor 使用
 mod Editor;
 mod Audio;
 mod Registry;
