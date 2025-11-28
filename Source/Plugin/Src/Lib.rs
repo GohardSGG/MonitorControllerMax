@@ -2,6 +2,8 @@
 
 use nih_plug::prelude::*;
 use std::sync::Arc;
+use simplelog::*;
+use std::fs::File;
 
 // 引入模块
 pub mod Components; // 公开组件模块，供 Editor 使用
@@ -58,6 +60,7 @@ impl Plugin for MonitorControllerMax {
 
     // 明确指定 Editor Trait
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn nih_plug::editor::Editor>> {
+        log::info!("Creating editor...");
         Editor::create_editor(self.params.clone())
     }
 
@@ -67,7 +70,20 @@ impl Plugin for MonitorControllerMax {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        // 初始化逻辑：注册到全局 Registry
+        // 初始化文件日志系统
+        // 注意：在多实例加载时可能会有冲突，这里简单的 append 模式
+        if let Ok(file) = File::options().create(true).append(true).open("C:/Plugins/MonitorControllerMax_Debug.log") {
+            let _ = WriteLogger::init(
+                LevelFilter::Info,
+                Config::default(),
+                file,
+            );
+            log::info!("=== Plugin Initialized (v{}) ===", env!("CARGO_PKG_VERSION"));
+        } else {
+            // 如果 C:/Plugins 不存在或无权限，尝试临时目录
+            // 这里为了调试崩溃，我们假设您已经创建了该目录
+        }
+
         Registry::GlobalRegistry::register_instance();
         true
     }

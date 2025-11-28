@@ -20,3 +20,4 @@ atomic_float = { workspace = true }
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 log = { workspace = true }
+simplelog = "0.12.2"
