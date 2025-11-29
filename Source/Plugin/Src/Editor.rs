@@ -95,11 +95,29 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         .frame(central_frame) // <-- Apply clean frame
                         .show(ctx, |ui| {
                             // 子面板区域：上方音箱矩阵，下方日志
+                            // 1. 获取折叠状态 (持久化ID)
+                            let log_collapsed_id = ui.make_persistent_id("log_panel_collapsed");
+                            let is_collapsed = ui.data(|d| d.get_temp::<bool>(log_collapsed_id).unwrap_or(false));
+                            
+                            // 2. 动态高度动画
+                            // animate_bool_with_time 返回 0.0 (false) 到 1.0 (true) 的平滑值
+                            // 我们定义: false = 展开 (1.0 height), true = 折叠 (0.0 height adjustment)
+                            // 实际上: animate_bool: true -> 1.0. 
+                            // 让我们反过来用: animate_bool(is_collapsed)
+                            // t goes 0.0 (expanded) -> 1.0 (collapsed)
+                            let t = ctx.animate_bool_with_time(log_collapsed_id, is_collapsed, 0.2); // 0.2s duration
+                            
+                            // Interpolate height
+                            let expanded_height = scale.s(120.0);
+                            let collapsed_height = scale.s(28.0);
+                            // FIX: Import egui directly
+                            let log_height = egui::lerp(expanded_height..=collapsed_height, t);
+
                             TopBottomPanel::bottom("log_panel")
-                                .exact_height(scale.s(120.0))
+                                .exact_height(log_height)
                                 .frame(Frame::new())
                                 .show_inside(ui, |ui| {
-                                    render_log_panel(ui, &scale);
+                                    render_log_panel(ui, &scale, log_collapsed_id);
                                 });
 
                             CentralPanel::default()
@@ -181,7 +199,7 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext) {
 
             // --- Helper: 带微调偏移的 Dropdown ---
             // 使用 allocate_ui 分配固定空间，彻底防止布局重叠
-            let mut dropdown_render = |ui: &mut egui::Ui, id: &str, width: f32, current_val: &mut usize, options: &[&str]| {
+            let dropdown_render = |ui: &mut egui::Ui, id: &str, width: f32, current_val: &mut usize, options: &[&str]| {
                 // 1. 定义容器尺寸：宽度由参数决定，高度占满 Header (40.0)
                 let box_size = Vec2::new(width, scale.s(40.0));
                 
@@ -261,6 +279,52 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext) {
     );
 }
 
+/// Helper: 自定义双行按钮 (Big Primary + Small Secondary)
+fn custom_button(ui: &mut egui::Ui, primary: &str, secondary: &str, active: bool, width: f32, scale: &ScaleContext) -> egui::Response {
+    // --- 🟢 关键微调变量 (MANUAL TWEAK VARS) 🟢 ---
+    // 修改这里来控制这些新按钮的高度
+    let height = scale.s(46.0); // 原来是 56.0
+    // ----------------------------------------------
+
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), egui::Sense::click());
+    
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let is_hovered = response.hovered();
+        
+        let (bg_color, text_color, border_color) = if active {
+            (crate::Components::COLOR_ACTIVE_YELLOW_BG, crate::Components::COLOR_TEXT_DARK, Color32::from_rgb(100, 116, 139))
+        } else if is_hovered {
+            (crate::Components::COLOR_BG_SIDEBAR, crate::Components::COLOR_TEXT_DARK, crate::Components::COLOR_BORDER_DARK)
+        } else {
+            (Color32::WHITE, crate::Components::COLOR_TEXT_MEDIUM, crate::Components::COLOR_BORDER_MEDIUM)
+        };
+
+        // Shadow
+        if !active && !response.is_pointer_button_down_on() {
+             painter.rect_filled(
+                rect.translate(scale.vec2(1.0, 1.0)),
+                0.0,
+                Color32::from_black_alpha(20)
+            );
+        }
+
+        painter.rect_filled(rect, 0.0, bg_color);
+        painter.rect_stroke(rect, 0.0, Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+
+        // Primary Text (Top Left)
+        let primary_font = scale.font(16.0);
+        let primary_galley = painter.layout_no_wrap(primary.to_string(), primary_font, text_color);
+        painter.galley(rect.min + Vec2::new(scale.s(8.0), scale.s(8.0)), primary_galley, Color32::TRANSPARENT);
+
+        // Secondary Text (Bottom Right)
+        let secondary_font = scale.mono_font(10.0);
+        let secondary_galley = painter.layout_no_wrap(secondary.to_string(), secondary_font, text_color);
+        painter.galley(rect.max - secondary_galley.rect.size() - Vec2::new(scale.s(8.0), scale.s(8.0)), secondary_galley, Color32::TRANSPARENT);
+    }
+    response
+}
+
 /// 渲染左侧控制面板
 fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext) {
     
@@ -315,8 +379,67 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext) {
             ui.painter().hline(line_rect_2.x_range(), line_rect_2.top(), Stroke::new(1.0, COLOR_BORDER_LIGHT));
             ui.add_space(scale.s(16.0));
             
-            // Bottom Group
-            ui.add(BrutalistButton::new("EFFECT", scale).full_width(true));
+            // --- NEW: Low/High Boost Group ---
+            ui.horizontal(|ui| {
+                // Using custom_button for Low Boost
+                // Need state management? Just placeholders for now or use memory
+                let lb_id = ui.id().with("low_boost");
+                let mut lb_active = ui.memory(|m| m.data.get_temp::<bool>(lb_id).unwrap_or(false));
+                if custom_button(ui, "Low", "Boost", lb_active, button_width, scale).clicked() {
+                     lb_active = !lb_active;
+                     ui.memory_mut(|m| m.data.insert_temp(lb_id, lb_active));
+                }
+
+                ui.add_space(scale.s(8.0));
+
+                let hb_id = ui.id().with("high_boost");
+                let mut hb_active = ui.memory(|m| m.data.get_temp::<bool>(hb_id).unwrap_or(false));
+                if custom_button(ui, "High", "Boost", hb_active, button_width, scale).clicked() {
+                     hb_active = !hb_active;
+                     ui.memory_mut(|m| m.data.insert_temp(hb_id, hb_active));
+                }
+            });
+
+            ui.add_space(scale.s(12.0));
+
+            // --- NEW: MONO / +10dB LFE Group ---
+            ui.horizontal(|ui| {
+                // MONO Button (Standard Brutalist?)
+                let mono_id = ui.id().with("mono_btn");
+                let mut mono_active = ui.memory(|m| m.data.get_temp::<bool>(mono_id).unwrap_or(false));
+                // Use BrutalistButton but with same width logic
+                // Or custom_button with empty secondary?
+                // User said: "MONO 和 +10dB LFE"
+                // Assuming MONO is standard style but split width
+                let mut btn = BrutalistButton::new("MONO", scale).width(button_width); // Removed .large()
+                btn = btn.active(mono_active);
+                if ui.add(btn).clicked() {
+                    mono_active = !mono_active;
+                    ui.memory_mut(|m| m.data.insert_temp(mono_id, mono_active));
+                }
+
+                ui.add_space(scale.s(8.0));
+
+                // +10dB LFE (Custom Button)
+                let lfe_id = ui.id().with("lfe_boost");
+                let mut lfe_active = ui.memory(|m| m.data.get_temp::<bool>(lfe_id).unwrap_or(false));
+                if custom_button(ui, "+10dB", "LFE", lfe_active, button_width, scale).clicked() {
+                     lfe_active = !lfe_active;
+                     ui.memory_mut(|m| m.data.insert_temp(lfe_id, lfe_active));
+                }
+            });
+
+            ui.add_space(scale.s(12.0));
+
+            // --- NEW: Curve Button (Full Width) ---
+            let curve_id = ui.id().with("curve_btn");
+            let mut curve_active = ui.memory(|m| m.data.get_temp::<bool>(curve_id).unwrap_or(false));
+            let mut curve_btn = BrutalistButton::new("Curve", scale).full_width(true); // Removed .large()
+            curve_btn = curve_btn.active(curve_active);
+            if ui.add(curve_btn).clicked() {
+                curve_active = !curve_active;
+                ui.memory_mut(|m| m.data.insert_temp(curve_id, curve_active));
+            }
         });
 
         ui.add_space(scale.s(16.0));
@@ -380,7 +503,8 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext) {
 }
 
 /// 渲染日志面板
-fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext) {
+fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext, collapse_id: egui::Id) {
+    let is_collapsed = ui.data(|d| d.get_temp::<bool>(collapse_id).unwrap_or(false));
     let rect = ui.max_rect();
 
     // 顶部边框线
@@ -390,7 +514,7 @@ fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext) {
     );
 
     // 标题栏
-    let header_height = scale.s(24.0);
+    let header_height = scale.s(28.0); // 稍微增加高度
     ui.allocate_ui(Vec2::new(ui.available_width(), header_height), |ui| {
         let header_rect = ui.max_rect();
         ui.painter().rect_filled(header_rect, 0.0, COLOR_BG_SIDEBAR);
@@ -402,24 +526,51 @@ fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext) {
 
         ui.horizontal(|ui| {
             ui.add_space(scale.s(12.0));
-            ui.label(RichText::new("EVENT LOG").font(scale.mono_font(10.0)).color(COLOR_TEXT_MEDIUM));
+            
+            // 标题: 稍微向上偏移以留出底部间隙
+            ui.vertical(|ui| {
+                ui.add_space(scale.s(4.0)); // Top padding
+                ui.label(RichText::new("EVENT LOG").font(scale.mono_font(10.0)).color(COLOR_TEXT_MEDIUM));
+                ui.add_space(scale.s(0.0)); // Bottom padding request
+            });
+
+            // 右上角折叠/释放按钮
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(scale.s(8.0));
+                
+                let (btn_text, btn_hover) = if is_collapsed { 
+                    ("Show", "Expand Log") 
+                } else { 
+                    ("Hide", "Collapse Log") 
+                };
+
+                // 使用小巧的文本按钮
+                if ui.add(egui::Button::new(
+                    RichText::new(btn_text).font(scale.mono_font(10.0)).color(COLOR_TEXT_MEDIUM)
+                ).frame(false)).on_hover_text(btn_hover).clicked() {
+                    ui.data_mut(|d| d.insert_temp(collapse_id, !is_collapsed));
+                }
+            });
         });
     });
 
-    // 日志内容区域
-    ui.painter().rect_filled(
-        ui.available_rect_before_wrap(),
-        0.0,
-        Color32::from_rgb(248, 250, 252) // 极浅灰
-    );
+    // 仅在展开时绘制内容
+    if !is_collapsed {
+        // 日志内容区域
+        ui.painter().rect_filled(
+            ui.available_rect_before_wrap(),
+            0.0,
+            Color32::from_rgb(230, 235, 240) // 更深的灰蓝色背景
+        );
 
-    ui.vertical(|ui| {
-        ui.add_space(scale.s(8.0));
-        ui.horizontal(|ui| {
-            ui.add_space(scale.s(12.0));
-            ui.label(RichText::new("-- No events logged --").font(scale.mono_font(10.0)).color(COLOR_TEXT_LIGHT));
+        ui.vertical(|ui| {
+            ui.add_space(scale.s(8.0));
+            ui.horizontal(|ui| {
+                ui.add_space(scale.s(12.0));
+                ui.label(RichText::new("-- No events logged --").font(scale.mono_font(10.0)).color(COLOR_TEXT_LIGHT));
+            });
         });
-    });
+    }
 }
 
 /// 绘制背景网格

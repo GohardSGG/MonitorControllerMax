@@ -12,32 +12,27 @@ fn main() -> anyhow::Result<()> {
 
     // 2. 执行标准的 nih_plug xtask 构建流程
     // 注意：我们必须确保 nih_plug_xtask 执行完毕后再执行我们的拷贝逻辑
-    // 如果 nih_plug_xtask 内部有 exit 调用，这里的代码确实不会执行。
-    // 但是，我们可以利用 Drop trait 或者 panic hook 来做最后的挣扎？不，那太复杂了。
-    // 
-    // 关键点：cargo xtask 其实是 cargo run -p xtask。
-    // 如果 nih_plug_xtask::main() 返回了，那我们就赢了。
-    // 如果它没返回，说明它调用了 exit。
     
-    // 让我们尝试先打印一条日志，看看是不是真的进入了 main
-    // println!("[XTask Wrapper] Starting...");
-
+    // 关键点：cargo xtask 其实是 cargo run -p xtask。
     let result = nih_plug_xtask::main();
 
-    // 3. 无论结果如何，只要构建成功了（通过检查文件存在与否判断），我们就尝试拷贝
+    // 3. 只有构建成功才尝试拷贝
+    // 如果 result 是 Err，说明构建/打包失败，直接返回错误，不执行拷贝
+    if let Err(e) = result {
+        return Err(e);
+    }
+
     if should_copy {
         // 给文件系统一点喘息时间
         std::thread::sleep(std::time::Duration::from_millis(500));
         
-        // 尝试执行拷贝，忽略之前的 result 错误（因为有时 help 也会返回 error）
-        // 但我们只关心文件是否生成
-        if let Err(e) = post_build_copy(&args) {
-            // 如果拷贝失败，打印错误，但不一定让整个进程失败（取决于需求）
-            eprintln!("[Auto-Copy] Copy failed: {:?}", e);
-        }
+        // 尝试执行拷贝
+        // 使用 ? 操作符：如果 post_build_copy 失败，main 函数会返回 Err，
+        // 从而导致非零的退出码，满足“显得是失败的”这一要求。
+        post_build_copy(&args)?;
     }
 
-    result
+    Ok(())
 }
 
 /// 构建后自动拷贝任务
@@ -56,7 +51,11 @@ fn post_build_copy(args: &[String]) -> anyhow::Result<()> {
     // 我们不硬编码文件名，而是查找第一个 .vst3 目录，这样更灵活
     if !bundled_dir.exists() {
         println!("[Auto-Copy] Warning: target/bundled directory not found. Skipping copy.");
-        return Ok(());
+        // 如果目录不存在，虽然可能是因为没有生成，但 nih_plug_xtask 成功了，
+        // 可能是没运行 bundle 命令？或者清理了？
+        // 这里返回 Ok 还是 Err 取决于严格程度。如果 nih_plug 成功但没有输出，可能是配置问题。
+        // 但既然 should_copy 为 true，这里应该是期望有输出的。
+        return Err(anyhow::anyhow!("target/bundled not found after successful build"));
     }
 
     let vst3_entry = fs::read_dir(&bundled_dir)
