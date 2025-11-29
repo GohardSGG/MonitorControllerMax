@@ -6,18 +6,38 @@ use std::fs;
 use anyhow::Context;
 
 fn main() -> anyhow::Result<()> {
-    // 1. 执行标准的 nih_plug xtask 构建流程
-    // 这会生成 VST3 到 target/bundled 目录
-    nih_plug_xtask::main()?;
-
-    // 2. 检查是否是 bundle 命令，如果是，则执行自动拷贝逻辑
+    // 1. 检查是否是 bundle 命令
     let args: Vec<String> = env::args().collect();
-    // 简单的检查：只要参数里包含 "bundle" 就触发拷贝
-    if args.iter().any(|arg| arg == "bundle") {
-        post_build_copy(&args)?;
+    let should_copy = args.iter().any(|arg| arg == "bundle");
+
+    // 2. 执行标准的 nih_plug xtask 构建流程
+    // 注意：我们必须确保 nih_plug_xtask 执行完毕后再执行我们的拷贝逻辑
+    // 如果 nih_plug_xtask 内部有 exit 调用，这里的代码确实不会执行。
+    // 但是，我们可以利用 Drop trait 或者 panic hook 来做最后的挣扎？不，那太复杂了。
+    // 
+    // 关键点：cargo xtask 其实是 cargo run -p xtask。
+    // 如果 nih_plug_xtask::main() 返回了，那我们就赢了。
+    // 如果它没返回，说明它调用了 exit。
+    
+    // 让我们尝试先打印一条日志，看看是不是真的进入了 main
+    // println!("[XTask Wrapper] Starting...");
+
+    let result = nih_plug_xtask::main();
+
+    // 3. 无论结果如何，只要构建成功了（通过检查文件存在与否判断），我们就尝试拷贝
+    if should_copy {
+        // 给文件系统一点喘息时间
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        
+        // 尝试执行拷贝，忽略之前的 result 错误（因为有时 help 也会返回 error）
+        // 但我们只关心文件是否生成
+        if let Err(e) = post_build_copy(&args) {
+            // 如果拷贝失败，打印错误，但不一定让整个进程失败（取决于需求）
+            eprintln!("[Auto-Copy] Copy failed: {:?}", e);
+        }
     }
 
-    Ok(())
+    result
 }
 
 /// 构建后自动拷贝任务

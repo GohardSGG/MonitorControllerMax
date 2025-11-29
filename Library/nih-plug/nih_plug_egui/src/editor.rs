@@ -122,6 +122,11 @@ where
                         egui_state.size.store(new_size);
                     }
                 }
+                
+                // CRITICAL FIX: Do NOT override pixels_per_point here.
+                // Allow the user's update function to control it.
+                // If baseview sets it based on system DPI, that's fine as a default,
+                // but we shouldn't force reset it every frame if the user changed it.
 
                 // For now, just always redraw. Most plugin GUIs have meters, and those almost always
                 // need a redraw. Later we can try to be a bit more sophisticated about this. Without
