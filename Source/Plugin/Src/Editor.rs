@@ -5,6 +5,7 @@ use nih_plug_egui::{create_egui_editor, EguiState, resizable_window::ResizableWi
 use nih_plug_egui::egui::{self, Visuals, Vec2, CornerRadius, Margin};
 use std::sync::Arc;
 use crate::Params::MonitorParams;
+use crate::Components::*; 
 
 const BASE_WIDTH: f32 = 800.0;
 const BASE_HEIGHT: f32 = 600.0;
@@ -108,7 +109,18 @@ pub fn create_editor(_params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         ui.label(format!("Logical: {:.1}", ui.available_width()));
                         
                         ui.add_space(30.0 * scale_factor);
-                        if ui.button("Test Button").clicked() {
+                        
+                        // Example Usage of Scaled Components
+                        ui.add(BrutalistButton::new("Scaled Button", scale_factor).full_width(false).active(true));
+                        
+                        ui.add_space(10.0 * scale_factor);
+                        
+                        ui.horizontal(|ui| {
+                            ui.add(SpeakerBox::new("L", true, scale_factor));
+                            ui.add(SpeakerBox::new("R", false, scale_factor));
+                        });
+
+                        if ui.button("Standard Egui Button (Auto Scaled)").clicked() {
                            // ...
                         }
                     });

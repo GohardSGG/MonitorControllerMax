@@ -26,16 +26,18 @@ pub struct BrutalistButton<'a> {
     danger: bool,
     full_width: bool,
     height: f32,
+    scale: f32, // Add scale field
 }
 
 impl<'a> BrutalistButton<'a> {
-    pub fn new(label: &'a str) -> Self {
+    pub fn new(label: &'a str, scale: f32) -> Self {
         Self {
             label,
             active: false,
             danger: false,
             full_width: false,
-            height: 40.0,
+            height: 40.0 * scale, // Apply scale to default height
+            scale,
         }
     }
 
@@ -55,7 +57,7 @@ impl<'a> BrutalistButton<'a> {
     }
     
     pub fn large(mut self) -> Self {
-        self.height = 56.0;
+        self.height = 56.0 * self.scale; // Apply scale
         self
     }
 }
@@ -65,7 +67,7 @@ impl<'a> Widget for BrutalistButton<'a> {
         let size = if self.full_width {
             Vec2::new(ui.available_width(), self.height)
         } else {
-            Vec2::new(80.0, self.height)
+            Vec2::new(80.0 * self.scale, self.height) // Apply scale to width
         };
 
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -87,24 +89,25 @@ impl<'a> Widget for BrutalistButton<'a> {
             (Color32::WHITE, COLOR_TEXT_MEDIUM, COLOR_BORDER_DARK)
         };
 
-        let offset = if is_clicking { Vec2::new(0.0, 1.0) } else { Vec2::ZERO };
+        let offset = if is_clicking { Vec2::new(0.0, 1.0 * self.scale) } else { Vec2::ZERO };
         let draw_rect = rect.translate(offset);
 
         if !is_active && !is_clicking {
             painter.rect_filled(
-                rect.translate(Vec2::new(1.0, 1.0)), 
+                rect.translate(Vec2::new(1.0 * self.scale, 1.0 * self.scale)), 
                 0.0, 
                 Color32::from_black_alpha(25)
             );
         }
         
         painter.rect_filled(draw_rect, 0.0, bg_color);
-        painter.rect_stroke(draw_rect, 0.0, Stroke::new(1.0, border_color), StrokeKind::Inside);
+        // Use default stroke width but maybe scaled? Using 1.0 * scale
+        painter.rect_stroke(draw_rect, 0.0, Stroke::new(1.0 * self.scale, border_color), StrokeKind::Inside);
 
         if is_active {
              painter.line_segment(
-                [draw_rect.left_top() + Vec2::new(0.0, 1.0), draw_rect.right_top() + Vec2::new(0.0, 1.0)],
-                Stroke::new(1.0, Color32::from_black_alpha(30))
+                [draw_rect.left_top() + Vec2::new(0.0, 1.0 * self.scale), draw_rect.right_top() + Vec2::new(0.0, 1.0 * self.scale)],
+                Stroke::new(1.0 * self.scale, Color32::from_black_alpha(30))
              );
         }
 
@@ -112,7 +115,8 @@ impl<'a> Widget for BrutalistButton<'a> {
             draw_rect.center(),
             egui::Align2::CENTER_CENTER,
             self.label,
-            if self.height > 45.0 { egui::FontId::proportional(14.0) } else { egui::FontId::proportional(12.0) },
+            // Scale font size
+            if self.height > 45.0 * self.scale { egui::FontId::proportional(14.0 * self.scale) } else { egui::FontId::proportional(12.0 * self.scale) },
             text_color,
         );
 
@@ -125,6 +129,7 @@ pub struct TechVolumeKnob<'a> {
     value: &'a mut f32,
     min: f32,
     max: f32,
+    // Slider scales automatically via style, but if we need custom drawing later...
 }
 
 impl<'a> TechVolumeKnob<'a> {
@@ -146,21 +151,24 @@ pub struct SpeakerBox<'a> {
     name: &'a str,
     active: bool,
     is_sub: bool,
+    scale: f32, // Add scale
 }
 
 impl<'a> SpeakerBox<'a> {
-    pub fn new(name: &'a str, active: bool) -> Self {
+    pub fn new(name: &'a str, active: bool, scale: f32) -> Self {
         Self { 
             name, 
             active,
             is_sub: name.contains("SUB") || name == "LFE",
+            scale,
         }
     }
 }
 
 impl<'a> Widget for SpeakerBox<'a> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let size = if self.is_sub { Vec2::new(80.0, 80.0) } else { Vec2::new(96.0, 96.0) };
+        // Scale hardcoded sizes
+        let size = if self.is_sub { Vec2::new(80.0 * self.scale, 80.0 * self.scale) } else { Vec2::new(96.0 * self.scale, 96.0 * self.scale) };
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         let painter = ui.painter();
 
@@ -176,14 +184,14 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         // 1. Basic Background & Border
         painter.rect_filled(rect, 0.0, bg_color);
-        painter.rect_stroke(rect, 0.0, Stroke::new(1.0, border_color), StrokeKind::Inside);
+        painter.rect_stroke(rect, 0.0, Stroke::new(1.0 * self.scale, border_color), StrokeKind::Inside);
 
         // 3. Text
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             self.name,
-            egui::FontId::monospace(14.0),
+            egui::FontId::monospace(14.0 * self.scale), // Scale font
             text_color,
         );
 
