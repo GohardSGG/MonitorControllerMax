@@ -64,7 +64,6 @@ $RECYCLE.BIN/
 
 # 文档构建产物（如果使用 mdBook 等）
 /book/
-/doc/
 
 # 环境变量文件
 .env

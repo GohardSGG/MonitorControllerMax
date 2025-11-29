@@ -1,0 +1,525 @@
+[23:09:07.892] [!] === VST3 Debug Logger Initialized ===
+[23:09:07.894] [!] Log file: C:\Users\SGGGGG\AppData\Local\Temp\MonitorControllerMax_Debug.log
+[23:09:07.895] [!] Current log level: INFO
+[23:09:07.895] [!] Duplicate filtering: Enabled
+[23:09:07.895] [!] === MonitorControllerMax Plugin Constructor ===
+[23:09:07.895] 23:09:07 Plugin registered (ID: Plugin_1755184147895_20881896fc0, Ptr: 20881896fc0) - Total: 1
+[23:09:07.895] [Standalone] Plugin registered to GlobalPluginState
+[23:09:07.895] [Standalone] Initialize semantic state system
+[23:09:07.896] [Standalone] Semantic state system initialization complete
+[23:09:07.896] [Standalone] MasterBusProcessor initialized
+[23:09:07.896] StateManager: Created with double-buffered render states
+[23:09:07.896] StateManager: Initialized with parameter and state listeners
+[23:09:07.896] [Standalone] StateManager initialized - JUCE-compliant architecture active
+[23:09:07.896] [Standalone] OSC initialization deferred until role is determined
+[23:09:12.590] StateManager: Parameter changed - MASTER_GAIN = 8
+[23:09:12.590] StateManager: Render state committed - version 1
+[23:09:12.591] [Standalone] PluginProcessor: Restoring plugin role - 0
+[23:09:12.591] [Standalone] Plugin role restoration complete - connection logic triggered
+[23:09:12.591] [Standalone] Restoring user-selected layout - Speaker: 5.1, Sub: 2
+[23:09:12.591] [Standalone] State restoration complete - Gain/Role/Layout restored, Solo/Mute clean
+[23:09:12.591] [Standalone] Initializing OSC for role: Standalone
+[23:09:12.591] [Standalone] OSCCommunicator: Initialize OSC connections
+[23:09:12.596] [Standalone] OSCCommunicator: OSC Sender connected to 127.0.0.1:7444
+[23:09:12.596] [Standalone] OSCCommunicator: OSC Receiver listening on port 7445
+[23:09:12.596] [Standalone] OSCCommunicator: OSC communication system initialized successfully
+[23:09:12.596] [Standalone] OSC communication system initialized successfully for Standalone
+[23:09:12.596] [Standalone] Broadcasting initial states to OSC
+[23:09:12.596] [Standalone] OSCCommunicator: Broadcasting all current states
+[23:09:12.596] [Standalone] OSCCommunicator: Broadcast complete - 0 channels
+[23:09:12.597] [Standalone] prepareToPlay - sampleRate: 48000, samplesPerBlock: 480
+[23:09:12.597] MasterBusProcessor: Prepared for sampleRate=48000, maxBlockSize=480
+[23:09:12.597] [Standalone] MasterBusProcessor prepared with preallocated buffers - sampleRate: 48000, maxBlockSize: 480
+[23:09:12.597] [Standalone] AutoSelect: 8 channels -> 5.1 + 2 (8 used)
+[23:09:12.597] [Standalone] Update physical channel mapping
+[23:09:12.597] StateManager: Layout changed
+[23:09:12.598] StateManager: Render state committed - version 1
+[23:09:12.598] [Standalone] StateManager notified of layout change
+[23:09:12.598] [Standalone] Smart channel update - preserving existing states
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - L
+[23:09:12.598] [Standalone] Initialize new semantic channel: L -> physical pin 0
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - R
+[23:09:12.598] [Standalone] Initialize new semantic channel: R -> physical pin 1
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - C
+[23:09:12.598] [Standalone] Initialize new semantic channel: C -> physical pin 2
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - LFE
+[23:09:12.598] [Standalone] Initialize new semantic channel: LFE -> physical pin 3
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - LR
+[23:09:12.598] [Standalone] Initialize new semantic channel: LR -> physical pin 4
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - RR
+[23:09:12.598] [Standalone] Initialize new semantic channel: RR -> physical pin 5
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - SUB L
+[23:09:12.598] [Standalone] Initialize new semantic channel: SUB L -> physical pin 6
+[23:09:12.598] [Standalone] SemanticChannelState: Initialize channel - SUB R
+[23:09:12.598] [Standalone] Initialize new semantic channel: SUB R -> physical pin 7
+[23:09:12.599] [Standalone] Shutting down OSC communication
+[23:09:12.599] [Standalone] OSCCommunicator: Shutdown OSC communication
+[23:09:12.601] [Standalone] OSCCommunicator: OSC communication shutdown complete
+[23:09:12.601] [Standalone] Initializing OSC for role: Standalone
+[23:09:12.601] [Standalone] OSCCommunicator: Initialize OSC connections
+[23:09:12.602] [Standalone] OSCCommunicator: OSC Sender connected to 127.0.0.1:7444
+[23:09:12.602] [Standalone] OSCCommunicator: OSC Receiver listening on port 7445
+[23:09:12.602] [Standalone] OSCCommunicator: OSC communication system initialized successfully
+[23:09:12.602] [Standalone] OSC communication system initialized successfully for Standalone
+[23:09:12.602] [Standalone] Broadcasting initial states to OSC
+[23:09:12.602] [Standalone] OSCCommunicator: Broadcasting all current states
+[23:09:12.602] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/C = 0
+[23:09:12.602] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 0
+[23:09:12.602] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/LFE = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/LR = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/R = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/RR = 0
+[23:09:12.603] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 0
+[23:09:12.604] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/SUB_L = 0
+[23:09:12.605] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:12.605] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/SUB_R = 0
+[23:09:12.606] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:12.607] [Standalone] OSCCommunicator: Broadcast complete - 8 channels
+[23:09:13.254] [Standalone] EffectsPanel: Initialize effects panel
+[23:09:13.255] [Standalone] EffectsPanel: Low Boost button initialized
+[23:09:13.255] [Standalone] EffectsPanel: High Boost button initialized
+[23:09:13.255] [Standalone] EffectsPanel: Mono button initialized
+[23:09:13.255] [Standalone] EffectsPanel: Dolby Curve button initialized
+[23:09:13.255] [Standalone] EffectsPanel: Phone Curve button initialized
+[23:09:13.255] [Standalone] EffectsPanel: Setting up 5x5 grid layout
+[23:09:13.255] [Standalone] EffectsPanel: 5x5 grid setup complete - LOW BOOST@1, HIGH BOOST@2, DOLBY CURVE@6, PHONE CURVE@7, MONO@21
+[23:09:13.255] [Standalone] EffectsPanel: Initialization complete
+[23:09:13.256] [Standalone] PluginEditor: Setting up Effects panel
+[23:09:13.256] [Standalone] PluginEditor: Effects panel setup complete
+[23:09:13.257] [Standalone] Role selector setup complete
+[23:09:13.280] [Standalone] Update physical channel mapping
+[23:09:13.281] StateManager: Layout changed
+[23:09:13.281] StateManager: Render state committed - version 2
+[23:09:13.281] [Standalone] StateManager notified of layout change
+[23:09:13.281] [Standalone] Smart channel update - preserving existing states
+[23:09:13.282] PluginEditor: updateChannelButtonStates called - count: 2
+[23:09:13.282] StateManager: UI cache updated - version: 0
+[23:09:13.282] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.282] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.308] Timer callback running - count: 1, uiInitComplete: false, safeToUpdate: true
+[23:09:13.308] [Standalone] Applying restored layout after UI initialization
+[23:09:13.308] [Standalone] Update physical channel mapping
+[23:09:13.309] StateManager: Layout changed
+[23:09:13.309] StateManager: Render state committed - version 2
+[23:09:13.309] [Standalone] StateManager notified of layout change
+[23:09:13.309] [Standalone] Smart channel update - preserving existing states
+[23:09:13.309] [Standalone] Layout restored - Solo/Mute states remain clean for fresh start
+[23:09:13.309] [Standalone] Update physical channel mapping
+[23:09:13.310] StateManager: Layout changed
+[23:09:13.310] StateManager: Render state committed - version 3
+[23:09:13.310] [Standalone] StateManager notified of layout change
+[23:09:13.310] [Standalone] Smart channel update - preserving existing states
+[23:09:13.310] PluginEditor: updateChannelButtonStates called - count: 4
+[23:09:13.310] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.310] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.311] [Standalone] Update physical channel mapping
+[23:09:13.311] StateManager: Layout changed
+[23:09:13.311] StateManager: Render state committed - version 3
+[23:09:13.311] [Standalone] StateManager notified of layout change
+[23:09:13.311] [Standalone] Smart channel update - preserving existing states
+[23:09:13.312] PluginEditor: updateChannelButtonStates called - count: 6
+[23:09:13.312] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.312] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.313] [Standalone] Update physical channel mapping
+[23:09:13.313] StateManager: Layout changed
+[23:09:13.313] StateManager: Render state committed - version 4
+[23:09:13.313] [Standalone] StateManager notified of layout change
+[23:09:13.313] [Standalone] Smart channel update - preserving existing states
+[23:09:13.314] PluginEditor: updateChannelButtonStates called - count: 8
+[23:09:13.314] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.314] [Standalone] Update physical channel mapping
+[23:09:13.315] StateManager: Layout changed
+[23:09:13.315] StateManager: Render state committed - version 4
+[23:09:13.315] [Standalone] StateManager notified of layout change
+[23:09:13.315] [Standalone] Smart channel update - preserving existing states
+[23:09:13.315] PluginEditor: updateChannelButtonStates called - count: 10
+[23:09:13.316] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.316] [Standalone] Syncing UI from user selection
+[23:09:13.316] [Standalone] User selected - Speaker: 5.1, Sub: 2
+[23:09:13.317] [Standalone] Update physical channel mapping
+[23:09:13.317] StateManager: Layout changed
+[23:09:13.317] StateManager: Render state committed - version 5
+[23:09:13.317] [Standalone] StateManager notified of layout change
+[23:09:13.317] [Standalone] Smart channel update - preserving existing states
+[23:09:13.317] [Standalone] Update physical channel mapping
+[23:09:13.318] StateManager: Layout changed
+[23:09:13.318] StateManager: Render state committed - version 5
+[23:09:13.318] [Standalone] StateManager notified of layout change
+[23:09:13.318] [Standalone] Smart channel update - preserving existing states
+[23:09:13.319] PluginEditor: updateChannelButtonStates called - count: 12
+[23:09:13.319] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] [Standalone] UI sync complete
+[23:09:13.319] PluginEditor: updateChannelButtonStates called - count: 14
+[23:09:13.319] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.319] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] [Standalone] EffectsPanel: Button states updated for role - INTERACTIVE
+[23:09:13.320] PluginEditor: updateChannelButtonStates called - count: 16
+[23:09:13.320] UI Update - Channel: L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: C, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: LFE, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: LR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: RR, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: SUB L, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] UI Update - Channel: SUB R, Solo: OFF, Mute: OFF, Color: 0x4A5860
+[23:09:13.320] SafeUICallback: Standard exception caught in simple UI callback: resource deadlock would occur: resource deadlock would occur
+[23:09:19.187] [Standalone] Solo button clicked - using unified StateManager
+[23:09:19.187] StateManager: Solo button clicked - unified control
+[23:09:19.187] StateManager: Entering Solo selection mode - saving Mute memory and clearing current Mute states
+[23:09:19.187] [Standalone] SemanticChannelState: Save current Mute memory
+[23:09:19.187] [Standalone] SemanticChannelState: Clear all Mute states
+[23:09:19.187] StateManager: Render state committed - version 6
+[23:09:19.583] [Standalone] Channel click: 0
+[23:09:19.583] [Standalone] SemanticChannelState: Set Solo state - channel: L, state: ON
+[23:09:19.583] [Standalone] Solo state change callback - channel: L, new state: ON
+[23:09:19.583] StateManager handling external state change: solo L = ON
+[23:09:19.583] StateManager: Render state committed - version 6
+[23:09:19.583] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 1
+[23:09:19.583] StateManager: Solo state changed - L = ON
+[23:09:19.583] StateManager: Render state committed - version 7
+[23:09:19.583] [Standalone] SemanticChannelState: Global Solo mode changed - ACTIVE
+[23:09:19.583] [Standalone] Global mode change callback - Solo mode: ACTIVE
+[23:09:19.583] [Standalone] OSCCommunicator: Broadcasting all current states
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/C = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 1
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/LFE = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/LR = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/R = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/RR = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/SUB_L = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/SUB_R = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:19.584] [Standalone] OSCCommunicator: Broadcast complete - 8 channels
+[23:09:19.584] StateManager: Global mode changed
+[23:09:19.584] StateManager: Render state committed - version 7
+[23:09:19.585] [Standalone] SemanticChannelState: Global Solo mode changed to ACTIVE - broadcasting all final mute states
+[23:09:19.585] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: C, Final Mute: ON
+[23:09:19.585] [Standalone] Mute state change callback - channel: C, new state: ON
+[23:09:19.585] StateManager handling external state change: mute C = ON
+[23:09:19.585] StateManager: Render state committed - version 8
+[23:09:19.585] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 1
+[23:09:19.585] StateManager: Mute state changed - C = ON
+[23:09:19.585] StateManager: Render state committed - version 8
+[23:09:19.585] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: L, Final Mute: OFF
+[23:09:19.585] [Standalone] Mute state change callback - channel: L, new state: OFF
+[23:09:19.585] StateManager handling external state change: mute L = OFF
+[23:09:19.585] StateManager: Render state committed - version 9
+[23:09:19.585] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:19.585] StateManager: Mute state changed - L = OFF
+[23:09:19.585] StateManager: Render state committed - version 9
+[23:09:19.585] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: LFE, Final Mute: ON
+[23:09:19.585] [Standalone] Mute state change callback - channel: LFE, new state: ON
+[23:09:19.585] StateManager handling external state change: mute LFE = ON
+[23:09:19.585] StateManager: Render state committed - version 10
+[23:09:19.585] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 1
+[23:09:19.585] StateManager: Mute state changed - LFE = ON
+[23:09:19.585] StateManager: Render state committed - version 10
+[23:09:19.585] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: LR, Final Mute: ON
+[23:09:19.585] [Standalone] Mute state change callback - channel: LR, new state: ON
+[23:09:19.585] StateManager handling external state change: mute LR = ON
+[23:09:19.585] StateManager: Render state committed - version 11
+[23:09:19.585] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 1
+[23:09:19.585] StateManager: Mute state changed - LR = ON
+[23:09:19.585] StateManager: Render state committed - version 11
+[23:09:19.586] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: R, Final Mute: ON
+[23:09:19.586] [Standalone] Mute state change callback - channel: R, new state: ON
+[23:09:19.586] StateManager handling external state change: mute R = ON
+[23:09:19.586] StateManager: Render state committed - version 12
+[23:09:19.586] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 1
+[23:09:19.586] StateManager: Mute state changed - R = ON
+[23:09:19.586] StateManager: Render state committed - version 12
+[23:09:19.586] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: RR, Final Mute: ON
+[23:09:19.586] [Standalone] Mute state change callback - channel: RR, new state: ON
+[23:09:19.586] StateManager handling external state change: mute RR = ON
+[23:09:19.586] StateManager: Render state committed - version 13
+[23:09:19.586] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 1
+[23:09:19.586] StateManager: Mute state changed - RR = ON
+[23:09:19.586] StateManager: Render state committed - version 13
+[23:09:19.586] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: SUB L, Final Mute: OFF
+[23:09:19.586] [Standalone] Mute state change callback - channel: SUB L, new state: OFF
+[23:09:19.586] StateManager handling external state change: mute SUB L = OFF
+[23:09:19.586] StateManager: Render state committed - version 14
+[23:09:19.586] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:19.586] StateManager: Mute state changed - SUB L = OFF
+[23:09:19.586] StateManager: Render state committed - version 14
+[23:09:19.586] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: SUB R, Final Mute: OFF
+[23:09:19.586] [Standalone] Mute state change callback - channel: SUB R, new state: OFF
+[23:09:19.586] StateManager handling external state change: mute SUB R = OFF
+[23:09:19.586] StateManager: Render state committed - version 15
+[23:09:19.586] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:19.586] StateManager: Mute state changed - SUB R = OFF
+[23:09:19.587] StateManager: Render state committed - version 15
+[23:09:20.487] [Standalone] Solo button clicked - using unified StateManager
+[23:09:20.487] StateManager: Solo button clicked - unified control
+[23:09:20.487] StateManager: Clearing all Solo states and restoring Mute memory
+[23:09:20.487] [Standalone] SemanticChannelState: Clear all Solo states
+[23:09:20.487] [Standalone] Solo state change callback - channel: L, new state: OFF
+[23:09:20.487] StateManager handling external state change: solo L = OFF
+[23:09:20.487] StateManager: Render state committed - version 16
+[23:09:20.487] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 0
+[23:09:20.487] StateManager: Solo state changed - L = OFF
+[23:09:20.487] StateManager: Render state committed - version 16
+[23:09:20.487] [Standalone] SemanticChannelState: Restore Mute memory
+[23:09:20.487] [Standalone] Mute state change callback - channel: C, new state: OFF
+[23:09:20.487] StateManager handling external state change: mute C = OFF
+[23:09:20.487] StateManager: Render state committed - version 17
+[23:09:20.487] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 0
+[23:09:20.487] StateManager: Mute state changed - C = OFF
+[23:09:20.487] StateManager: Render state committed - version 17
+[23:09:20.487] [Standalone] Mute state change callback - channel: L, new state: OFF
+[23:09:20.487] StateManager handling external state change: mute L = OFF
+[23:09:20.488] StateManager: Render state committed - version 18
+[23:09:20.488] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:20.488] StateManager: Mute state changed - L = OFF
+[23:09:20.488] StateManager: Render state committed - version 18
+[23:09:20.488] [Standalone] Mute state change callback - channel: LFE, new state: OFF
+[23:09:20.488] StateManager handling external state change: mute LFE = OFF
+[23:09:20.488] StateManager: Render state committed - version 19
+[23:09:20.488] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 0
+[23:09:20.488] StateManager: Mute state changed - LFE = OFF
+[23:09:20.488] StateManager: Render state committed - version 19
+[23:09:20.488] [Standalone] Mute state change callback - channel: LR, new state: OFF
+[23:09:20.488] StateManager handling external state change: mute LR = OFF
+[23:09:20.488] StateManager: Render state committed - version 20
+[23:09:20.488] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 0
+[23:09:20.488] StateManager: Mute state changed - LR = OFF
+[23:09:20.488] StateManager: Render state committed - version 20
+[23:09:20.488] [Standalone] Mute state change callback - channel: R, new state: OFF
+[23:09:20.488] StateManager handling external state change: mute R = OFF
+[23:09:20.488] StateManager: Render state committed - version 21
+[23:09:20.488] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 0
+[23:09:20.488] StateManager: Mute state changed - R = OFF
+[23:09:20.488] StateManager: Render state committed - version 21
+[23:09:20.488] [Standalone] Mute state change callback - channel: RR, new state: OFF
+[23:09:20.488] StateManager handling external state change: mute RR = OFF
+[23:09:20.488] StateManager: Render state committed - version 22
+[23:09:20.488] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 0
+[23:09:20.488] StateManager: Mute state changed - RR = OFF
+[23:09:20.488] StateManager: Render state committed - version 22
+[23:09:20.488] [Standalone] Mute state change callback - channel: SUB L, new state: OFF
+[23:09:20.488] StateManager handling external state change: mute SUB L = OFF
+[23:09:20.489] StateManager: Render state committed - version 23
+[23:09:20.489] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:20.489] StateManager: Mute state changed - SUB L = OFF
+[23:09:20.489] StateManager: Render state committed - version 23
+[23:09:20.489] [Standalone] Mute state change callback - channel: SUB R, new state: OFF
+[23:09:20.489] StateManager handling external state change: mute SUB R = OFF
+[23:09:20.489] StateManager: Render state committed - version 24
+[23:09:20.489] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:20.489] StateManager: Mute state changed - SUB R = OFF
+[23:09:20.489] StateManager: Render state committed - version 24
+[23:09:20.489] StateManager: Render state committed - version 25
+[23:09:21.223] [Standalone] Solo button clicked - using unified StateManager
+[23:09:21.223] StateManager: Solo button clicked - unified control
+[23:09:21.223] StateManager: Entering Solo selection mode - saving Mute memory and clearing current Mute states
+[23:09:21.223] [Standalone] SemanticChannelState: Save current Mute memory
+[23:09:21.223] [Standalone] SemanticChannelState: Clear all Mute states
+[23:09:21.223] StateManager: Render state committed - version 25
+[23:09:23.387] [Standalone] Channel click: 0
+[23:09:23.387] [Standalone] SemanticChannelState: Set Solo state - channel: L, state: ON
+[23:09:23.387] [Standalone] Solo state change callback - channel: L, new state: ON
+[23:09:23.387] StateManager handling external state change: solo L = ON
+[23:09:23.387] StateManager: Render state committed - version 26
+[23:09:23.387] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 1
+[23:09:23.387] StateManager: Solo state changed - L = ON
+[23:09:23.387] StateManager: Render state committed - version 26
+[23:09:23.387] [Standalone] SemanticChannelState: Global Solo mode changed - ACTIVE
+[23:09:23.387] [Standalone] Global mode change callback - Solo mode: ACTIVE
+[23:09:23.387] [Standalone] OSCCommunicator: Broadcasting all current states
+[23:09:23.387] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/C = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 1
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/LFE = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/LR = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/R = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/RR = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/SUB_L = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/SUB_R = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:23.388] [Standalone] OSCCommunicator: Broadcast complete - 8 channels
+[23:09:23.388] StateManager: Global mode changed
+[23:09:23.388] StateManager: Render state committed - version 27
+[23:09:23.388] [Standalone] SemanticChannelState: Global Solo mode changed to ACTIVE - broadcasting all final mute states
+[23:09:23.388] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: C, Final Mute: ON
+[23:09:23.388] [Standalone] Mute state change callback - channel: C, new state: ON
+[23:09:23.388] StateManager handling external state change: mute C = ON
+[23:09:23.388] StateManager: Render state committed - version 27
+[23:09:23.388] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 1
+[23:09:23.389] StateManager: Mute state changed - C = ON
+[23:09:23.389] StateManager: Render state committed - version 28
+[23:09:23.389] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: L, Final Mute: OFF
+[23:09:23.389] [Standalone] Mute state change callback - channel: L, new state: OFF
+[23:09:23.389] StateManager handling external state change: mute L = OFF
+[23:09:23.389] StateManager: Render state committed - version 28
+[23:09:23.389] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:23.389] StateManager: Mute state changed - L = OFF
+[23:09:23.389] StateManager: Render state committed - version 29
+[23:09:23.389] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: LFE, Final Mute: ON
+[23:09:23.389] [Standalone] Mute state change callback - channel: LFE, new state: ON
+[23:09:23.389] StateManager handling external state change: mute LFE = ON
+[23:09:23.389] StateManager: Render state committed - version 29
+[23:09:23.389] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 1
+[23:09:23.389] StateManager: Mute state changed - LFE = ON
+[23:09:23.389] StateManager: Render state committed - version 30
+[23:09:23.389] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: LR, Final Mute: ON
+[23:09:23.389] [Standalone] Mute state change callback - channel: LR, new state: ON
+[23:09:23.389] StateManager handling external state change: mute LR = ON
+[23:09:23.389] StateManager: Render state committed - version 30
+[23:09:23.389] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 1
+[23:09:23.389] StateManager: Mute state changed - LR = ON
+[23:09:23.389] StateManager: Render state committed - version 31
+[23:09:23.389] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: R, Final Mute: ON
+[23:09:23.389] [Standalone] Mute state change callback - channel: R, new state: ON
+[23:09:23.389] StateManager handling external state change: mute R = ON
+[23:09:23.389] StateManager: Render state committed - version 31
+[23:09:23.389] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 1
+[23:09:23.389] StateManager: Mute state changed - R = ON
+[23:09:23.390] StateManager: Render state committed - version 32
+[23:09:23.390] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: RR, Final Mute: ON
+[23:09:23.390] [Standalone] Mute state change callback - channel: RR, new state: ON
+[23:09:23.390] StateManager handling external state change: mute RR = ON
+[23:09:23.390] StateManager: Render state committed - version 32
+[23:09:23.390] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 1
+[23:09:23.390] StateManager: Mute state changed - RR = ON
+[23:09:23.390] StateManager: Render state committed - version 33
+[23:09:23.390] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: SUB L, Final Mute: OFF
+[23:09:23.390] [Standalone] Mute state change callback - channel: SUB L, new state: OFF
+[23:09:23.390] StateManager handling external state change: mute SUB L = OFF
+[23:09:23.390] StateManager: Render state committed - version 33
+[23:09:23.390] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:23.390] StateManager: Mute state changed - SUB L = OFF
+[23:09:23.390] StateManager: Render state committed - version 34
+[23:09:23.390] [Standalone] SemanticChannelState: Broadcasting final mute state - channel: SUB R, Final Mute: OFF
+[23:09:23.390] [Standalone] Mute state change callback - channel: SUB R, new state: OFF
+[23:09:23.390] StateManager handling external state change: mute SUB R = OFF
+[23:09:23.390] StateManager: Render state committed - version 34
+[23:09:23.390] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:23.390] StateManager: Mute state changed - SUB R = OFF
+[23:09:23.390] StateManager: Render state committed - version 35
+[23:09:23.398] Timer callback running - count: 101, uiInitComplete: false, safeToUpdate: true
+[23:09:24.185] [Standalone] Solo button clicked - using unified StateManager
+[23:09:24.185] StateManager: Solo button clicked - unified control
+[23:09:24.185] StateManager: Clearing all Solo states and restoring Mute memory
+[23:09:24.185] [Standalone] SemanticChannelState: Clear all Solo states
+[23:09:24.185] [Standalone] Solo state change callback - channel: L, new state: OFF
+[23:09:24.185] StateManager handling external state change: solo L = OFF
+[23:09:24.185] StateManager: Render state committed - version 35
+[23:09:24.185] [Standalone] OSCCommunicator: Sent Solo state - /Monitor/Solo/L = 0
+[23:09:24.185] StateManager: Solo state changed - L = OFF
+[23:09:24.185] StateManager: Render state committed - version 36
+[23:09:24.185] [Standalone] SemanticChannelState: Restore Mute memory
+[23:09:24.185] [Standalone] Mute state change callback - channel: C, new state: OFF
+[23:09:24.185] StateManager handling external state change: mute C = OFF
+[23:09:24.185] StateManager: Render state committed - version 36
+[23:09:24.186] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/C = 0
+[23:09:24.186] StateManager: Mute state changed - C = OFF
+[23:09:24.186] StateManager: Render state committed - version 37
+[23:09:24.186] [Standalone] Mute state change callback - channel: L, new state: OFF
+[23:09:24.186] StateManager handling external state change: mute L = OFF
+[23:09:24.186] StateManager: Render state committed - version 37
+[23:09:24.186] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/L = 0
+[23:09:24.186] StateManager: Mute state changed - L = OFF
+[23:09:24.186] StateManager: Render state committed - version 38
+[23:09:24.186] [Standalone] Mute state change callback - channel: LFE, new state: OFF
+[23:09:24.186] StateManager handling external state change: mute LFE = OFF
+[23:09:24.186] StateManager: Render state committed - version 38
+[23:09:24.186] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LFE = 0
+[23:09:24.186] StateManager: Mute state changed - LFE = OFF
+[23:09:24.186] StateManager: Render state committed - version 39
+[23:09:24.186] [Standalone] Mute state change callback - channel: LR, new state: OFF
+[23:09:24.186] StateManager handling external state change: mute LR = OFF
+[23:09:24.186] StateManager: Render state committed - version 39
+[23:09:24.186] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/LR = 0
+[23:09:24.186] StateManager: Mute state changed - LR = OFF
+[23:09:24.186] StateManager: Render state committed - version 40
+[23:09:24.186] [Standalone] Mute state change callback - channel: R, new state: OFF
+[23:09:24.186] StateManager handling external state change: mute R = OFF
+[23:09:24.186] StateManager: Render state committed - version 40
+[23:09:24.186] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/R = 0
+[23:09:24.186] StateManager: Mute state changed - R = OFF
+[23:09:24.186] StateManager: Render state committed - version 41
+[23:09:24.186] [Standalone] Mute state change callback - channel: RR, new state: OFF
+[23:09:24.186] StateManager handling external state change: mute RR = OFF
+[23:09:24.186] StateManager: Render state committed - version 41
+[23:09:24.187] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/RR = 0
+[23:09:24.187] StateManager: Mute state changed - RR = OFF
+[23:09:24.187] StateManager: Render state committed - version 42
+[23:09:24.187] [Standalone] Mute state change callback - channel: SUB L, new state: OFF
+[23:09:24.187] StateManager handling external state change: mute SUB L = OFF
+[23:09:24.187] StateManager: Render state committed - version 42
+[23:09:24.187] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_L = 0
+[23:09:24.187] StateManager: Mute state changed - SUB L = OFF
+[23:09:24.187] StateManager: Render state committed - version 43
+[23:09:24.187] [Standalone] Mute state change callback - channel: SUB R, new state: OFF
+[23:09:24.187] StateManager handling external state change: mute SUB R = OFF
+[23:09:24.187] StateManager: Render state committed - version 43
+[23:09:24.187] [Standalone] OSCCommunicator: Sent Mute state - /Monitor/Mute/SUB_R = 0
+[23:09:24.187] StateManager: Mute state changed - SUB R = OFF
+[23:09:24.187] StateManager: Render state committed - version 44
+[23:09:24.187] StateManager: Render state committed - version 44
+[23:09:33.478] Timer callback running - count: 201, uiInitComplete: false, safeToUpdate: true
+[23:09:43.573] Timer callback running - count: 301, uiInitComplete: false, safeToUpdate: true
+[23:09:53.679] Timer callback running - count: 401, uiInitComplete: false, safeToUpdate: true

@@ -1,0 +1,55 @@
+﻿/*
+ 🚨 CRITICAL FIX NEEDED 🚨
+ 
+ FILE: /MonitorControllerMax/Source/PluginEditor.cpp
+ FUNCTION: onRoleSelectionChanged() (around line 813)
+ 
+ PROBLEM: UI calls setRole() instead of switchToMaster()/switchToSlave()
+ This is why Master/Slave plugins don't connect via TCP!
+ 
+ CURRENT CODE (WRONG):
+ =====================
+    VST3_DBG("Role selection changed to: " + juce::String(static_cast<int>(newRole)));
+    
+    // 直接设置角色，不需要复杂的连接逻辑
+    audioProcessor.setRole(newRole);
+    
+    // 更新UI模式
+    updateUIFromRole();
+
+ REPLACE WITH (CORRECT):
+ ======================
+    VST3_DBG("Role selection changed to: " + juce::String(static_cast<int>(newRole)));
+    
+    // 调用正确的角色切换方法，包含完整的TCP连接逻辑
+    switch (newRole)
+    {
+        case MonitorControllerMaxAudioProcessor::Role::standalone:
+            VST3_DBG("UI: Switching to Standalone mode");
+            audioProcessor.switchToStandalone();
+            break;
+        case MonitorControllerMaxAudioProcessor::Role::master:
+            VST3_DBG("UI: Switching to Master mode - will start TCP server on port 9001");
+            audioProcessor.switchToMaster();
+            break;
+        case MonitorControllerMaxAudioProcessor::Role::slave:
+            VST3_DBG("UI: Switching to Slave mode - will connect to Master via TCP");
+            audioProcessor.switchToSlave();
+            break;
+    }
+    
+    // 更新UI模式
+    updateUIFromRole();
+
+INSTRUCTIONS:
+=============
+1. Close the MonitorControllerMax.exe program if it's running
+2. Close Visual Studio if it has PluginEditor.cpp open
+3. Edit PluginEditor.cpp manually in a text editor
+4. Find the onRoleSelectionChanged() function around line 813
+5. Replace the code as shown above
+6. Save the file with UTF-8 BOM encoding
+7. Recompile the project
+
+THIS FIX WILL ENABLE REAL TCP MASTER-SLAVE CONNECTION!
+*/
