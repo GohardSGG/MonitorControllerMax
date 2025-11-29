@@ -7,11 +7,12 @@ use std::fs::File;
 use std::panic;
 use std::io::Write;
 
-pub mod Components; 
+pub mod Components;
 mod Editor;
 mod Audio;
 mod Registry;
 mod Params;
+mod scale;
 
 use Params::MonitorParams;
 
