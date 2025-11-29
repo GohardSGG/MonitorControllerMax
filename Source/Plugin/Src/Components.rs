@@ -38,9 +38,16 @@ pub struct BrutalistButton<'a> {
     label: &'a str,
     active: bool,
     danger: bool,
-    full_width: bool,
+    width_mode: ButtonWidth, // <-- UPDATED: Replaced bool with an enum
     height: f32,
     scale: &'a ScaleContext,
+}
+
+// --- ADDED: Enum to control width logic ---
+enum ButtonWidth {
+    Full,          // Takes up all available width
+    Fixed(f32),    // A specific, scaled width
+    Default,       // The original default (80px scaled)
 }
 
 impl<'a> BrutalistButton<'a> {
@@ -49,7 +56,7 @@ impl<'a> BrutalistButton<'a> {
             label,
             active: false,
             danger: false,
-            full_width: false,
+            width_mode: ButtonWidth::Default, // <-- Default behavior
             height: scale.s(40.0),
             scale,
         }
@@ -65,8 +72,17 @@ impl<'a> BrutalistButton<'a> {
         self
     }
 
+    // --- UPDATED ---
     pub fn full_width(mut self, full: bool) -> Self {
-        self.full_width = full;
+        if full {
+            self.width_mode = ButtonWidth::Full;
+        }
+        self
+    }
+    
+    // --- ADDED: Method to set a specific width ---
+    pub fn width(mut self, width_px: f32) -> Self {
+        self.width_mode = ButtonWidth::Fixed(width_px);
         self
     }
 
@@ -79,10 +95,12 @@ impl<'a> BrutalistButton<'a> {
 impl<'a> Widget for BrutalistButton<'a> {
     fn ui(self, ui: &mut Ui) -> Response {
         let s = self.scale;
-        let size = if self.full_width {
-            Vec2::new(ui.available_width(), self.height)
-        } else {
-            Vec2::new(s.s(80.0), self.height)
+        
+        // --- UPDATED: Size calculation logic based on the enum ---
+        let size = match self.width_mode {
+            ButtonWidth::Full => Vec2::new(ui.available_width(), self.height),
+            ButtonWidth::Fixed(w) => Vec2::new(w, self.height),
+            ButtonWidth::Default => Vec2::new(s.s(80.0), self.height),
         };
 
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -131,7 +149,7 @@ impl<'a> Widget for BrutalistButton<'a> {
     }
 }
 
-// --- 2. Tech Volume Knob (Custom Painted) ---
+// --- 2. Tech Volume Knob (Re-designed) ---
 pub struct TechVolumeKnob<'a> {
     value: &'a mut f32,
     min: f32,
@@ -141,7 +159,8 @@ pub struct TechVolumeKnob<'a> {
 
 impl<'a> TechVolumeKnob<'a> {
     pub fn new(value: &'a mut f32, scale: &'a ScaleContext) -> Self {
-        Self { value, min: 0.0, max: 12.0, scale }
+        // We'll keep the internal value as dB, but display as percentage
+        Self { value, min: -60.0, max: 12.0, scale } 
     }
 }
 
@@ -265,26 +284,19 @@ impl<'a> Widget for TechVolumeKnob<'a> {
 
         painter.line_segment([p1, p2], Stroke::new(s.s(4.0), COLOR_TEXT_DARK));
 
-        // Text Display below
-        let text_rect = Rect::from_center_size(
-            rect.center() + Vec2::new(0.0, rect.height()/2.0 + s.s(10.0)),
-            s.vec2(60.0, 20.0)
-        );
+        // --- FIX: Restore the percentage display ---
+        let t = (*self.value - self.min) / (self.max - self.min);
+        let percentage = t * 100.0;
 
-        painter.rect_filled(text_rect, 0.0, Color32::WHITE);
-        painter.rect_stroke(text_rect, 0.0, Stroke::new(s.s(1.0), COLOR_BORDER_DARK), StrokeKind::Inside);
-
-        // Text Shadow (Brutalist style)
-        painter.rect_filled(text_rect.translate(Vec2::splat(s.s(1.0))), 0.0, Color32::from_black_alpha(20)); // Wrong z-order, but ok for simple effect
-
+        // The text is drawn on top of the rhombus, so it's placed here at the end.
         painter.text(
-            text_rect.center(),
+            center,
             Align2::CENTER_CENTER,
-            format!("{:.1} dB", self.value),
+            format!("{:.0}%", percentage),
             s.mono_font(12.0),
             COLOR_TEXT_DARK
         );
-
+        
         response
     }
 }
