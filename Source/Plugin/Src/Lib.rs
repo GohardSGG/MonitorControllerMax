@@ -13,17 +13,25 @@ mod Audio;
 mod Registry;
 mod Params;
 mod scale;
+mod config_manager;
+
+mod network;
+mod network_protocol;
+mod channel_logic;
 
 use Params::MonitorParams;
+use network::NetworkManager;
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
+    network: NetworkManager,
 }
 
 impl Default for MonitorControllerMax {
     fn default() -> Self {
         Self {
             params: Arc::new(MonitorParams::default()),
+            network: NetworkManager::new(),
         }
     }
 }
@@ -38,8 +46,24 @@ impl Plugin for MonitorControllerMax {
 
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
         AudioIOLayout {
-            main_input_channels: NonZeroU32::new(18),
-            main_output_channels: NonZeroU32::new(18),
+            main_input_channels: NonZeroU32::new(Params::MAX_CHANNELS as u32),
+            main_output_channels: NonZeroU32::new(Params::MAX_CHANNELS as u32),
+            ..AudioIOLayout::const_default()
+        },
+        // Also support common layouts for compatibility if host doesn't like 32
+        AudioIOLayout {
+            main_input_channels: NonZeroU32::new(2),
+            main_output_channels: NonZeroU32::new(2),
+            ..AudioIOLayout::const_default()
+        },
+        AudioIOLayout {
+            main_input_channels: NonZeroU32::new(6),
+            main_output_channels: NonZeroU32::new(6),
+            ..AudioIOLayout::const_default()
+        },
+        AudioIOLayout {
+            main_input_channels: NonZeroU32::new(12),
+            main_output_channels: NonZeroU32::new(12),
             ..AudioIOLayout::const_default()
         },
     ];
@@ -66,22 +90,20 @@ impl Plugin for MonitorControllerMax {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        panic::set_hook(Box::new(|info| {
-            if let Ok(mut file) = File::options().create(true).append(true).open("C:/Plugins/MonitorControllerMax_Crash.log") {
-                let _ = writeln!(file, "[CRASH] Panic occurred: {:?}", info);
-            }
-        }));
-
-        if let Ok(file) = File::options().create(true).append(true).open("C:/Plugins/MonitorControllerMax_Debug.log") {
-            let _ = WriteLogger::init(
-                LevelFilter::Info,
-                Config::default(),
-                file,
-            );
-            log::info!("=== Plugin Initialized (v{}) [EGUI GPU MODE] ===", env!("CARGO_PKG_VERSION"));
-        }
+        // Log initialization is done in default() via logger::init()
+        // Here we just log that initialize was called
+        log::info!("Plugin initialize() called");
 
         Registry::GlobalRegistry::register_instance();
+        
+        // Initialize Network based on Role
+        // TODO: Port should be configurable via params or config
+        let role = self.params.role.value();
+        match role {
+            Params::PluginRole::Master => self.network.init_master(9123),
+            Params::PluginRole::Slave => self.network.init_slave("127.0.0.1", 9123), // Hardcoded IP for now
+        }
+        
         true
     }
 
@@ -91,7 +113,7 @@ impl Plugin for MonitorControllerMax {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        Audio::process_audio(buffer, &self.params);
+        Audio::process_audio(buffer, &self.params, &mut self.network);
         ProcessStatus::Normal
     }
 }

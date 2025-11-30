@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use nih_plug_egui::egui::{
-    Color32, Rect, Response, Sense, Stroke, Ui, Vec2, Widget, StrokeKind, Align2, FontId, Shape, Pos2, emath::Rot2,
+    Color32, Rect, Response, Sense, Stroke, Ui, Vec2, Widget, StrokeKind, Align2, Shape, Pos2, emath::Rot2,
 };
 use std::f32::consts::PI;
 use crate::scale::ScaleContext;

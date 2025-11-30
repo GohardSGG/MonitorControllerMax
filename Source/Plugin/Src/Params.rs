@@ -3,6 +3,57 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::Arc;
+use crate::config_manager::CONFIG;
+
+// Define max channels constant. Must match array size.
+pub const MAX_CHANNELS: usize = 32;
+
+#[derive(Enum, PartialEq, Eq, Clone, Copy)]
+pub enum PluginRole {
+    #[name = "Master (Source)"]
+    Master,
+    #[name = "Slave (Monitor)"]
+    Slave,
+}
+
+#[derive(Enum, PartialEq, Eq, Clone, Copy)]
+pub enum SoloMode {
+    #[name = "SIP (Solo In Place)"]
+    SIP,
+    #[name = "PFL (Pre Fader Listen)"]
+    PFL,
+}
+
+#[derive(Params)]
+pub struct ChannelParams {
+    #[id = "mute"]
+    pub mute: BoolParam,
+    #[id = "solo"]
+    pub solo: BoolParam,
+    #[id = "gain"]
+    pub gain: FloatParam,
+}
+
+impl Default for ChannelParams {
+    fn default() -> Self {
+        Self {
+            mute: BoolParam::new("Mute", false),
+            solo: BoolParam::new("Solo", false),
+            gain: FloatParam::new(
+                "Trim",
+                util::db_to_gain(0.0),
+                FloatRange::Skewed {
+                    min: util::db_to_gain(-12.0),
+                    max: util::db_to_gain(12.0),
+                    factor: FloatRange::gain_skew_factor(-12.0, 12.0),
+                },
+            )
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+        }
+    }
+}
 
 #[derive(Params)]
 pub struct MonitorParams {
@@ -12,28 +63,77 @@ pub struct MonitorParams {
     #[id = "master_gain"]
     pub master_gain: FloatParam,
 
-    #[id = "global_mute"]
-    pub global_mute: BoolParam,
+    #[id = "dim"]
+    pub dim: BoolParam,
 
-    #[id = "global_dim"]
-    pub global_dim: BoolParam,
+    #[id = "cut"]
+    pub cut: BoolParam,
+
+    #[id = "role"]
+    pub role: EnumParam<PluginRole>,
+
+    #[id = "solo_mode"]
+    pub solo_mode: EnumParam<SoloMode>,
+
+    // Dynamic layout selector based on config
+    #[id = "layout_idx"]
+    pub layout: IntParam,
+
+    // We also need SUB layout selector
+    #[id = "sub_layout_idx"]
+    pub sub_layout: IntParam,
+
+    // Array of channel parameters
+    #[nested(array, group = "Channels")]
+    pub channels: [ChannelParams; MAX_CHANNELS],
+    
+    // Allow Automation (Global Override)
+    #[id = "allow_automation"]
+    pub allow_automation: BoolParam,
 }
 
 impl Default for MonitorParams {
     fn default() -> Self {
+        let speaker_layouts = CONFIG.get_speaker_layouts();
+        let sub_layouts = CONFIG.get_sub_layouts();
+
         Self {
-            editor_state: EguiState::from_size(800, 600), 
+            editor_state: EguiState::from_size(720, 720), 
 
             master_gain: FloatParam::new(
                 "Master Gain",
-                1.0,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
+                util::db_to_gain(0.0),
+                FloatRange::Skewed {
+                    min: util::db_to_gain(-60.0),
+                    max: util::db_to_gain(12.0),
+                    factor: FloatRange::gain_skew_factor(-60.0, 12.0),
+                },
             )
-            .with_unit("%")
-            .with_value_to_string(formatters::v2s_f32_percentage(1)),
+            .with_unit(" dB")
+            .with_string_to_value(formatters::s2v_f32_gain_to_db())
+            .with_value_to_string(formatters::v2s_f32_gain_to_db(2)),
             
-            global_mute: BoolParam::new("Mute", false),
-            global_dim: BoolParam::new("Dim", false),
+            dim: BoolParam::new("Dim", false),
+            cut: BoolParam::new("Cut", false),
+            
+            role: EnumParam::new("Role", PluginRole::Master),
+            solo_mode: EnumParam::new("Solo Mode", SoloMode::SIP),
+
+            layout: IntParam::new(
+                "Speaker Layout",
+                0,
+                IntRange::Linear { min: 0, max: (speaker_layouts.len().saturating_sub(1)) as i32 }
+            ),
+            
+            sub_layout: IntParam::new(
+                "Sub Layout",
+                0,
+                IntRange::Linear { min: 0, max: (sub_layouts.len().saturating_sub(1)) as i32 }
+            ),
+
+            channels: std::array::from_fn(|_| ChannelParams::default()),
+            
+            allow_automation: BoolParam::new("Allow Automation", false),
         }
     }
 }

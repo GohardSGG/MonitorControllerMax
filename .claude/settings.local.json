@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(cargo xtask:*)",
-      "Bash(cargo doc:*)"
+      "Bash(cargo doc:*)",
+      "Bash(cat:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

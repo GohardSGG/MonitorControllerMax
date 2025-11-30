@@ -20,3 +20,8 @@ crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 log = { workspace = true }
 simplelog = "0.12"
+zeromq = "0.4.0"
+bincode = { workspace = true }
+rust-embed = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
