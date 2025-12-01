@@ -1,9 +1,0 @@
-<map id="FocusChangeListener" name="FocusChangeListener">
-<area shape="rect" id="Node000001" title="Classes can implement this interface and register themselves with the Desktop class to receive callba..." alt="" coords="209,5,357,32"/>
-<area shape="rect" id="Node000002" href="$classApplicationCommandManager.html" title="One of these objects holds a list of all the commands your app can perform, and despatches these comm..." alt="" coords="5,80,201,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="239,41,136,82,134,77,237,36"/>
-<area shape="rect" id="Node000003" href="$classComponentPeer.html" title="The Component class uses a ComponentPeer internally to create and manage a real operating&#45;system wind..." alt="" coords="225,80,341,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="286,48,286,80,280,80,280,48"/>
-<area shape="rect" id="Node000004" href="$classKeyPressMappingSet.html" title="Manages and edits a list of keypresses, which it uses to invoke the appropriate command in an Applica..." alt="" coords="365,80,513,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="325,36,413,77,410,82,323,41"/>
-</map>

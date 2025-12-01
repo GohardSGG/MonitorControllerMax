@@ -1,5 +1,0 @@
-<map id="ApplicationCommandManagerListener" name="ApplicationCommandManagerListener">
-<area shape="rect" id="Node000001" title="A listener that receives callbacks from an ApplicationCommandManager when commands are invoked or the..." alt="" coords="5,5,201,48"/>
-<area shape="rect" id="Node000002" href="$classMenuBarModel.html" title="A class for controlling MenuBar components." alt="" coords="49,96,157,123"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="106,64,106,95,100,95,100,64"/>
-</map>

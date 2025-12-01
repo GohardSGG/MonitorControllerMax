@@ -1,9 +1,0 @@
-<map id="DrawableComposite" name="DrawableComposite">
-<area shape="rect" id="Node000001" title="A drawable object which acts as a container for a set of other Drawables." alt="" coords="5,229,145,256"/>
-<area shape="rect" id="Node000002" href="$classDrawable.html" title="The base class for objects which can draw themselves, e.g." alt="" coords="37,155,113,181"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="78,197,78,229,72,229,72,197"/>
-<area shape="rect" id="Node000003" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="31,80,119,107"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="78,122,78,154,72,154,72,122"/>
-<area shape="rect" id="Node000004" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="22,5,128,32"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="78,48,78,80,72,80,72,48"/>
-</map>

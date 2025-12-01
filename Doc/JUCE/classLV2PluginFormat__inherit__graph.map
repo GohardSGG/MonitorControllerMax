@@ -1,7 +1,0 @@
-<map id="LV2PluginFormat" name="LV2PluginFormat">
-<area shape="rect" id="Node000001" title="Implements a plugin format for LV2 plugins." alt="" coords="11,155,131,181"/>
-<area shape="rect" id="Node000002" href="$classAudioPluginFormat.html" title="The base class for a type of plugin format, such as VST, AudioUnit, LADSPA, etc." alt="" coords="5,80,137,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="74,122,74,154,68,154,68,122"/>
-<area shape="rect" id="Node000003" href="$classMessageListener.html" title="MessageListener subclasses can post and receive Message objects." alt="" coords="11,5,131,32"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="74,48,74,80,68,80,68,48"/>
-</map>

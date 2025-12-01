@@ -1,5 +1,0 @@
-<map id="ARAHostModel::AudioSource" name="ARAHostModel::AudioSource">
-<area shape="rect" id="Node000001" title="Helper class for the host side implementation of the ARA AudioSource model object." alt="" coords="50,96,245,123"/>
-<area shape="rect" id="Node000002" href="$classARAHostModel_1_1ManagedARAHandle.html" title=" " alt="" coords="5,5,290,48"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="150,64,150,95,145,95,145,64"/>
-</map>

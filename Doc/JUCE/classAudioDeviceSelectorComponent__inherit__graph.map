@@ -1,9 +1,0 @@
-<map id="AudioDeviceSelectorComponent" name="AudioDeviceSelectorComponent">
-<area shape="rect" id="Node000001" title="A component containing controls to let the user change the audio settings of an AudioDeviceManager ob..." alt="" coords="15,155,225,181"/>
-<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="14,80,103,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="81,117,111,153,107,156,77,120"/>
-<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="5,5,112,32"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="61,48,61,80,56,80,56,48"/>
-<area shape="rect" id="Node000004" href="$classChangeListener.html" title="Receives change event callbacks that are sent out by a ChangeBroadcaster." alt="" coords="126,80,239,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="164,120,133,156,129,153,160,117"/>
-</map>

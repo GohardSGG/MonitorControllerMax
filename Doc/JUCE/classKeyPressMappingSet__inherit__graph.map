@@ -1,9 +1,0 @@
-<map id="KeyPressMappingSet" name="KeyPressMappingSet">
-<area shape="rect" id="Node000001" title="Manages and edits a list of keypresses, which it uses to invoke the appropriate command in an Applica..." alt="" coords="114,80,262,107"/>
-<area shape="rect" id="Node000002" href="$classKeyListener.html" title="Receives callbacks when keys are pressed." alt="" coords="5,5,96,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="89,37,165,77,162,82,87,42"/>
-<area shape="rect" id="Node000003" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="120,5,256,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="190,48,190,80,185,80,185,48"/>
-<area shape="rect" id="Node000004" href="$classFocusChangeListener.html" title="Classes can implement this interface and register themselves with the Desktop class to receive callba..." alt="" coords="280,5,429,32"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="313,41,218,82,216,77,311,36"/>
-</map>

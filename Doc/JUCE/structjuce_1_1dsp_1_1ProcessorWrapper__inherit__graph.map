@@ -1,5 +1,0 @@
-<map id="juce::dsp::ProcessorWrapper&lt; ProcessorType &gt;" name="juce::dsp::ProcessorWrapper&lt; ProcessorType &gt;">
-<area shape="rect" id="Node000001" title="Wraps an instance of a given processor class, and exposes it through the ProcessorBase interface." alt="" coords="5,80,195,123"/>
-<area shape="rect" id="Node000002" href="$structjuce_1_1dsp_1_1ProcessorBase.html" title="Acts as a polymorphic base class for processors." alt="" coords="14,5,186,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="103,48,103,80,97,80,97,48"/>
-</map>

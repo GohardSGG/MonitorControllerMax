@@ -1,0 +1,13 @@
+<map id="KeyboardComponentBase" name="KeyboardComponentBase">
+<area shape="rect" id="Node000001" title="A base class for drawing a custom MIDI keyboard component." alt="" coords="101,155,274,181"/>
+<area shape="rect" id="Node000005" href="$classMPEKeyboardComponent.html" title="A component that displays an MPE&#45;compatible keyboard, whose notes can be clicked on." alt="" coords="5,229,178,256"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="161,193,110,231,106,227,157,189"/>
+<area shape="rect" id="Node000006" href="$classMidiKeyboardComponent.html" title="A component that displays a piano keyboard, whose notes can be clicked on." alt="" coords="201,229,368,256"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="218,189,270,227,266,231,215,193"/>
+<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="75,80,164,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="144,116,178,152,174,156,140,120"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="66,5,173,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="122,48,122,80,117,80,117,48"/>
+<area shape="rect" id="Node000004" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="187,80,324,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="235,120,201,156,197,152,231,116"/>
+</map>

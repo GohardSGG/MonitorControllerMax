@@ -1,7 +1,0 @@
-<map id="WebSliderRelay::Listener" name="WebSliderRelay::Listener">
-<area shape="rect" id="Node000001" title=" " alt="" coords="25,96,193,123"/>
-<area shape="rect" id="Node000003" href="$classWebSliderParameterAttachment.html" title="An object of this class maintains a connection between a WebSliderRelay and a plug&#45;in parameter." alt="" coords="5,171,213,197"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="112,138,112,170,106,170,106,138"/>
-<area shape="rect" id="Node000002" href="$classSliderListener.html" title=" " alt="" coords="23,5,195,48"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,64,112,95,106,95,106,64"/>
-</map>

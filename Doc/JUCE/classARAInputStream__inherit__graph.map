@@ -1,5 +1,0 @@
-<map id="ARAInputStream" name="ARAInputStream">
-<area shape="rect" id="Node000001" title="Used to read persisted ARA archives &#45; see doRestoreObjectsFromStream() for details." alt="" coords="5,80,126,107"/>
-<area shape="rect" id="Node000002" href="$classInputStream.html" title="The base class for streams that read data." alt="" coords="19,5,112,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="68,48,68,80,63,80,63,48"/>
-</map>

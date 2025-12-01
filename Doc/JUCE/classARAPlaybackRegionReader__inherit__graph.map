@@ -1,7 +1,0 @@
-<map id="ARAPlaybackRegionReader" name="ARAPlaybackRegionReader">
-<area shape="rect" id="Node000001" title="Subclass of AudioFormatReader that reads samples from a group of playback regions." alt="" coords="65,96,251,123"/>
-<area shape="rect" id="Node000002" href="$classAudioFormatReader.html" title="Reads samples from an audio file stream." alt="" coords="5,13,143,40"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="100,49,147,94,143,98,96,53"/>
-<area shape="rect" id="Node000003" href="$classARAPlaybackRegionListener.html" title="A base class for listeners that want to know about changes to an ARAPlaybackRegion object." alt="" coords="167,5,320,48"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="212,61,173,97,170,94,209,57"/>
-</map>

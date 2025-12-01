@@ -1,9 +1,0 @@
-<map id="PropertiesFile" name="PropertiesFile">
-<area shape="rect" id="Node000001" title="Wrapper on a file that stores a list of key/value data pairs." alt="" coords="137,80,238,107"/>
-<area shape="rect" id="Node000002" href="$classPropertySet.html" title="A set of named property values, which can be strings, integers, floating point, etc." alt="" coords="5,5,96,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="89,37,165,77,162,82,87,42"/>
-<area shape="rect" id="Node000003" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="120,5,256,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="190,48,190,80,185,80,185,48"/>
-<area shape="rect" id="Node000004" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="281,5,335,32"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="275,43,210,82,208,77,273,38"/>
-</map>

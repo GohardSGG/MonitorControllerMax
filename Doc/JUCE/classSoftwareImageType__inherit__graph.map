@@ -1,5 +1,0 @@
-<map id="SoftwareImageType" name="SoftwareImageType">
-<area shape="rect" id="Node000001" title="An image storage type which holds the pixels in&#45;memory as a simple block of values." alt="" coords="5,80,143,107"/>
-<area shape="rect" id="Node000002" href="$classImageType.html" title="This base class is for handlers that control a type of image manipulation format, e...." alt="" coords="31,5,117,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="77,48,77,80,71,80,71,48"/>
-</map>

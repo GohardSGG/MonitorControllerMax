@@ -1,0 +1,11 @@
+<map id="OutputStream" name="OutputStream">
+<area shape="rect" id="Node000001" title="The base class for streams that write data to some kind of destination." alt="" coords="263,5,366,32"/>
+<area shape="rect" id="Node000002" href="$classARAOutputStream.html" title="Used to write persistent ARA archives &#45; see doStoreObjectsToStream() for details." alt="" coords="5,80,136,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="258,39,114,82,113,77,257,34"/>
+<area shape="rect" id="Node000003" href="$classFileOutputStream.html" title="An output stream that writes into a local file." alt="" coords="160,80,283,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="288,44,239,82,236,77,285,40"/>
+<area shape="rect" id="Node000004" href="$classGZIPCompressorOutputStream.html" title="A stream which uses zlib to compress the data written into it." alt="" coords="307,80,511,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="345,40,394,77,391,82,341,44"/>
+<area shape="rect" id="Node000005" href="$classMemoryOutputStream.html" title="Writes data to an internal memory buffer, which grows as required." alt="" coords="536,80,685,107"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="382,34,559,77,558,82,380,39"/>
+</map>

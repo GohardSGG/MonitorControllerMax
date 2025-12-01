@@ -1,5 +1,0 @@
-<map id="CoreAudioFormat" name="CoreAudioFormat">
-<area shape="rect" id="Node000001" title="OSX and iOS only &#45; This uses the AudioToolbox framework to read any audio format that the system has ..." alt="" coords="5,80,129,107"/>
-<area shape="rect" id="Node000002" href="$classAudioFormat.html" title="Subclasses of AudioFormat are used to read and write different audio file formats." alt="" coords="19,5,115,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="70,48,70,80,64,80,64,48"/>
-</map>

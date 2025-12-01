@@ -13,6 +13,7 @@ use crate::Components::*;
 use crate::scale::ScaleContext;
 use crate::config_manager::CONFIG;
 use crate::mcm_info;
+use crate::Interaction::{get_interaction_manager, SubClickType, ChannelMarker};
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -403,10 +404,63 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
         ui.vertical(|ui| {
             ui.set_max_width(sidebar_content_width);
 
-            // Group 1: Solo/Mute
-            ui.add(BrutalistButton::new("SOLO", scale).large().full_width(true));
+            // 获取交互管理器
+            let interaction = get_interaction_manager();
+
+            // 更新闪烁动画计数器
+            interaction.tick_blink();
+            let blink_show = interaction.should_blink_show();
+
+            // Group 1: Solo/Mute 全局按钮
+            // SOLO 按钮状态：常亮 或 闪烁
+            let solo_steady = interaction.is_solo_steady();
+            let solo_blinking = interaction.is_solo_blinking();
+            let solo_visible = if solo_blinking {
+                blink_show  // 闪烁模式：跟随 blink
+            } else {
+                solo_steady  // 常亮模式：直接显示
+            };
+
+            let solo_btn = BrutalistButton::new("SOLO", scale)
+                .large()
+                .full_width(true)
+                .success(true)  // 绿色按钮
+                .active(solo_visible);
+
+            if ui.add(solo_btn).clicked() {
+                let primary_before = interaction.get_primary();
+                let compare_before = interaction.get_compare();
+                interaction.on_solo_button_click();
+                mcm_info!("[Editor] SOLO clicked: ({:?}, {:?}) -> ({:?}, {:?})",
+                    primary_before, compare_before,
+                    interaction.get_primary(), interaction.get_compare());
+            }
+
             ui.add_space(scale.s(12.0));
-            ui.add(BrutalistButton::new("MUTE", scale).large().danger(true).full_width(true));
+
+            // MUTE 按钮状态：常亮 或 闪烁
+            let mute_steady = interaction.is_mute_steady();
+            let mute_blinking = interaction.is_mute_blinking();
+            let mute_visible = if mute_blinking {
+                blink_show  // 闪烁模式：跟随 blink
+            } else {
+                mute_steady  // 常亮模式：直接显示
+            };
+
+            let mute_btn = BrutalistButton::new("MUTE", scale)
+                .large()
+                .danger(true)  // 红色按钮
+                .full_width(true)
+                .active(mute_visible);
+
+            if ui.add(mute_btn).clicked() {
+                let primary_before = interaction.get_primary();
+                let compare_before = interaction.get_compare();
+                interaction.on_mute_button_click();
+                mcm_info!("[Editor] MUTE clicked: ({:?}, {:?}) -> ({:?}, {:?})",
+                    primary_before, compare_before,
+                    interaction.get_primary(), interaction.get_compare());
+            }
 
             ui.add_space(scale.s(24.0));
             ui.separator();
@@ -549,8 +603,8 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
     });
 }
 
-/// 渲染音箱矩阵（动态布局，参数绑定版）
-fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
+/// 渲染音箱矩阵（动态布局，交互管理器绑定版）
+fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, _setter: &ParamSetter) {
     // 绘制背景网格
     let rect = ui.max_rect();
     draw_grid_background(ui, rect, scale);
@@ -570,6 +624,9 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         .unwrap_or_else(|| "None".to_string());
 
     let layout = CONFIG.get_layout(&speaker_name, &sub_name);
+
+    // 获取交互管理器
+    let interaction = get_interaction_manager();
 
     // 计算矩阵尺寸以实现居中
     let box_size = scale.s(96.0);      // 音箱盒子尺寸
@@ -610,45 +667,52 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
                             // 查找该位置的通道
                             if let Some(ch) = layout.channels.iter()
                                 .find(|c| c.grid_pos == grid_pos) {
-                                // 获取通道状态
                                 let ch_idx = ch.channel_index;
-                                let is_muted = if ch_idx < params.channels.len() {
-                                    params.channels[ch_idx].mute.value()
-                                } else {
-                                    false
-                                };
-                                let is_solo = if ch_idx < params.channels.len() {
-                                    params.channels[ch_idx].solo.value()
-                                } else {
-                                    false
-                                };
+                                let is_sub = ch.name.contains("SUB");
 
-                                // 渲染音箱盒子
+                                // 使用新的 get_channel_display API 获取通道显示状态
+                                let display = interaction.get_channel_display(ch_idx, is_sub);
+
+                                // 根据 display 状态设置 SpeakerBox
+                                let show_solo = display.marker == Some(ChannelMarker::Solo);
+                                let show_mute = display.marker == Some(ChannelMarker::Mute);
+
                                 let label_text = format!("CH {}", ch_idx + 1);
-                                let speaker_box = SpeakerBox::new(&ch.name, !is_muted, scale)
-                                    .solo(is_solo)
+                                let speaker_box = SpeakerBox::new(&ch.name, scale)
+                                    .solo(show_solo)
+                                    .muted(show_mute)
                                     .with_label(&label_text);
 
                                 let response = ui.add(speaker_box);
 
-                                // 点击切换 Solo
-                                if response.clicked() && ch_idx < params.channels.len() {
-                                    let new_solo = !is_solo;
-                                    mcm_info!("[Editor] Channel {} ({}) Solo toggled: {} -> {}",
-                                        ch_idx, ch.name, is_solo, new_solo);
-                                    setter.begin_set_parameter(&params.channels[ch_idx].solo);
-                                    setter.set_parameter(&params.channels[ch_idx].solo, new_solo);
-                                    setter.end_set_parameter(&params.channels[ch_idx].solo);
+                                // 点击处理
+                                if response.clicked() {
+                                    if is_sub {
+                                        // SUB 点击检测（单击/双击）
+                                        let click_type = interaction.detect_sub_click(ch_idx);
+                                        match click_type {
+                                            SubClickType::SingleClick => {
+                                                // 单击: 加入当前 Context
+                                                interaction.on_channel_click(ch_idx, is_sub);
+                                                mcm_info!("[Editor] SUB {} ({}) single click", ch_idx, ch.name);
+                                            }
+                                            SubClickType::DoubleClick => {
+                                                // 双击: User Mute 反转
+                                                interaction.on_sub_double_click(ch_idx);
+                                                mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", ch_idx, ch.name);
+                                            }
+                                        }
+                                    } else {
+                                        // Main 通道单击
+                                        interaction.on_channel_click(ch_idx, is_sub);
+                                        mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
+                                    }
                                 }
 
-                                // 右键切换 Mute
-                                if response.secondary_clicked() && ch_idx < params.channels.len() {
-                                    let new_mute = !is_muted;
-                                    mcm_info!("[Editor] Channel {} ({}) Mute toggled: {} -> {}",
-                                        ch_idx, ch.name, is_muted, new_mute);
-                                    setter.begin_set_parameter(&params.channels[ch_idx].mute);
-                                    setter.set_parameter(&params.channels[ch_idx].mute, new_mute);
-                                    setter.end_set_parameter(&params.channels[ch_idx].mute);
+                                // 右键: SUB 的 User Mute 反转（替代双击）
+                                if response.secondary_clicked() && is_sub {
+                                    interaction.on_sub_double_click(ch_idx);
+                                    mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", ch_idx, ch.name);
                                 }
                             } else {
                                 // 空位：绘制占位符

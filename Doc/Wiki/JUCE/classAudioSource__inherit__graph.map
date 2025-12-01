@@ -1,0 +1,27 @@
+<map id="AudioSource" name="AudioSource">
+<area shape="rect" id="Node000001" title="Base class for objects that can produce a continuous stream of audio." alt="" coords="5,183,101,209"/>
+<area shape="rect" id="Node000002" href="$classAudioAppComponent.html" title="A base class for writing audio apps that stream from the audio i/o devices." alt="" coords="181,5,326,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="62,167,93,104,117,70,147,42,180,26,182,31,150,46,121,74,97,106,66,169"/>
+<area shape="rect" id="Node000003" href="$classChannelRemappingAudioSource.html" title="An AudioSource that takes the audio from another source, and re&#45;maps its input and output channels to..." alt="" coords="149,56,358,83"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="70,168,103,129,124,109,147,92,173,81,175,86,150,97,127,113,107,132,74,171"/>
+<area shape="rect" id="Node000004" href="$classIIRFilterAudioSource.html" title="An AudioSource that performs an IIR filter on another source." alt="" coords="182,107,324,133"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="88,172,148,143,184,131,185,136,150,148,91,177"/>
+<area shape="rect" id="Node000005" href="$classMixerAudioSource.html" title="An AudioSource that mixes together the output of a set of other AudioSources." alt="" coords="190,157,317,184"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="116,185,189,176,189,181,116,191"/>
+<area shape="rect" id="Node000006" href="$classPositionableAudioSource.html" title="A type of AudioSource which can be repositioned." alt="" coords="170,208,336,235"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="116,201,170,208,169,213,116,207"/>
+<area shape="rect" id="Node000011" href="$classResamplingAudioSource.html" title="A type of AudioSource that takes an input source and changes its sample rate." alt="" coords="171,259,336,285"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="91,215,150,244,185,256,184,261,148,249,88,220"/>
+<area shape="rect" id="Node000012" href="$classReverbAudioSource.html" title="An AudioSource that uses the Reverb class to apply a reverb to another AudioSource." alt="" coords="185,309,322,336"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="74,221,107,260,127,279,150,295,185,310,183,314,147,300,124,283,103,263,70,224"/>
+<area shape="rect" id="Node000013" href="$classToneGeneratorAudioSource.html" title="A simple AudioSource that generates a sine wave." alt="" coords="163,360,344,387"/>
+<area shape="poly" id="edge12_Node000001_Node000013" title=" " alt="" coords="66,223,97,286,121,318,150,346,171,357,168,362,147,350,117,322,93,288,62,225"/>
+<area shape="rect" id="Node000007" href="$classAudioFormatReaderSource.html" title="A type of AudioSource that will read from an AudioFormatReader." alt="" coords="406,132,584,159"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="335,201,357,194,381,181,405,168,438,157,440,162,407,173,383,186,359,198,337,206"/>
+<area shape="rect" id="Node000008" href="$classAudioTransportSource.html" title="An AudioSource that takes a PositionableAudioSource and allows it to be played, stopped,..." alt="" coords="420,183,570,209"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="351,208,419,201,420,207,352,214"/>
+<area shape="rect" id="Node000009" href="$classBufferingAudioSource.html" title="An AudioSource which takes another source as input, and buffers it using a thread." alt="" coords="422,233,568,260"/>
+<area shape="poly" id="edge8_Node000006_Node000009" title=" " alt="" coords="352,229,422,236,421,242,352,234"/>
+<area shape="rect" id="Node000010" href="$classMemoryAudioSource.html" title="An AudioSource which takes some float audio data as an input." alt="" coords="424,284,566,311"/>
+<area shape="poly" id="edge9_Node000006_Node000010" title=" " alt="" coords="337,237,359,244,383,257,407,270,440,281,438,286,405,274,381,262,357,249,335,242"/>
+</map>

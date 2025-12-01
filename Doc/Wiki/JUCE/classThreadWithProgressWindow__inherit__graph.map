@@ -1,0 +1,7 @@
+<map id="ThreadWithProgressWindow" name="ThreadWithProgressWindow">
+<area shape="rect" id="Node000001" title="A thread that automatically pops up a modal dialog box with a progress bar and cancel button while it..." alt="" coords="5,80,193,107"/>
+<area shape="rect" id="Node000002" href="$classThread.html" title="Encapsulates a thread." alt="" coords="28,5,90,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="76,45,94,78,90,81,71,47"/>
+<area shape="rect" id="Node000003" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="113,5,168,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="128,47,108,81,104,78,123,44"/>
+</map>

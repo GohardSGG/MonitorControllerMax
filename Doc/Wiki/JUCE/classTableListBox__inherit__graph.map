@@ -1,0 +1,17 @@
+<map id="TableListBox" name="TableListBox">
+<area shape="rect" id="Node000001" title="A table of cells, using a TableHeaderComponent as its header." alt="" coords="186,245,283,272"/>
+<area shape="rect" id="Node000002" href="$classListBox.html" title="A list of items that can be scrolled vertically." alt="" coords="95,163,160,189"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="158,197,220,243,216,247,155,201"/>
+<area shape="rect" id="Node000003" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="14,80,103,107"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="81,117,119,161,115,164,77,120"/>
+<area shape="rect" id="Node000004" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="5,5,112,32"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="61,48,61,80,56,80,56,48"/>
+<area shape="rect" id="Node000005" href="$classSettableTooltipClient.html" title="An implementation of TooltipClient that stores the tooltip string and a method for changing it." alt="" coords="126,80,268,107"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="179,120,140,164,136,161,175,117"/>
+<area shape="rect" id="Node000006" href="$classTooltipClient.html" title="Components that want to use pop&#45;up tooltips should implement this interface." alt="" coords="150,5,244,32"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="200,48,200,80,194,80,194,48"/>
+<area shape="rect" id="Node000007" href="$classListBoxModel.html" title="A subclass of this is used to drive a ListBox." alt="" coords="184,163,285,189"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="237,205,237,245,232,245,232,205"/>
+<area shape="rect" id="Node000008" href="$classTableHeaderComponent_1_1Listener.html" title="Receives events from a TableHeaderComponent when columns are resized, moved, etc." alt="" coords="308,155,470,197"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="337,207,260,247,258,242,335,202"/>
+</map>

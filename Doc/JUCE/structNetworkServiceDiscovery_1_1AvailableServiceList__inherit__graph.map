@@ -1,7 +1,0 @@
-<map id="NetworkServiceDiscovery::AvailableServiceList" name="NetworkServiceDiscovery::AvailableServiceList">
-<area shape="rect" id="Node000001" title="Watches the network for broadcasts from Advertiser objects, and keeps a list of all the currently act..." alt="" coords="5,80,179,123"/>
-<area shape="rect" id="Node000002" href="$classThread.html" title="Encapsulates a thread." alt="" coords="8,5,69,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="58,43,81,78,76,81,53,46"/>
-<area shape="rect" id="Node000003" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="93,5,198,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="131,46,108,81,103,78,126,43"/>
-</map>

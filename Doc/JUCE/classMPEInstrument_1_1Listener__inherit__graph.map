@@ -1,9 +1,0 @@
-<map id="MPEInstrument::Listener" name="MPEInstrument::Listener">
-<area shape="rect" id="Node000001" title="Derive from this class to be informed about any changes in the MPE notes played by this instrument,..." alt="" coords="100,5,267,32"/>
-<area shape="rect" id="Node000002" href="$classMPEKeyboardComponent.html" title="A component that displays an MPE&#45;compatible keyboard, whose notes can be clicked on." alt="" coords="5,80,178,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,44,109,82,106,78,154,40"/>
-<area shape="rect" id="Node000003" href="$structMPESynthesiserBase.html" title="Derive from this class to create a basic audio generator capable of MPE." alt="" coords="202,80,352,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="213,40,262,77,259,82,210,44"/>
-<area shape="rect" id="Node000004" href="$classMPESynthesiser.html" title="Base class for an MPE&#45;compatible musical device that can play sounds." alt="" coords="217,155,336,181"/>
-<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="280,122,280,154,274,154,274,122"/>
-</map>

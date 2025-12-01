@@ -1,0 +1,5 @@
+<map id="KnownPluginList" name="KnownPluginList">
+<area shape="rect" id="Node000001" title="Manages a list of plugin types." alt="" coords="14,80,133,107"/>
+<area shape="rect" id="Node000002" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="5,5,142,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="76,48,76,80,71,80,71,48"/>
+</map>

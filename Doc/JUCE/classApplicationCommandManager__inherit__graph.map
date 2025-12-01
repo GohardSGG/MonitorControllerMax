@@ -1,7 +1,0 @@
-<map id="ApplicationCommandManager" name="ApplicationCommandManager">
-<area shape="rect" id="Node000001" title="One of these objects holds a list of all the commands your app can perform, and despatches these comm..." alt="" coords="34,80,230,107"/>
-<area shape="rect" id="Node000002" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="5,5,110,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="83,41,121,78,117,82,79,45"/>
-<area shape="rect" id="Node000003" href="$classFocusChangeListener.html" title="Classes can implement this interface and register themselves with the Desktop class to receive callba..." alt="" coords="134,5,282,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="186,45,147,82,143,78,182,41"/>
-</map>

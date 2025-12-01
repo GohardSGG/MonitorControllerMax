@@ -1,5 +1,0 @@
-<map id="TracktionMarketplaceStatus" name="TracktionMarketplaceStatus">
-<area shape="rect" id="Node000001" title="An implementation of the OnlineUnlockStatus class which talks to the Tracktion Marketplace server." alt="" coords="5,80,190,107"/>
-<area shape="rect" id="Node000002" href="$classOnlineUnlockStatus.html" title="A base class for online unlocking systems." alt="" coords="29,5,166,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="100,48,100,80,95,80,95,48"/>
-</map>

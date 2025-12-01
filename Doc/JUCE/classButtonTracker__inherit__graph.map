@@ -1,5 +1,0 @@
-<map id="ButtonTracker" name="ButtonTracker">
-<area shape="rect" id="Node000001" title="A class that automatically sends analytics events to the Analytics singleton when a button is clicked..." alt="" coords="10,80,114,107"/>
-<area shape="rect" id="Node000002" href="$classButton_1_1Listener.html" title="Used to receive callbacks when a button is clicked." alt="" coords="5,5,119,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="65,48,65,80,59,80,59,48"/>
-</map>

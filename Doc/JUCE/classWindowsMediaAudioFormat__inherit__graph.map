@@ -1,5 +1,0 @@
-<map id="WindowsMediaAudioFormat" name="WindowsMediaAudioFormat">
-<area shape="rect" id="Node000001" title="Audio format which uses the Windows Media codecs (Windows only)." alt="" coords="5,80,190,107"/>
-<area shape="rect" id="Node000002" href="$classAudioFormat.html" title="Subclasses of AudioFormat are used to read and write different audio file formats." alt="" coords="50,5,145,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="100,48,100,80,95,80,95,48"/>
-</map>

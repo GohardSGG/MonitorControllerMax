@@ -1,7 +1,0 @@
-<map id="GroupComponent" name="GroupComponent">
-<area shape="rect" id="Node000001" title="A component that draws an outline around itself and has an optional title at the top,..." alt="" coords="5,155,129,181"/>
-<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="23,80,111,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="70,122,70,154,64,154,64,122"/>
-<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="14,5,120,32"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="70,48,70,80,64,80,64,48"/>
-</map>

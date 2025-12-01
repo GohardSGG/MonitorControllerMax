@@ -1,7 +1,0 @@
-<map id="MenuBarModel" name="MenuBarModel">
-<area shape="rect" id="Node000001" title="A class for controlling MenuBar components." alt="" coords="90,96,198,123"/>
-<area shape="rect" id="Node000002" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="5,13,110,40"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="84,49,133,94,129,98,80,53"/>
-<area shape="rect" id="Node000003" href="$classApplicationCommandManagerListener.html" title="A listener that receives callbacks from an ApplicationCommandManager when commands are invoked or the..." alt="" coords="133,5,328,48"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="199,61,160,97,156,93,196,57"/>
-</map>

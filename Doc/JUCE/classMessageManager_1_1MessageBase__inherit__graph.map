@@ -1,9 +1,0 @@
-<map id="MessageManager::MessageBase" name="MessageManager::MessageBase">
-<area shape="rect" id="Node000001" title="Internal class used as the base class for all message objects." alt="" coords="22,80,237,107"/>
-<area shape="rect" id="Node000003" href="$classCallbackMessage.html" title="A message that invokes a callback method when it gets delivered." alt="" coords="5,155,131,181"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="111,120,81,156,77,153,107,117"/>
-<area shape="rect" id="Node000004" href="$classMessage.html" title="The base class for objects that can be sent to a MessageListener." alt="" coords="155,155,229,181"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="152,117,183,153,179,156,148,120"/>
-<area shape="rect" id="Node000002" href="$classReferenceCountedObject.html" title="A base class which provides methods for reference&#45;counting." alt="" coords="45,5,214,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="132,48,132,80,127,80,127,48"/>
-</map>

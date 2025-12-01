@@ -1,0 +1,19 @@
+<map id="FileListComponent" name="FileListComponent">
+<area shape="rect" id="Node000001" title="A component that displays the files in a directory as a listbox." alt="" coords="168,245,298,272"/>
+<area shape="rect" id="Node000002" href="$classListBoxModel.html" title="A subclass of this is used to drive a ListBox." alt="" coords="5,163,106,189"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="98,194,206,242,204,247,96,199"/>
+<area shape="rect" id="Node000003" href="$classListBox.html" title="A list of items that can be scrolled vertically." alt="" coords="130,163,195,189"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="185,199,224,243,220,247,181,203"/>
+<area shape="rect" id="Node000004" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="49,80,137,107"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="115,117,154,161,150,164,111,120"/>
+<area shape="rect" id="Node000005" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="40,5,146,32"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="96,48,96,80,90,80,90,48"/>
+<area shape="rect" id="Node000006" href="$classSettableTooltipClient.html" title="An implementation of TooltipClient that stores the tooltip string and a method for changing it." alt="" coords="161,80,302,107"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="213,120,175,164,171,161,209,117"/>
+<area shape="rect" id="Node000007" href="$classTooltipClient.html" title="Components that want to use pop&#45;up tooltips should implement this interface." alt="" coords="185,5,278,32"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="234,48,234,80,229,80,229,48"/>
+<area shape="rect" id="Node000008" href="$classDirectoryContentsDisplayComponent.html" title="A base class for components that display a list of the files in a directory." alt="" coords="219,155,390,197"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="278,211,246,247,242,243,274,207"/>
+<area shape="rect" id="Node000009" href="$classChangeListener.html" title="Receives change event callbacks that are sent out by a ChangeBroadcaster." alt="" coords="414,163,526,189"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="420,197,271,247,269,242,418,192"/>
+</map>

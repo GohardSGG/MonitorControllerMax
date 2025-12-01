@@ -1,0 +1,7 @@
+<map id="OSCException" name="OSCException">
+<area shape="rect" id="Node000001" title="Base class for exceptions that can be thrown by methods in the OSC module." alt="" coords="83,5,191,32"/>
+<area shape="rect" id="Node000002" href="$structOSCFormatError.html" title="Exception type thrown when the OSC module fails to parse something because of a data format not compa..." alt="" coords="5,80,125,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,45,79,81,76,78,112,41"/>
+<area shape="rect" id="Node000003" href="$structOSCInternalError.html" title="Exception type thrown in cases of unexpected errors in the OSC module." alt="" coords="148,80,270,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="162,41,198,78,195,81,158,45"/>
+</map>

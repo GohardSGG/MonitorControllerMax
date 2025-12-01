@@ -1,7 +1,0 @@
-<map id="VBlankAttachment" name="VBlankAttachment">
-<area shape="rect" id="Node000001" title="Helper class to synchronise Component updates to the vertical blank event of the display that the Com..." alt="" coords="144,80,275,107"/>
-<area shape="rect" id="Node000002" href="$structComponentPeer_1_1VBlankListener.html" title="Used to receive callbacks on every vertical blank event of the display that the peer currently belong..." alt="" coords="5,5,217,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="142,39,194,77,191,82,139,44"/>
-<area shape="rect" id="Node000003" href="$classComponentListener.html" title="Gets informed about changes to a component&#39;s hierarchy or position." alt="" coords="241,5,376,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="281,44,228,82,225,77,277,39"/>
-</map>

@@ -2,13 +2,18 @@
 //!
 //! Reads Speaker_Config.json at compile time and generates Audio_Layouts.rs
 //! with the appropriate AUDIO_IO_LAYOUTS constant.
+//! Also generates build timestamp for version tracking.
 
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
+use chrono::Local;
 
 fn main() {
+    // Generate build timestamp
+    let build_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    println!("cargo:rustc-env=BUILD_TIMESTAMP={}", build_time);
     // Tell Cargo to rerun this script if the config file changes
     println!("cargo:rerun-if-changed=../Resource/Speaker_Config.json");
 

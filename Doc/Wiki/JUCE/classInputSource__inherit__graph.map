@@ -1,0 +1,9 @@
+<map id="InputSource" name="InputSource">
+<area shape="rect" id="Node000001" title="A lightweight object that can create a stream to read some kind of resource." alt="" coords="235,5,326,32"/>
+<area shape="rect" id="Node000002" href="$classAndroidDocumentInputSource.html" title="An InputSource backed by an AndroidDocument." alt="" coords="5,80,201,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="236,41,135,82,133,77,234,36"/>
+<area shape="rect" id="Node000003" href="$classFileInputSource.html" title="A type of InputSource that represents a normal file." alt="" coords="224,80,336,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="283,48,283,80,278,80,278,48"/>
+<area shape="rect" id="Node000004" href="$classURLInputSource.html" title="A type of InputSource that represents a URL." alt="" coords="361,80,480,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="320,37,397,77,395,82,317,42"/>
+</map>

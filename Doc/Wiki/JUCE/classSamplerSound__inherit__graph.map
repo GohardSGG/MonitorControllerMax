@@ -1,0 +1,7 @@
+<map id="SamplerSound" name="SamplerSound">
+<area shape="rect" id="Node000001" title="A subclass of SynthesiserSound that represents a sampled audio clip." alt="" coords="36,155,143,181"/>
+<area shape="rect" id="Node000002" href="$classSynthesiserSound.html" title="Describes one of the sounds that a Synthesiser can play." alt="" coords="26,80,153,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="92,122,92,154,87,154,87,122"/>
+<area shape="rect" id="Node000003" href="$classReferenceCountedObject.html" title="A base class which provides methods for reference&#45;counting." alt="" coords="5,5,174,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="92,48,92,80,87,80,87,48"/>
+</map>

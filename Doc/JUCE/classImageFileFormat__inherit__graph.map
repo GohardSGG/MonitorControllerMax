@@ -1,9 +1,0 @@
-<map id="ImageFileFormat" name="ImageFileFormat">
-<area shape="rect" id="Node000001" title="Base&#45;class for codecs that can read and write image file formats such as PNG, JPEG,..." alt="" coords="156,5,276,32"/>
-<area shape="rect" id="Node000002" href="$classGIFImageFormat.html" title="A subclass of ImageFileFormat for reading GIF files." alt="" coords="5,80,126,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="178,41,93,82,91,77,175,37"/>
-<area shape="rect" id="Node000003" href="$classJPEGImageFormat.html" title="A subclass of ImageFileFormat for reading and writing JPEG files." alt="" coords="150,80,283,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="219,48,219,80,214,80,214,48"/>
-<area shape="rect" id="Node000004" href="$classPNGImageFormat.html" title="A subclass of ImageFileFormat for reading and writing PNG files." alt="" coords="307,80,434,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="258,37,345,77,343,82,256,41"/>
-</map>

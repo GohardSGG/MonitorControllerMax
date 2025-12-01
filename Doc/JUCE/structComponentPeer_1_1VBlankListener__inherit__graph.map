@@ -1,5 +1,0 @@
-<map id="ComponentPeer::VBlankListener" name="ComponentPeer::VBlankListener">
-<area shape="rect" id="Node000001" title="Used to receive callbacks on every vertical blank event of the display that the peer currently belong..." alt="" coords="5,5,217,32"/>
-<area shape="rect" id="Node000002" href="$classVBlankAttachment.html" title="Helper class to synchronise Component updates to the vertical blank event of the display that the Com..." alt="" coords="46,80,176,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="114,48,114,80,108,80,108,48"/>
-</map>

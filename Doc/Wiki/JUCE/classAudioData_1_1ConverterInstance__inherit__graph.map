@@ -1,0 +1,5 @@
+<map id="AudioData::ConverterInstance&lt; SourceSampleType, DestSampleType &gt;" name="AudioData::ConverterInstance&lt; SourceSampleType, DestSampleType &gt;">
+<area shape="rect" id="Node000001" title="A class that converts between two templated AudioData::Pointer types, and which implements the AudioD..." alt="" coords="5,80,272,123"/>
+<area shape="rect" id="Node000002" href="$classAudioData_1_1Converter.html" title="A base class for objects that are used to convert between two different sample formats." alt="" coords="65,5,212,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="141,48,141,80,136,80,136,48"/>
+</map>

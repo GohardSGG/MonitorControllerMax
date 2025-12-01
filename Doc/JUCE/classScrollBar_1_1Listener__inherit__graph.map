@@ -1,5 +1,0 @@
-<map id="ScrollBar::Listener" name="ScrollBar::Listener">
-<area shape="rect" id="Node000001" title="A class for receiving events from a ScrollBar." alt="" coords="5,5,134,32"/>
-<area shape="rect" id="Node000002" href="$classViewport.html" title="A Viewport is used to contain a larger child component, and allows the child to be automatically scro..." alt="" coords="33,80,106,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="72,48,72,80,67,80,67,48"/>
-</map>

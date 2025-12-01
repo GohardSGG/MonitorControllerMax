@@ -1,0 +1,5 @@
+<map id="juce::midi_ci::ProfileHost" name="juce::midi_ci::ProfileHost">
+<area shape="rect" id="Node000001" title="Acting as a ResponderListener, instances of this class can formulate appropriate replies to profile t..." alt="" coords="5,96,173,123"/>
+<area shape="rect" id="Node000002" href="$classjuce_1_1midi__ci_1_1ResponderDelegate.html" title="An interface for types that implement responses for certain message types." alt="" coords="6,5,172,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="92,64,92,95,86,95,86,64"/>
+</map>

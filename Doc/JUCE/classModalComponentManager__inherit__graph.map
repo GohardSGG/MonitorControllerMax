@@ -1,7 +1,0 @@
-<map id="ModalComponentManager" name="ModalComponentManager">
-<area shape="rect" id="Node000001" title="Manages the system&#39;s stack of modal components." alt="" coords="43,80,216,107"/>
-<area shape="rect" id="Node000002" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="5,5,110,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="83,41,119,78,115,81,79,45"/>
-<area shape="rect" id="Node000003" href="$classDeletedAtShutdown.html" title="Classes derived from this will be automatically deleted when the application exits." alt="" coords="134,5,272,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="181,45,144,82,140,78,177,41"/>
-</map>

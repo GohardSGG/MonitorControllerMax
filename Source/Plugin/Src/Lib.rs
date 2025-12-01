@@ -15,6 +15,7 @@ mod network;
 mod network_protocol;
 mod channel_logic;
 mod logger;
+mod Interaction;
 
 // Include auto-generated audio layouts from build.rs
 mod Audio_Layouts {

@@ -1,0 +1,11 @@
+<map id="DrawablePath" name="DrawablePath">
+<area shape="rect" id="Node000001" title="A drawable object which renders a filled or outlined shape." alt="" coords="10,304,114,331"/>
+<area shape="rect" id="Node000002" href="$classDrawableShape.html" title="A base class implementing common functionality for Drawable classes which consist of some kind of fil..." alt="" coords="5,229,119,256"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="65,272,65,304,59,304,59,272"/>
+<area shape="rect" id="Node000003" href="$classDrawable.html" title="The base class for objects which can draw themselves, e.g." alt="" coords="24,155,100,181"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="65,197,65,229,59,229,59,197"/>
+<area shape="rect" id="Node000004" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="18,80,106,107"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="65,122,65,154,59,154,59,122"/>
+<area shape="rect" id="Node000005" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="9,5,115,32"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="65,48,65,80,59,80,59,48"/>
+</map>

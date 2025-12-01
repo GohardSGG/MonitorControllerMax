@@ -1,0 +1,9 @@
+<map id="RelativeCoordinatePositionerBase" name="RelativeCoordinatePositionerBase">
+<area shape="rect" id="Node000001" title="Base class for Component::Positioners that are based upon relative coordinates." alt="" coords="140,80,361,107"/>
+<area shape="rect" id="Node000002" href="$classComponent_1_1Positioner.html" title="Base class for objects that can be used to automatically position a component according to some kind ..." alt="" coords="5,5,160,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="127,36,222,77,220,82,125,41"/>
+<area shape="rect" id="Node000003" href="$classComponentListener.html" title="Gets informed about changes to a component&#39;s hierarchy or position." alt="" coords="183,5,318,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="253,48,253,80,248,80,248,48"/>
+<area shape="rect" id="Node000004" href="$classMarkerList_1_1Listener.html" title="A class for receiving events when changes are made to a MarkerList." alt="" coords="342,5,479,32"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="370,41,280,82,277,77,368,36"/>
+</map>

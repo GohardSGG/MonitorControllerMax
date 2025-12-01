@@ -73,7 +73,10 @@ pub fn init() {
             let _ = writeln!(f, "");
             let _ = writeln!(f, "==================================================================");
             let _ = writeln!(f, "[{}] [INFO ] MonitorControllerMax Logger Initialized", timestamp);
-            let _ = writeln!(f, "[{}] [INFO ] Version: {}", timestamp, env!("CARGO_PKG_VERSION"));
+            let _ = writeln!(f, "[{}] [INFO ] Version: {} (Build: {})",
+                timestamp,
+                env!("CARGO_PKG_VERSION"),
+                env!("BUILD_TIMESTAMP"));
             let _ = writeln!(f, "[{}] [INFO ] Log File: {:?}", timestamp, log_file_path);
             let _ = writeln!(f, "==================================================================");
             let _ = f.flush();

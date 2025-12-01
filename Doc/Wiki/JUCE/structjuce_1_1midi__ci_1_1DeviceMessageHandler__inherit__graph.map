@@ -1,0 +1,5 @@
+<map id="juce::midi_ci::DeviceMessageHandler" name="juce::midi_ci::DeviceMessageHandler">
+<area shape="rect" id="Node000001" title="An interface that will receive a callback every time a Device wishes to send a new MIDI&#45;CI message." alt="" coords="5,5,202,48"/>
+<area shape="rect" id="Node000002" href="$classjuce_1_1midi__ci_1_1Device.html" title="Instances of this type are responsible for parsing and interpreting incoming MIDI&#45;CI messages,..." alt="" coords="32,96,175,123"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="106,64,106,95,101,95,101,64"/>
+</map>

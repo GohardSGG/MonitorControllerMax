@@ -1,9 +1,0 @@
-<map id="ImageType" name="ImageType">
-<area shape="rect" id="Node000001" title="This base class is for handlers that control a type of image manipulation format, e...." alt="" coords="176,5,262,32"/>
-<area shape="rect" id="Node000002" href="$classNativeImageType.html" title="An image storage type which holds the pixels using whatever is the default storage format on the curr..." alt="" coords="5,80,129,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="180,41,95,82,93,77,178,37"/>
-<area shape="rect" id="Node000003" href="$classOpenGLImageType.html" title="A type of ImagePixelData that stores its image data in an OpenGL framebuffer, allowing a JUCE Image o..." alt="" coords="152,80,286,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="222,48,222,80,216,80,216,48"/>
-<area shape="rect" id="Node000004" href="$classSoftwareImageType.html" title="An image storage type which holds the pixels in&#45;memory as a simple block of values." alt="" coords="310,80,448,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="262,36,352,77,350,82,260,41"/>
-</map>

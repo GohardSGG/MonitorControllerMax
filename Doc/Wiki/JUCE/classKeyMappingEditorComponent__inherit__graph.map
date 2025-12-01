@@ -1,0 +1,7 @@
+<map id="KeyMappingEditorComponent" name="KeyMappingEditorComponent">
+<area shape="rect" id="Node000001" title="A component to allow editing of the keymaps stored by a KeyPressMappingSet object." alt="" coords="5,155,200,181"/>
+<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="58,80,147,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="105,122,105,154,100,154,100,122"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="49,5,156,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="105,48,105,80,100,80,100,48"/>
+</map>

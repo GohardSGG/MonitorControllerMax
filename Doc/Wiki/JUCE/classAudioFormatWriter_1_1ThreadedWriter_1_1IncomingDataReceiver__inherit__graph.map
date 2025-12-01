@@ -1,0 +1,7 @@
+<map id="AudioFormatWriter::ThreadedWriter::IncomingDataReceiver" name="AudioFormatWriter::ThreadedWriter::IncomingDataReceiver">
+<area shape="rect" id="Node000001" title="Receiver for incoming data." alt="" coords="5,5,204,64"/>
+<area shape="rect" id="Node000002" href="$classAudioThumbnailBase.html" title="Provides a base for classes that can store and draw scaled views of an audio waveform." alt="" coords="32,112,177,139"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,79,107,111,102,111,102,79"/>
+<area shape="rect" id="Node000003" href="$classAudioThumbnail.html" title="Makes it easy to quickly draw scaled views of the waveform shape of an audio file." alt="" coords="47,187,162,213"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="107,154,107,186,102,186,102,154"/>
+</map>

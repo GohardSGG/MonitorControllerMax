@@ -1,0 +1,9 @@
+<map id="AudioThumbnailBase" name="AudioThumbnailBase">
+<area shape="rect" id="Node000001" title="Provides a base for classes that can store and draw scaled views of an audio waveform." alt="" coords="97,112,242,139"/>
+<area shape="rect" id="Node000004" href="$classAudioThumbnail.html" title="Makes it easy to quickly draw scaled views of the waveform shape of an audio file." alt="" coords="112,187,227,213"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="172,154,172,186,167,186,167,154"/>
+<area shape="rect" id="Node000002" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="5,21,142,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="100,57,158,109,154,113,96,61"/>
+<area shape="rect" id="Node000003" href="$classAudioFormatWriter_1_1ThreadedWriter_1_1IncomingDataReceiver.html" title="Receiver for incoming data." alt="" coords="166,5,365,64"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="225,77,185,113,181,109,221,73"/>
+</map>

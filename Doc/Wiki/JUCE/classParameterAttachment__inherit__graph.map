@@ -1,0 +1,7 @@
+<map id="ParameterAttachment" name="ParameterAttachment">
+<area shape="rect" id="Node000001" title="Used to implement &#39;attachments&#39; or &#39;controllers&#39; that link a plug&#45;in parameter to a UI element." alt="" coords="99,96,248,123"/>
+<area shape="rect" id="Node000002" href="$classAudioProcessorParameter_1_1Listener.html" title="A base class for listeners that want to know about changes to an AudioProcessorParameter." alt="" coords="5,5,179,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="126,57,162,94,159,97,122,61"/>
+<area shape="rect" id="Node000003" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="202,13,307,40"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="233,53,188,98,184,94,229,49"/>
+</map>

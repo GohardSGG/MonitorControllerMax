@@ -1,7 +1,0 @@
-<map id="Message" name="Message">
-<area shape="rect" id="Node000001" title="The base class for objects that can be sent to a MessageListener." alt="" coords="76,155,150,181"/>
-<area shape="rect" id="Node000002" href="$classMessageManager_1_1MessageBase.html" title="Internal class used as the base class for all message objects." alt="" coords="5,80,221,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,122,116,154,110,154,110,122"/>
-<area shape="rect" id="Node000003" href="$classReferenceCountedObject.html" title="A base class which provides methods for reference&#45;counting." alt="" coords="29,5,197,32"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="116,48,116,80,110,80,110,48"/>
-</map>

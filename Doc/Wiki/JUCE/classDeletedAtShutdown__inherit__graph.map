@@ -1,0 +1,17 @@
+<map id="DeletedAtShutdown" name="DeletedAtShutdown">
+<area shape="rect" id="Node000001" title="Classes derived from this will be automatically deleted when the application exits." alt="" coords="5,157,143,184"/>
+<area shape="rect" id="Node000002" href="$classAnalytics.html" title="A singleton class to manage analytics data." alt="" coords="240,5,315,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="91,143,132,91,159,65,189,42,214,30,239,22,240,28,216,35,192,46,162,69,136,95,95,146"/>
+<area shape="rect" id="Node000003" href="$classChildProcessManager.html" title="Manages a set of ChildProcesses and periodically checks their return value." alt="" coords="203,56,352,83"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="103,146,143,118,190,92,220,81,221,86,192,97,146,123,106,150"/>
+<area shape="rect" id="Node000004" href="$classDesktop.html" title="Describes and controls aspects of the computer&#39;s desktop." alt="" coords="242,107,312,133"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="145,150,241,126,242,131,146,156"/>
+<area shape="rect" id="Node000005" href="$classInAppPurchases.html" title="Provides in&#45;app purchase functionality." alt="" coords="219,157,336,184"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="158,168,218,168,218,173,158,173"/>
+<area shape="rect" id="Node000006" href="$classModalComponentManager.html" title="Manages the system&#39;s stack of modal components." alt="" coords="191,208,364,235"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="146,186,221,205,220,210,145,191"/>
+<area shape="rect" id="Node000007" href="$classPushNotifications.html" title="Singleton class responsible for push notifications functionality." alt="" coords="215,259,340,285"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="106,191,146,219,192,244,221,256,220,261,190,249,143,223,103,196"/>
+<area shape="rect" id="Node000008" href="$classSplashScreen.html" title="A component for showing a splash screen while your app starts up." alt="" coords="226,309,328,336"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="95,195,136,246,162,273,192,295,227,310,225,315,189,300,159,277,132,250,91,199"/>
+</map>

@@ -1,5 +1,0 @@
-<map id="WebInputStream" name="WebInputStream">
-<area shape="rect" id="Node000001" title="An InputStream which can be used to read from a given URL." alt="" coords="5,80,124,107"/>
-<area shape="rect" id="Node000002" href="$classInputStream.html" title="The base class for streams that read data." alt="" coords="18,5,111,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="67,48,67,80,62,80,62,48"/>
-</map>

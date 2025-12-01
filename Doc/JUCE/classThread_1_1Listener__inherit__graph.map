@@ -1,5 +1,0 @@
-<map id="Thread::Listener" name="Thread::Listener">
-<area shape="rect" id="Node000001" title="Used to receive callbacks for thread exit calls." alt="" coords="24,5,139,32"/>
-<area shape="rect" id="Node000002" href="$classMessageManagerLock.html" title="Used to make sure that the calling thread has exclusive access to the message loop." alt="" coords="5,80,158,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="84,48,84,80,79,80,79,48"/>
-</map>

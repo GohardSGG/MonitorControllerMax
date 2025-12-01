@@ -1,5 +1,0 @@
-<map id="ComponentPeer::ScaleFactorListener" name="ComponentPeer::ScaleFactorListener">
-<area shape="rect" id="Node000001" title="Used to receive callbacks when the OS scale factor of this ComponentPeer changes." alt="" coords="5,5,199,48"/>
-<area shape="rect" id="Node000002" href="$classNativeScaleFactorNotifier.html" title="Calls a function every time the native scale factor of a component&#39;s peer changes." alt="" coords="16,96,188,123"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="105,64,105,95,99,95,99,64"/>
-</map>

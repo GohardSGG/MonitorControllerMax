@@ -1,5 +1,0 @@
-<map id="PropertySet" name="PropertySet">
-<area shape="rect" id="Node000001" title="A set of named property values, which can be strings, integers, floating point, etc." alt="" coords="11,5,101,32"/>
-<area shape="rect" id="Node000002" href="$classPropertiesFile.html" title="Wrapper on a file that stores a list of key/value data pairs." alt="" coords="5,80,107,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="59,48,59,80,53,80,53,48"/>
-</map>

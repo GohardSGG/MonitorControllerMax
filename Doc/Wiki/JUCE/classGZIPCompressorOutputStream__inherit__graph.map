@@ -1,0 +1,5 @@
+<map id="GZIPCompressorOutputStream" name="GZIPCompressorOutputStream">
+<area shape="rect" id="Node000001" title="A stream which uses zlib to compress the data written into it." alt="" coords="5,80,210,107"/>
+<area shape="rect" id="Node000002" href="$classOutputStream.html" title="The base class for streams that write data to some kind of destination." alt="" coords="56,5,159,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="110,48,110,80,105,80,105,48"/>
+</map>

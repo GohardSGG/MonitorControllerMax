@@ -1,5 +1,0 @@
-<map id="LAMEEncoderAudioFormat" name="LAMEEncoderAudioFormat">
-<area shape="rect" id="Node000001" title="An AudioFormat class which can use an installed version of the LAME mp3 encoder to encode a file." alt="" coords="5,80,185,107"/>
-<area shape="rect" id="Node000002" href="$classAudioFormat.html" title="Subclasses of AudioFormat are used to read and write different audio file formats." alt="" coords="47,5,143,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="98,48,98,80,92,80,92,48"/>
-</map>

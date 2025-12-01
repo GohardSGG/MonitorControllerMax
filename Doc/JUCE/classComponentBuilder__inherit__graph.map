@@ -1,5 +1,0 @@
-<map id="ComponentBuilder" name="ComponentBuilder">
-<area shape="rect" id="Node000001" title="Loads and maintains a tree of Components from a ValueTree that represents them." alt="" coords="8,80,136,107"/>
-<area shape="rect" id="Node000002" href="$classValueTree_1_1Listener.html" title="Listener class for events that happen to a ValueTree." alt="" coords="5,5,139,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="75,48,75,80,69,80,69,48"/>
-</map>

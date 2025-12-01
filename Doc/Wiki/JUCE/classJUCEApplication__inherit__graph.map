@@ -1,0 +1,7 @@
+<map id="JUCEApplication" name="JUCEApplication">
+<area shape="rect" id="Node000001" title="An instance of this class is used to specify initialisation and shutdown code for the application." alt="" coords="115,80,236,107"/>
+<area shape="rect" id="Node000002" href="$classJUCEApplicationBase.html" title="Abstract base class for application classes." alt="" coords="5,5,157,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="111,40,161,77,158,82,108,44"/>
+<area shape="rect" id="Node000003" href="$classApplicationCommandTarget.html" title="A command target publishes a list of command IDs that it can perform." alt="" coords="181,5,362,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="245,44,194,82,191,77,242,39"/>
+</map>

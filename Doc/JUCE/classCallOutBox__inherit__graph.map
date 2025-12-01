@@ -1,9 +1,0 @@
-<map id="CallOutBox" name="CallOutBox">
-<area shape="rect" id="Node000001" title="A box with a small arrow that can be used as a temporary pop&#45;up window to show extra controls when a ..." alt="" coords="62,155,151,181"/>
-<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="14,80,103,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="77,118,100,153,96,156,73,121"/>
-<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="5,5,112,32"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="61,48,61,80,56,80,56,48"/>
-<area shape="rect" id="Node000004" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="127,80,182,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="140,121,117,156,113,153,136,118"/>
-</map>

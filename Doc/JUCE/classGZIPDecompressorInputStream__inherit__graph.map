@@ -1,5 +1,0 @@
-<map id="GZIPDecompressorInputStream" name="GZIPDecompressorInputStream">
-<area shape="rect" id="Node000001" title="This stream will decompress a source&#45;stream using zlib." alt="" coords="5,80,214,107"/>
-<area shape="rect" id="Node000002" href="$classInputStream.html" title="The base class for streams that read data." alt="" coords="63,5,156,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="112,48,112,80,107,80,107,48"/>
-</map>

@@ -1,5 +1,0 @@
-<map id="juce::midi_ci::Message::PropertySubscribe" name="juce::midi_ci::Message::PropertySubscribe">
-<area shape="rect" id="Node000001" title="See the MIDI&#45;CI specification." alt="" coords="35,96,190,139"/>
-<area shape="rect" id="Node000002" href="$structjuce_1_1midi__ci_1_1Message_1_1DynamicSizePropertyExchange.html" title="A property&#45;exchange message that may form part of a multi&#45;chunk message sequence." alt="" coords="5,5,220,48"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="115,64,115,96,110,96,110,64"/>
-</map>

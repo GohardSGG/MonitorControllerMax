@@ -1,7 +1,0 @@
-<map id="AudioPluginInstance::Parameter" name="AudioPluginInstance::Parameter">
-<area shape="rect" id="Node000001" title="Structure used to describe plugin parameters." alt="" coords="22,155,162,197"/>
-<area shape="rect" id="Node000002" href="$structHostedAudioProcessorParameter.html" title="A parameter with functions that are useful for plugin hosts." alt="" coords="30,80,154,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="95,122,95,154,89,154,89,122"/>
-<area shape="rect" id="Node000003" href="$classAudioProcessorParameter.html" title="An abstract base class for parameter objects that can be added to an AudioProcessor." alt="" coords="5,5,179,32"/>
-<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="95,48,95,80,89,80,89,48"/>
-</map>

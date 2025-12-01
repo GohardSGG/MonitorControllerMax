@@ -1,5 +1,0 @@
-<map id="ComponentBoundsConstrainer" name="ComponentBoundsConstrainer">
-<area shape="rect" id="Node000001" title="A class that imposes restrictions on a Component&#39;s size or position." alt="" coords="31,5,231,32"/>
-<area shape="rect" id="Node000002" href="$classBorderedComponentBoundsConstrainer.html" title="A ComponentBoundsConstrainer that can be used to add a constant border onto another ComponentBoundsCo..." alt="" coords="5,80,257,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="134,48,134,80,128,80,128,48"/>
-</map>

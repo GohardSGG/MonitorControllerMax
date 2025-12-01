@@ -1,0 +1,7 @@
+<map id="TabbedComponent" name="TabbedComponent">
+<area shape="rect" id="Node000001" title="A component with a TabbedButtonBar along one of its sides." alt="" coords="5,155,136,181"/>
+<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="26,80,115,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="73,122,73,154,68,154,68,122"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="17,5,124,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="73,48,73,80,68,80,68,48"/>
+</map>

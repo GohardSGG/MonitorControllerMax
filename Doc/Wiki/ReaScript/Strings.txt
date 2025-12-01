@@ -1,0 +1,138 @@
+Strings
+
+
+JSFX Programming Reference - Strings
+Strings
+String functions
+
+
+top  Strings
+
+Note: the functionality available in this section requires REAPER 4.59+
+
+Strings can be specified as literals using quotes, such as "This is a test string". Much of the syntax mirrors that of C: you must escape quotes with backslashes to put them in strings ("He said \"hello, world\" to me"), multiple literal strings will be automatically concatenated by the compiler. Unlike C, quotes can span multiple lines. There is a soft limit on the size of each string: attempts to grow a string past about 16KB will result in the string not being modified.
+
+Strings are always refered to by a number, so one can reference a string using a normal JS variable:
+
+    x = "hello world";
+    gfx_drawstr(x);
+
+Literal strings are immutable (meaning they cannot be modified). If you wish to have mutable strings, you have three choices:
+
+    You can use the fixed values of 0-1023:
+
+       x = 50; // string slot 50
+       strcpy(x, "hello ");
+       strcat(x, "world");
+       gfx_drawstr(x);
+
+    This mode is useful if you need to build or load a table of strings.
+
+    You can use # to get an instance of a temporary string:
+
+       x = #;
+       strcpy(x, "hello ");
+       strcat(x, "world");
+       gfx_drawstr(x);
+
+    Note that the scope of these temporary instances is very limited and unpredictable, and their initial values are undefined.
+
+    Finally, you can use named strings, which are the equivalent of normal variables:
+
+      x = #myString;
+      strcpy(x, "hello world");
+
+    The value of named strings is defined to be empty at script load, and to persist throughout the life of your script. There is also a shortcut to assign/append to named strings:
+
+      #myString = "hello ";  // same as strcpy(#myString, "hello ");
+      #myString += "world"; // same as strcat(#myString, "world");
+
+
+
+top  String functions
+
+    strlen(str) -- returns length of string
+    strcpy(str, srcstr) -- copies srcstr into str, returns str
+    strcat(str, srcstr) -- appends srcstr to str, returns str
+    strcmp(str, str2) -- compares str to str2, case sensitive, returns -1, 0, or 1
+    stricmp(str, str2) -- compares str to str2, ignoring case, returns -1, 0, or 1
+    strncmp(str, str2, maxlen) -- compares str to str2 up to maxlen bytes, case sensitive, returns -1, 0, or 1
+    strnicmp(str, str2, maxlen) -- compares str to str2 up to maxlen bytes, ignoring case, returns -1, 0, or 1
+    strncpy(str, srcstr, maxlen) -- copies srcstr into str, but stops after maxlen bytes. returns str
+    strncat(str, srcstr, maxlen) -- appends srcstr to str, but stops after maxlen bytes of srcstr have been read. returns str
+    strcpy_from(str,srcstr, offset) -- copies srcstr to str, starting offset bytes into srcstr. returns str.
+    strcpy_substr(str,srcstr, offset, maxlen) -- copies srcstr to str, starting offset bytes into srcstr, and up to maxlen bytes. if offset is less than 0, offset is from end of source string. If maxlen is less than 0, length is limited to output string length shortened by maxlen. returns str.
+    str_getchar(str, offset[, type]) -- returns the data at byte-offset offset of str. if offset is negative, position is relative to end of string. Type defaults to signed char, but can be specified to read raw binary data in other formats (note the single quotes, these are single/multi-byte characters):
+        'c' - signed char
+        'cu' - unsigned char
+        's' - signed short
+        'S' - signed short, big endian
+        'su' - unsigned short
+        'Su' - unsigned short, big endian
+        'i' - signed int
+        'I' - signed int, big endian
+        'iu' - unsigned int
+        'Iu' - unsigned int, big endian
+        'f' - float
+        'F' - float, big endian
+        'd' - double
+        'D' - double, big endian 
+    str_setchar(str, offset, value[, type]) -- sets the value at byte-offset "offset" of str to value (which may be one or more bytes of data). If offset is negative, then offset is relative to end of the string. If offset is the length of the string, or between (-0.5,0.0), then the character (or multibyte value if type is specified) will be appended to the string.
+    strcpy_fromslider(str, slider) -- gets the filename if a file-slider, or the string if the slider specifies string translations, otherwise gets an empty string. slider can be either an index, or the sliderX variable directly. returns str.
+    sprintf(str,format, ...) -- copies format to str, converting format strings:
+        %% = %
+        %s = string from parameter
+        %d = parameter as integer
+        %i = parameter as integer
+        %u = parameter as unsigned integer
+        %x = parameter as hex (lowercase) integer
+        %X = parameter as hex (uppercase) integer
+        %c = parameter as character
+        %f = parameter as floating point
+        %e = parameter as floating point (scientific notation, lowercase)
+        %E = parameter as floating point (scientific notation, uppercase)
+        %g = parameter as floating point (shortest representation, lowercase)
+        %G = parameter as floating point (shortest representation, uppercase) 
+
+    Many standard C printf() modifiers can be used, including:
+        %.10s = string, but only print up to 10 characters
+        %-10s = string, left justified to 10 characters
+        %10s = string, right justified to 10 characters
+        %+f = floating point, always show sign
+        %.4f = floating point, minimum of 4 digits after decimal point
+        %10d = integer, minimum of 10 digits (space padded)
+        %010f = integer, minimum of 10 digits (zero padded) 
+
+    Values for format specifiers can be specified as additional parameters to sprintf, or within {} in the format specifier (such as %{varname}d, in that case a global variable is always used).
+
+    match(needle, haystack, ...) -- search for needle in haystack
+    matchi(needle, haystack, ...) -- search for needle in haystack (case insensitive)
+    For these you can use simplified regex-style wildcards:
+        * = match 0 or more characters
+        *? = match 0 or more characters, lazy
+        + = match 1 or more characters
+        +? = match 1 or more characters, lazy
+        ? = match one character 
+
+    Examples:
+
+        match("*blah*", "this string has the word blah in it") == 1
+        match("*blah", "this string ends with the word blah") == 1
+
+    You can also use format specifiers to match certain types of data, and optionally put that into a variable:
+        %s means 1 or more chars
+        %0s means 0 or more chars
+        %5s means exactly 5 chars
+        %5-s means 5 or more chars
+        %-10s means 1-10 chars
+        %3-5s means 3-5 chars.
+        %0-5s means 0-5 chars.
+        %x, %d, %u, and %f are available for use similarly
+        %c can be used, but can't take any length modifiers
+        Use uppercase (%S, %D, etc) for lazy matching 
+    The variables can be specified as additional parameters to match(), or directly within {} inside the format tag (in this case the variable will always be a global variable):
+
+        match("*%4d*","some four digit value is 8000, I say",blah)==1 && blah == 8000
+        match("*%4{blah}d*","some four digit value is 8000, I say")==1 && blah == 8000
+      
+

@@ -1,7 +1,0 @@
-<map id="ComponentTraverser" name="ComponentTraverser">
-<area shape="rect" id="Node000001" title="Base class for traversing components." alt="" coords="71,5,214,32"/>
-<area shape="rect" id="Node000002" href="$classFocusTraverser.html" title="Controls the order in which focus moves between components." alt="" coords="5,80,118,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="119,44,77,82,74,78,116,41"/>
-<area shape="rect" id="Node000003" href="$classKeyboardFocusTraverser.html" title="Controls the order in which keyboard focus moves between components." alt="" coords="142,80,309,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="170,40,213,78,210,82,167,45"/>
-</map>

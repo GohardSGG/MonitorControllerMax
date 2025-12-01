@@ -1,0 +1,7 @@
+<map id="DragAndDropContainer" name="DragAndDropContainer">
+<area shape="rect" id="Node000001" title="Enables drag&#45;and&#45;drop behaviour for a component and all its sub&#45;components." alt="" coords="19,5,175,32"/>
+<area shape="rect" id="Node000002" href="$classToolbar.html" title="A toolbar component." alt="" coords="5,80,69,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="79,46,49,81,45,78,75,42"/>
+<area shape="rect" id="Node000003" href="$classToolbarItemPalette.html" title="A component containing a list of toolbar items, which the user can drag onto a toolbar to add them." alt="" coords="93,80,224,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="119,42,150,78,146,81,115,46"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="XEmbedComponent" name="XEmbedComponent">
+<area shape="rect" id="Node000001" title="A Linux&#45;specific class that can embed a foreign X11 widget." alt="" coords="5,155,144,181"/>
+<area shape="rect" id="Node000002" href="$classComponent.html" title="The base class for all JUCE user&#45;interface objects." alt="" coords="30,80,119,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="77,122,77,154,72,154,72,122"/>
+<area shape="rect" id="Node000003" href="$classMouseListener.html" title="A MouseListener can be registered with a component to receive callbacks about mouse events that happe..." alt="" coords="21,5,128,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="77,48,77,80,72,80,72,48"/>
+</map>

@@ -1,0 +1,138 @@
+Introduction
+
+
+JSFX Programming
+Introduction
+JSFX file structure
+Basic code reference
+Operator reference
+Simple math functions
+Loops
+Time functions
+Special Variables
+MIDI Functions
+MIDI Bus Support
+File I/O and Serialization
+Memory/FFT/MDCT Functions
+Host Interaction Functions
+Strings
+String functions
+Graphics
+User defined functions and namespace pseudo-objects
+EEL2 Preprocessor
+Compile-time user-configurable JSFX settings
+
+
+top  Introduction
+
+This is a reference guide to programming JSFX audio-oriented effects for REAPER. JSFX are written in EEL2, a scripting language that is compiled on the fly and allows you to modify and/or generate audio and MIDI, as well as draw custom vector based UI and analysis displays.
+
+JSFX are simple text files, which become full featured plug-ins when loaded into REAPER. Because they are distributed in source form, you can edit existing JSFX to suit your needs, or you can write new JSFX from scratch. (If editing an existing JSFX, we recommend that you save it as something with a new name, so you do you lose your changes when upgrading REAPER).
+
+This guide will offer an outline of the structure of the JSFX text file, the syntax for writing code, and a list of all functions and special variables available for use.
+
+top  JSFX file structure
+
+JSFX are text files that are composed of some description lines followed by one or more code sections.
+
+The description lines that can be specified are:
+
+    desc:Effect Description
+    This line should be specified once and only once, and defines the name of the effect which will be displayed to the user. Ideally this line should be the first line of the file, so that it can be quickly identified as a JSFX file.
+
+    tags:space delimited list of tags
+    You can specify a list of tags that this plug-in should be (eventually) categorized with. In REAPER v6.74+, including "instrument" will cause it to appear in the "Instruments" list.
+
+    slider1:5<0,10,1>slider description
+    You can specify up to 256 of these lines to specify parameters that the user can control using standard UI controls (typically a fader and text input, but this can vary, see below). These parameters are also automatable from REAPER.
+
+    In the above example, the first 1 specifies the first parameter, 5 is the default value of the parameter, 0 is the minimum value, 10 is the maximum value, and 1 is the change increment. slider description is what is displayed to the user.
+
+    Extended slider options:
+        slider1:variable_name=5<0,10,1>slider description -- REAPER 5.0+
+        A variable_name= prefix may be specified for the default value, in which case the slider should be accessed via the variable_name variable, rather than sliderX. This can be combined with any of the other syntaxes below.
+
+        slider1:0<0,5,1{zerolabel,onelabel,twolabel,threelabel,fourlabel,fivelabel}>some setting
+        This will show this parameter with a list of options from "zerolabel" to "fivelabel". Note that these parameters should be set to start at 0 and have a change increment of 1, as shown above.
+
+        slider1:/some_path:default_value:slider description
+        In the above example, the /some_path specifies a subdirectory of the REAPER\Data path, which will be scanned for .wav, .txt, .ogg, or .raw files. default_value defines a default filename. If this is used, the script will generally use file_open(slider1) in the @serialize code section to read the contents of the selected file.
+
+        slider1:0<0,127,1>-Hidden parameter
+        You can also hide sliders by prefixing their names with "-". Such parameters will not be visible in the plug-in UI but still be active, automatable, etc.
+
+        slider1:5<0,10,0.1:log>slider description -- REAPER 6.74+
+        slider1:5<0,10,0.1:log=2>slider description
+        slider1:5<0,10,0.1:sqr>slider description
+        slider1:5<0,10,0.1:sqr=3>slider description
+        slider1:5<0,10,0.1:log!>slider description
+
+        Appending :log or :sqr to the change increment causes the slider to use log/exponential shaping or polynomial shaping.
+        If you use :log=X, X will be the midpoint of the slider scale. If you use :sqr=X, X will be the exponent of the polynomial (2 is the default).
+
+        Note that changing the type of shaping (or the X of :log=X mode) of the slider may affect existing projects that automate the parameter. If you use :log! or :sqr! or :log!=X or :sqr!=X, then the parameter shaping will not affect automation (and compatibility will be preserved). 
+
+
+    in_pin:name_1
+    in_pin:name_2
+    out_pin:none
+    These optional lines export names for each of the JSFX pins (effect channels), for display in REAPER's plug-in pin connector dialog.
+
+    If the only named in_pin or out_pin is labeled "none", REAPER will know that the effect has no audio inputs and/or outputs, which enables some processing optimizations. MIDI-only FX should specify in_pin:none and out_pin:none.
+
+    filename:0,filename.wav
+    These lines can be used to specify filenames which can be used by code later. These definitions include 0 (the index) and a filename. The indices must be listed in order without gaps -- i.e. the first should always be 0, the second (if any) always should be 1, and so on.
+
+    To use for generic data files, the files should be located in the REAPER\Data directory, and these can be opened with file_open(), passing the filename index.
+
+    You may also specify a PNG file. If you specify a file ending in .png, it will be opened from the same directory as the effect, and you can use the filename index as a parameter to gfx_blit(). -- REAPER 2.018+
+
+    options:option_dependent_syntax
+    This line can be used to specify JSFX options (use spaces to separate multiple options):
+        options:gmem=someUniquelyNamedSpace
+        This option allows plugins to allocate their own global shared buffer, see gmem[].
+        options:want_all_kb
+        Enables the "Send all keyboard input to plug-in" option for new instances of the plug-in, see gfx_getchar().
+        options:maxmem=XYZ
+        Requests that the maximum memory available to the plug-in be limited to the slots specified. By default this is about 8 million slots, and the maximum amount is currently 32 million. The script can check the memory availble using __memtop().
+        options:no_meter
+        Requests that the plug-in has no meters.
+        options:gfx_idle -- REAPER 6.44+
+        If specified, @gfx will be called periodically (though possibly at a reduced rate) even when the UI is closed. In this case gfx_ext_flags will have 2 set.
+        options:gfx_idle_only -- REAPER 6.44+
+        If specified, @gfx will ONLY be called periodically and a UI will not be displayed. Useful for plug-ins that do not have a custom UI but want to do some idle processing from the UI thread.
+        options:gfx_hz=60 -- REAPER 6.44+
+        If specified, the @gfx section may be run at a rate closer to the frequency specified (note that the update frequencies should not be relied on, code should use audio sample accounting or time_precise() to draw framerate independently. 
+
+    import filename -- REAPER v4.25+
+    You can specify a filename to import (this filename will be searched within the JS effect directory). Importing files via this directive will have any functions defined in their @init sections available to the local effect. Additionally, if the imported file implements other sections (such as @sample, etc), and the importing file does not implement those sections, the imported version of those sections will be used.
+
+    Note that files that are designed for import only (such as function libraries) should ideally be named xyz.jsfx-inc, as these will be ignored in the user FX list in REAPER.
+
+Following the description lines, there should be code sections. All of the code sections are optional (though an effect without any would likely have limited use). Code sections are declared by a single line, then followed by as much code as needed until the end of the file, or until the next code section. Each code section can only be defined once. The following code sections are currently used:
+
+    @init
+    The code in the @init section gets executed on effect load, on samplerate changes, and on start of playback. If you wish this code to not execute on start of playback or samplerate changes, you can set ext_noinit to 1.0.
+
+    All memory and variables are zero on load, and are re-zeroed before calling @init. To avoid this behavior, a script can define a non-empty (it can be trivial code that has no side effect) @serialize code section, which will prevent memory/variables from being cleared on @init.
+
+    @slider
+    The code in the @slider section gets executed following an @init, or when a parameter (slider) changes. Ideally code in here should detect when a slider has changed, and adapt to the new parameters (ideally avoiding clicks or glitches). The parameters defined with sliderX: can be read using the variables sliderX.
+
+    @block
+    The code in the @block section is executed before processing each sample block. Typically a block is whatever length as defined by the audio hardware, or anywhere from 128-2048 samples. In this code section the samplesblock variable will be valid (and set to the size of the upcoming block).
+
+    @sample
+    The code in the @sample section is executed for every PCM audio sample. This code can analyze, process, or synthesize, by reading, modifying, or writing to the variables spl0, spl1, ... spl63.
+
+    @serialize
+    The code in the @serialize section is executed when the plug-in needs to load or save some extended state. The sliderX parameters are saved automatically, but if there are internal state variables or memory that should be saved, they should be saved/restored here using file_var() or file_mem() (passing an argument of 0 for the file handle). (If the code needs to detect whether it is saving or loading, it can do so with file_avail() (file_avail(0) will return <0 if it is writing).
+
+    Note when saving the state of variables or memory, they are stored in a more compact 32 bit representation, so a slight precision loss is possible. Note also that you should not clear any variables saved/loaded by @serialize in @init, as sometimes @init will be called following @serialize.
+
+    @gfx [width] [height]
+    The @gfx section gets executed around 30 times a second when the plug-ins GUI is open. You can do whatever processing you like in this (Typically using gfx_*()). Note that this code runs in a separate thread from the audio processing, so you may have both running simultaneously which could leave certain variables/RAM in an unpredictable state.
+
+    The @gfx section has two optional parameters, which can specify the desired width/height of the graphics area. Set either of these to 0 (or omit them) to specify that the code doesn't care what size it gets. Note that these are simply hints to request this size -- you may not always get the specified size. Your code in this section should use the gfx_w, gfx_h variables to actually determine drawing dimensions.
+
+    Note also that if no drawing occurs in @gfx, then no update will occur (plug-ins should ideally detect when no update is necessary and do nothing in @gfx if an update would be superfluous).

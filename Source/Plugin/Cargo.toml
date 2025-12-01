@@ -1,6 +1,6 @@
 [package]
 name = "monitor_controller_max"
-version = "5.0.0"
+version = "2.4.0"
 edition = "2021"
 authors = ["GohardSGG"]
 description = "MonitorControllerMax Rust Edition"
@@ -28,3 +28,4 @@ tokio = { workspace = true }
 
 [build-dependencies]
 serde_json = "1.0"
+chrono = "0.4"

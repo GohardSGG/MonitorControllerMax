@@ -1,7 +1,0 @@
-<map id="ImageEffectFilter" name="ImageEffectFilter">
-<area shape="rect" id="Node000001" title="A graphical effect filter that can be applied to components." alt="" coords="76,5,196,32"/>
-<area shape="rect" id="Node000002" href="$classDropShadowEffect.html" title="An effect filter that adds a drop&#45;shadow behind the image&#39;s content." alt="" coords="5,80,136,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,45,84,81,80,78,112,42"/>
-<area shape="rect" id="Node000003" href="$classGlowEffect.html" title="A component effect that adds a coloured blur around the component&#39;s contents." alt="" coords="160,80,245,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="160,42,193,78,189,81,156,45"/>
-</map>

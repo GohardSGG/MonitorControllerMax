@@ -1,5 +1,0 @@
-<map id="CPlusPlusCodeTokeniser" name="CPlusPlusCodeTokeniser">
-<area shape="rect" id="Node000001" title="A simple lexical analyser for syntax colouring of C++ code." alt="" coords="5,80,176,107"/>
-<area shape="rect" id="Node000002" href="$classCodeTokeniser.html" title="A base class for tokenising code so that the syntax can be displayed in a code editor." alt="" coords="36,5,145,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="93,48,93,80,88,80,88,48"/>
-</map>

@@ -1,0 +1,5 @@
+<map id="PopupMenu::CustomCallback" name="PopupMenu::CustomCallback">
+<area shape="rect" id="Node000001" title="A user&#45;defined callback that can be used for specific items in a popup menu." alt="" coords="18,96,213,123"/>
+<area shape="rect" id="Node000002" href="$classSingleThreadedReferenceCountedObject.html" title="Adds reference&#45;counting to an object." alt="" coords="5,5,226,48"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="118,64,118,95,113,95,113,64"/>
+</map>

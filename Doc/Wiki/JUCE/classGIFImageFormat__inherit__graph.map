@@ -1,0 +1,5 @@
+<map id="GIFImageFormat" name="GIFImageFormat">
+<area shape="rect" id="Node000001" title="A subclass of ImageFileFormat for reading GIF files." alt="" coords="5,80,126,107"/>
+<area shape="rect" id="Node000002" href="$classImageFileFormat.html" title="Base&#45;class for codecs that can read and write image file formats such as PNG, JPEG,..." alt="" coords="6,5,125,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="68,48,68,80,63,80,63,48"/>
+</map>

@@ -1,9 +1,0 @@
-<map id="TimeSliceClient" name="TimeSliceClient">
-<area shape="rect" id="Node000001" title="Used by the TimeSliceThread class." alt="" coords="193,5,306,32"/>
-<area shape="rect" id="Node000002" href="$classBufferingAudioReader.html" title="An AudioFormatReader that uses a background thread to pre&#45;read data from another reader." alt="" coords="5,80,153,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="207,41,110,82,108,77,205,36"/>
-<area shape="rect" id="Node000003" href="$classBufferingAudioSource.html" title="An AudioSource which takes another source as input, and buffers it using a thread." alt="" coords="176,80,323,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="252,48,252,80,247,80,247,48"/>
-<area shape="rect" id="Node000004" href="$classDirectoryContentsList.html" title="A class to asynchronously scan for details about the files in a directory." alt="" coords="348,80,496,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="294,36,393,77,390,82,292,41"/>
-</map>

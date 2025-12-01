@@ -1,5 +1,0 @@
-<map id="TableHeaderComponent::Listener" name="TableHeaderComponent::Listener">
-<area shape="rect" id="Node000001" title="Receives events from a TableHeaderComponent when columns are resized, moved, etc." alt="" coords="5,5,167,48"/>
-<area shape="rect" id="Node000002" href="$classTableListBox.html" title="A table of cells, using a TableHeaderComponent as its header." alt="" coords="38,96,134,123"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="89,64,89,95,83,95,83,64"/>
-</map>

@@ -18,6 +18,7 @@ pub const COLOR_TEXT_MEDIUM: Color32 = Color32::from_rgb(71, 85, 105); // Slate-
 pub const COLOR_TEXT_LIGHT: Color32 = Color32::from_rgb(148, 163, 184); // Slate-400
 
 pub const COLOR_ACTIVE_RED_BG: Color32 = Color32::from_rgb(220, 38, 38); // Red-600
+pub const COLOR_ACTIVE_GREEN_BG: Color32 = Color32::from_rgb(34, 197, 94); // Green-500 (SOLO 按钮激活)
 pub const COLOR_ACTIVE_YELLOW_BG: Color32 = Color32::from_rgb(253, 224, 71); // Yellow-300
 pub const COLOR_ACTIVE_SLATE_BG: Color32 = Color32::from_rgb(30, 41, 59); // Slate-800
 
@@ -37,7 +38,8 @@ fn shape_arc(center: Pos2, radius: f32, start_angle: f32, end_angle: f32, stroke
 pub struct BrutalistButton<'a> {
     label: &'a str,
     active: bool,
-    danger: bool,
+    danger: bool,    // 红色 (MUTE)
+    success: bool,   // 绿色 (SOLO)
     width_mode: ButtonWidth, // <-- UPDATED: Replaced bool with an enum
     height: f32,
     scale: &'a ScaleContext,
@@ -56,6 +58,7 @@ impl<'a> BrutalistButton<'a> {
             label,
             active: false,
             danger: false,
+            success: false,
             width_mode: ButtonWidth::Default, // <-- Default behavior
             height: scale.s(40.0),
             scale,
@@ -69,6 +72,11 @@ impl<'a> BrutalistButton<'a> {
 
     pub fn danger(mut self, danger: bool) -> Self {
         self.danger = danger;
+        self
+    }
+
+    pub fn success(mut self, success: bool) -> Self {
+        self.success = success;
         self
     }
 
@@ -112,9 +120,14 @@ impl<'a> Widget for BrutalistButton<'a> {
 
         let (bg_color, text_color, border_color) = if is_active {
             if self.danger {
+                // MUTE 按钮激活：红色
                 (COLOR_ACTIVE_RED_BG, Color32::WHITE, Color32::from_rgb(185, 28, 28))
+            } else if self.success {
+                // SOLO 按钮激活：绿色
+                (COLOR_ACTIVE_GREEN_BG, Color32::WHITE, Color32::from_rgb(22, 163, 74))
             } else {
-                (COLOR_ACTIVE_YELLOW_BG, COLOR_TEXT_DARK, Color32::from_rgb(100, 116, 139))
+                // 其他按钮激活：深灰色
+                (COLOR_ACTIVE_SLATE_BG, Color32::WHITE, Color32::from_rgb(100, 116, 139))
             }
         } else if is_hovered {
             (COLOR_BG_SIDEBAR, COLOR_TEXT_DARK, COLOR_BORDER_DARK)
@@ -304,23 +317,29 @@ impl<'a> Widget for TechVolumeKnob<'a> {
 // --- 3. Speaker Box ---
 pub struct SpeakerBox<'a> {
     name: &'a str,
-    active: bool,      // !muted (声音开启)
+    is_idle: bool,     // 无状态 (灰色背景)
     is_sub: bool,
-    is_solo: bool,     // Solo 状态
+    is_solo: bool,     // Solo 状态 (绿色背景 + S 标记)
+    is_muted: bool,    // Mute 状态 (红色背景 + M 标记)
     scale: &'a ScaleContext,
     label: Option<&'a str>, // For "CH 7", "AUX" labels below
 }
 
-// Solo 指示颜色（黄色）
-const COLOR_SOLO_INDICATOR: Color32 = Color32::from_rgb(253, 224, 71); // Yellow-300
+// 通道颜色
+const COLOR_CHANNEL_ACTIVE: Color32 = Color32::from_rgb(34, 197, 94); // Green-500 (有声)
+const COLOR_CHANNEL_MUTED: Color32 = Color32::from_rgb(239, 68, 68); // Red-500 (没声)
+// Solo/Mute 指示器颜色
+const COLOR_SOLO_INDICATOR: Color32 = Color32::from_rgb(34, 197, 94); // Green-500
+const COLOR_MUTE_INDICATOR: Color32 = Color32::from_rgb(239, 68, 68); // Red-500
 
 impl<'a> SpeakerBox<'a> {
-    pub fn new(name: &'a str, active: bool, scale: &'a ScaleContext) -> Self {
+    pub fn new(name: &'a str, scale: &'a ScaleContext) -> Self {
         Self {
             name,
-            active,
+            is_idle: true,  // 默认无状态（灰色）
             is_sub: name.contains("SUB") || name == "LFE",
             is_solo: false,
+            is_muted: false,
             scale,
             label: None,
         }
@@ -331,9 +350,21 @@ impl<'a> SpeakerBox<'a> {
         self
     }
 
-    /// 设置 Solo 状态
+    /// 设置 Solo 状态 (绿色)
     pub fn solo(mut self, is_solo: bool) -> Self {
         self.is_solo = is_solo;
+        if is_solo {
+            self.is_idle = false;
+        }
+        self
+    }
+
+    /// 设置 Mute 状态 (红色)
+    pub fn muted(mut self, is_muted: bool) -> Self {
+        self.is_muted = is_muted;
+        if is_muted {
+            self.is_idle = false;
+        }
         self
     }
 }
@@ -354,21 +385,24 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         let is_hovered = response.hovered();
 
-        // 颜色逻辑：
-        // - Solo 状态：黄色背景
-        // - Active (未 Mute)：深色背景
-        // - Muted：白色背景
-        let (bg_color, text_color, border_color) = if self.is_solo {
-            // Solo 状态：黄色高亮
-            (COLOR_SOLO_INDICATOR, COLOR_TEXT_DARK, Color32::from_rgb(202, 138, 4)) // Yellow border
-        } else if self.active {
-            // Active (未 Mute)：深色
-            (COLOR_ACTIVE_SLATE_BG, Color32::WHITE, COLOR_ACTIVE_SLATE_BG)
-        } else if is_hovered {
-            (Color32::WHITE, COLOR_TEXT_MEDIUM, COLOR_TEXT_MEDIUM)
+        // 颜色逻辑（简化版）：
+        // - 无状态 (Idle)：灰色背景
+        // - Solo：绿色背景
+        // - Mute：红色背景
+        // 优先级：Mute > Solo > Idle
+        let (bg_color, text_color, border_color) = if self.is_muted {
+            // Mute 状态：红色
+            (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
+        } else if self.is_solo {
+            // Solo 状态：绿色
+            (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
         } else {
-            // Muted：浅色
-            (Color32::WHITE, COLOR_BORDER_LIGHT, COLOR_BORDER_MEDIUM)
+            // 无状态：灰色
+            if is_hovered {
+                (COLOR_BG_SIDEBAR, COLOR_TEXT_DARK, COLOR_BORDER_DARK)
+            } else {
+                (Color32::WHITE, COLOR_TEXT_MEDIUM, COLOR_BORDER_MEDIUM)
+            }
         };
 
         // 1. Box Background
@@ -377,12 +411,11 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         // 2. Corner Accents (Tech Feel)
         let corner_len = s.s(4.0);
-        let corner_color = if self.is_solo {
-            COLOR_TEXT_DARK // 黄色背景上用深色角标
-        } else if self.active {
-            Color32::WHITE
+        let has_state = self.is_solo || self.is_muted;
+        let corner_color = if has_state {
+            Color32::WHITE // 有状态时用白色
         } else {
-            COLOR_BORDER_MEDIUM
+            COLOR_BORDER_MEDIUM // 无状态时用灰色
         };
 
         // TL
@@ -407,6 +440,22 @@ impl<'a> Widget for SpeakerBox<'a> {
                 "S",
                 s.mono_font(10.0),
                 COLOR_SOLO_INDICATOR,
+            );
+        }
+
+        // 3.5 Mute 指示器 (如果是 Mute 状态，在右上角绘制 "M" 标记)
+        if self.is_muted {
+            let indicator_rect = Rect::from_min_size(
+                box_rect.right_top() + Vec2::new(-s.s(22.0), s.s(6.0)),
+                Vec2::splat(s.s(16.0))
+            );
+            painter.rect_filled(indicator_rect, s.s(2.0), COLOR_MUTE_INDICATOR);
+            painter.text(
+                indicator_rect.center(),
+                Align2::CENTER_CENTER,
+                "M",
+                s.mono_font(10.0),
+                Color32::WHITE,
             );
         }
 

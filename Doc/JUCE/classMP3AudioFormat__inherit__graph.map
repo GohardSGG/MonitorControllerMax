@@ -1,5 +1,0 @@
-<map id="MP3AudioFormat" name="MP3AudioFormat">
-<area shape="rect" id="Node000001" title="Software&#45;based MP3 decoding format (doesn&#39;t currently provide an encoder)." alt="" coords="5,80,128,107"/>
-<area shape="rect" id="Node000002" href="$classAudioFormat.html" title="Subclasses of AudioFormat are used to read and write different audio file formats." alt="" coords="19,5,114,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="69,48,69,80,64,80,64,48"/>
-</map>

@@ -1,5 +1,0 @@
-<map id="MemoryMappedAudioFormatReader" name="MemoryMappedAudioFormatReader">
-<area shape="rect" id="Node000001" title="A specialised type of AudioFormatReader that uses a MemoryMappedFile to read directly from an audio f..." alt="" coords="5,80,236,107"/>
-<area shape="rect" id="Node000002" href="$classAudioFormatReader.html" title="Reads samples from an audio file stream." alt="" coords="52,5,189,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="123,48,123,80,118,80,118,48"/>
-</map>

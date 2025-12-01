@@ -1,7 +1,0 @@
-<map id="ComponentMovementWatcher" name="ComponentMovementWatcher">
-<area shape="rect" id="Node000001" title="An object that watches for any movement of a component or any of its parent components." alt="" coords="5,80,203,107"/>
-<area shape="rect" id="Node000003" href="$classNativeScaleFactorNotifier.html" title="Calls a function every time the native scale factor of a component&#39;s peer changes." alt="" coords="18,155,190,181"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="107,122,107,154,101,154,101,122"/>
-<area shape="rect" id="Node000002" href="$classComponentListener.html" title="Gets informed about changes to a component&#39;s hierarchy or position." alt="" coords="37,5,171,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,48,107,80,101,80,101,48"/>
-</map>

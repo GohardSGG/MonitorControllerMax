@@ -1,0 +1,9 @@
+<map id="AudioPluginInstance" name="AudioPluginInstance">
+<area shape="rect" id="Node000001" title="Base class for an active instance of a plugin." alt="" coords="20,155,161,181"/>
+<area shape="rect" id="Node000004" href="$classAudioProcessorGraph_1_1AudioGraphIOProcessor.html" title="A special type of AudioProcessor that can live inside an AudioProcessorGraph in order to use the audi..." alt="" coords="5,229,176,272"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="93,197,93,229,88,229,88,197"/>
+<area shape="rect" id="Node000002" href="$classAudioProcessor.html" title="Base class for audio processing classes or plugins." alt="" coords="34,80,147,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="93,122,93,154,88,154,88,122"/>
+<area shape="rect" id="Node000003" href="$structAAXClientExtensions.html" title="An interface to allow an AudioProcessor to implement extended AAX&#45;specific functionality." alt="" coords="17,5,164,32"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="93,48,93,80,88,80,88,48"/>
+</map>

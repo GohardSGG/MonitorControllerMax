@@ -1,0 +1,7 @@
+<map id="ComponentAnimator" name="ComponentAnimator">
+<area shape="rect" id="Node000001" title="This class has been superseded, it is now recommended you use the Animator class in the juce_animatio..." alt="" coords="63,80,204,107"/>
+<area shape="rect" id="Node000002" href="$classChangeBroadcaster.html" title="Holds a list of ChangeListeners, and sends messages to them when instructed." alt="" coords="5,5,142,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="96,42,125,78,121,81,91,46"/>
+<area shape="rect" id="Node000003" href="$classTimer.html" title="Makes repeated callbacks to a virtual method at a specified time interval." alt="" coords="166,5,221,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="176,46,146,81,142,78,171,42"/>
+</map>

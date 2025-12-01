@@ -1,7 +1,0 @@
-<map id="Value::ValueSource" name="Value::ValueSource">
-<area shape="rect" id="Node000001" title="Used internally by the Value class as the base class for its shared value objects." alt="" coords="102,80,237,107"/>
-<area shape="rect" id="Node000002" href="$classReferenceCountedObject.html" title="A base class which provides methods for reference&#45;counting." alt="" coords="5,5,174,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="116,41,158,78,154,82,113,44"/>
-<area shape="rect" id="Node000003" href="$classAsyncUpdater.html" title="Has a callback method that is triggered asynchronously." alt="" coords="197,5,302,32"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="226,44,185,82,181,78,223,41"/>
-</map>

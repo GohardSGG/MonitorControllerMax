@@ -1,0 +1,7 @@
+<map id="AudioProcessorPlayer" name="AudioProcessorPlayer">
+<area shape="rect" id="Node000001" title="An AudioIODeviceCallback object which streams audio through an AudioProcessor." alt="" coords="93,80,243,107"/>
+<area shape="rect" id="Node000002" href="$classAudioIODeviceCallback.html" title="One of these is passed to an AudioIODevice object to stream the audio data in and out." alt="" coords="5,5,166,32"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="113,40,156,78,152,82,110,45"/>
+<area shape="rect" id="Node000003" href="$classMidiInputCallback.html" title="Receives incoming messages from a physical MIDI input device." alt="" coords="190,5,315,32"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="228,45,184,82,181,78,224,40"/>
+</map>

@@ -1,9 +1,0 @@
-<map id="WebViewLifetimeListener" name="WebViewLifetimeListener">
-<area shape="rect" id="Node000001" title="Type for a listener registered with WebBrowserComponent::Options::withWebViewLifetimeListener." alt="" coords="149,5,317,32"/>
-<area shape="rect" id="Node000002" href="$classWebComboBoxRelay.html" title="Helper class that relays audio parameter information to an object inside a WebBrowserComponent." alt="" coords="5,80,152,107"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="193,41,107,82,105,77,191,37"/>
-<area shape="rect" id="Node000003" href="$classWebSliderRelay.html" title="Helper class that relays audio parameter information to an object inside a WebBrowserComponent." alt="" coords="176,80,290,107"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="236,48,236,80,230,80,230,48"/>
-<area shape="rect" id="Node000004" href="$classWebToggleButtonRelay.html" title="Helper class that relays audio parameter information to an object inside a WebBrowserComponent." alt="" coords="314,80,472,107"/>
-<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="276,36,366,77,364,82,274,41"/>
-</map>

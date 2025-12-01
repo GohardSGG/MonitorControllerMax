@@ -1,0 +1,5 @@
+<map id="AudioChannelSet" name="AudioChannelSet">
+<area shape="rect" id="Node000001" title="Represents a set of audio channel types." alt="" coords="7,5,129,32"/>
+<area shape="rect" id="Node000002" href="$structSpeakerMappings.html" title="Structure for VST speaker mappings." alt="" coords="5,80,131,107"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="71,48,71,80,65,80,65,48"/>
+</map>

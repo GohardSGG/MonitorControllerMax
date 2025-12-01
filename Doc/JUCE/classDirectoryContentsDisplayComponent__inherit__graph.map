@@ -1,7 +1,0 @@
-<map id="DirectoryContentsDisplayComponent" name="DirectoryContentsDisplayComponent">
-<area shape="rect" id="Node000001" title="A base class for components that display a list of the files in a directory." alt="" coords="64,5,235,48"/>
-<area shape="rect" id="Node000002" href="$classFileListComponent.html" title="A component that displays the files in a directory as a listbox." alt="" coords="5,96,136,123"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="120,61,85,97,81,94,117,57"/>
-<area shape="rect" id="Node000003" href="$classFileTreeComponent.html" title="A component that displays the files in a directory as a treeview." alt="" coords="160,96,296,123"/>
-<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="182,57,217,94,214,97,178,61"/>
-</map>

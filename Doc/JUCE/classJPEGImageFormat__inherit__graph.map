@@ -1,5 +1,0 @@
-<map id="JPEGImageFormat" name="JPEGImageFormat">
-<area shape="rect" id="Node000001" title="A subclass of ImageFileFormat for reading and writing JPEG files." alt="" coords="5,80,139,107"/>
-<area shape="rect" id="Node000002" href="$classImageFileFormat.html" title="Base&#45;class for codecs that can read and write image file formats such as PNG, JPEG,..." alt="" coords="12,5,132,32"/>
-<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="75,48,75,80,69,80,69,48"/>
-</map>
