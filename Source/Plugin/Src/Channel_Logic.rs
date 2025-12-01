@@ -56,22 +56,22 @@ impl ChannelLogic {
         // First pass: Analyze State
         for i in 0..layout.total_channels {
             if i >= MAX_CHANNELS { break; }
-            
-            let _is_sub = layout.channels[i].name.contains("SUB") || layout.channels[i].name.contains("LFE");
-            // Wait, LFE is Main (Group M) according to doc!
-            // "LFE (.1 通道): ... 它必须参与所有的 Solo/Mute 逻辑 ... 属于 Group M"
-            // So only "SUB" (Bass Management) is Group S.
-            // Is "LFE" distinct from "SUB"? In config "5.1", we have "LFE".
-            // In "SUB" layouts, we have "SUB", "SUB L", "SUB R".
-            // So logic: name contains "SUB" -> Group S. Else -> Group M.
-            
-            let real_is_sub = layout.channels[i].name.contains("SUB");
-            
-            if params.channels[i].solo.value() {
-                if real_is_sub {
-                    solo_set_sub = true;
-                } else {
-                    solo_set_main = true;
+
+            // 查找通道信息：先查 main_channels，再查 sub_channels
+            let channel_info = layout.main_channels.iter()
+                .chain(layout.sub_channels.iter())
+                .find(|ch| ch.channel_index == i);
+
+            if let Some(ch_info) = channel_info {
+                // 只有名字包含 "SUB" 的是 Group S，LFE 属于 Group M
+                let real_is_sub = ch_info.name.contains("SUB");
+
+                if params.channels[i].solo.value() {
+                    if real_is_sub {
+                        solo_set_sub = true;
+                    } else {
+                        solo_set_main = true;
+                    }
                 }
             }
         }
@@ -79,8 +79,13 @@ impl ChannelLogic {
         // 3. Compute Per-Channel Gain
         for i in 0..layout.total_channels {
             if i >= MAX_CHANNELS { break; }
-            
-            let is_sub = layout.channels[i].name.contains("SUB");
+
+            // 查找通道信息
+            let channel_info = layout.main_channels.iter()
+                .chain(layout.sub_channels.iter())
+                .find(|ch| ch.channel_index == i);
+
+            let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
             let user_mute = params.channels[i].mute.value();
             let user_solo = params.channels[i].solo.value();
             let channel_trim = params.channels[i].gain.value(); // Channel Trim

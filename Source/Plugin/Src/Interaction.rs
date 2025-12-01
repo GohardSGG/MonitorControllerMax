@@ -512,11 +512,10 @@ impl InteractionManager {
     // ========== 通道状态计算 (用于显示) ==========
 
     /// 计算通道的显示状态
-    /// 关键：使用当前激活的上下文（比较模式优先）
-    /// 逻辑：
-    /// - 有 Solo 存在时：被 Solo 的是绿色(S)，其他是红色(M)
-    /// - 有 Mute 存在时：被 Mute 的是红色(M)，其他是绿色(S)
-    /// - Idle 时：全部灰色
+    /// 关键规则：
+    /// - Main 通道：使用当前激活的上下文（比较模式优先）
+    /// - SUB 通道：**永远使用 Primary 模式的集合**（不参与自动反转）
+    /// - 闪烁：Compare 模式下激活的通道需要闪烁
     pub fn get_channel_display(&self, ch: usize, is_sub: bool) -> ChannelDisplay {
         let primary = *self.primary.read();
         let compare = *self.compare.read();
@@ -526,82 +525,137 @@ impl InteractionManager {
             return ChannelDisplay {
                 has_sound: false,
                 marker: None,
+                is_blinking: false,
             };
         }
 
-        // 确定当前激活的上下文类型和集合
-        // 比较模式优先
-        let (context_type, active_set) = match compare {
+        // === SUB 特殊逻辑 (Group S) ===
+        // SUB 永远不参与自动反转，始终使用 Primary 模式的集合
+        if is_sub {
+            // 检查 User Mute（优先级最高）
+            let user_mute = *self.user_mute_sub.read();
+            if (user_mute >> ch) & 1 == 1 {
+                return ChannelDisplay {
+                    has_sound: false,
+                    marker: Some(ChannelMarker::Mute),
+                    is_blinking: false,  // User Mute 不闪烁
+                };
+            }
+
+            // SUB 使用 Primary 模式的集合（不管是否在 Compare 模式）
+            let (sub_context_type, sub_set, main_set) = match primary {
+                PrimaryMode::Solo => {
+                    let solo = self.solo_set.read();
+                    (ContextType::Solo, solo.sub, solo.main)
+                }
+                PrimaryMode::Mute => {
+                    let mute = self.mute_set.read();
+                    (ContextType::Mute, mute.sub, mute.main)
+                }
+                PrimaryMode::None => unreachable!(),
+            };
+
+            let is_in_sub_set = (sub_set >> ch) & 1 == 1;
+            let sub_set_has_any = sub_set != 0;
+            let main_set_has_any = main_set != 0;
+
+            // 关键逻辑：
+            // 1. 如果 Main 和 SUB 组都没有状态 → SUB 灰色
+            // 2. 如果只有 Main 有状态 → SUB 豁免权（绿色）
+            // 3. 如果 SUB 组有状态 → SUB 组内竞争
+            // 4. 如果只有 SUB 有状态（Main 无状态）→ SUB 组内竞争
+
+            if !main_set_has_any && !sub_set_has_any {
+                return ChannelDisplay {
+                    has_sound: false,
+                    marker: None,
+                    is_blinking: false,
+                };
+            }
+
+            let marker = match sub_context_type {
+                ContextType::Solo => {
+                    if sub_set_has_any {
+                        if is_in_sub_set { Some(ChannelMarker::Solo) }
+                        else { Some(ChannelMarker::Mute) }
+                    } else if main_set_has_any {
+                        Some(ChannelMarker::Solo)  // 豁免权
+                    } else {
+                        None
+                    }
+                }
+                ContextType::Mute => {
+                    if sub_set_has_any {
+                        if is_in_sub_set { Some(ChannelMarker::Mute) }
+                        else { Some(ChannelMarker::Solo) }
+                    } else if main_set_has_any {
+                        Some(ChannelMarker::Solo)  // 豁免权
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            // SUB 不闪烁（因为不参与 Compare 反转）
+            return ChannelDisplay {
+                has_sound: marker == Some(ChannelMarker::Solo),
+                marker,
+                is_blinking: false,
+            };
+        }
+
+        // === Main 通道逻辑 (Group M) ===
+        // Main 通道使用当前激活的上下文（比较模式优先）
+        let (context_type, active_set, is_compare_mode) = match compare {
             CompareMode::Solo => {
-                // 比较模式是 Solo，使用 Solo 上下文
-                (ContextType::Solo, self.solo_set.read())
+                (ContextType::Solo, self.solo_set.read(), true)
             }
             CompareMode::Mute => {
-                // 比较模式是 Mute，使用 Mute 上下文
-                (ContextType::Mute, self.mute_set.read())
+                (ContextType::Mute, self.mute_set.read(), true)
             }
             CompareMode::None => {
-                // 没有比较模式，看主模式
                 match primary {
-                    PrimaryMode::Solo => (ContextType::Solo, self.solo_set.read()),
-                    PrimaryMode::Mute => (ContextType::Mute, self.mute_set.read()),
-                    PrimaryMode::None => unreachable!(), // 已经在上面处理了
+                    PrimaryMode::Solo => (ContextType::Solo, self.solo_set.read(), false),
+                    PrimaryMode::Mute => (ContextType::Mute, self.mute_set.read(), false),
+                    PrimaryMode::None => unreachable!(),
                 }
             }
         };
 
-        // 检查 user_mute_sub (优先级最高)
-        if is_sub {
-            let user_mute = *self.user_mute_sub.read();
-            let is_user_muted = (user_mute >> ch) & 1 == 1;
-            if is_user_muted {
-                // 被强制静音
-                return ChannelDisplay {
-                    has_sound: false,
-                    marker: Some(ChannelMarker::Mute),
-                };
-            }
-        }
-
-        // 根据当前上下文类型决定显示
-        let is_in_set = active_set.contains(ch, is_sub);
-        let has_any_in_set = !active_set.is_empty();
+        let is_in_main_set = active_set.contains_main(ch);
+        let main_set_has_any = active_set.main != 0;
 
         let marker = match context_type {
             ContextType::Solo => {
-                // 当前是 Solo 上下文
-                if is_in_set {
-                    // 在 Solo 集合中 = 绿色
+                if is_in_main_set {
                     Some(ChannelMarker::Solo)
-                } else if has_any_in_set {
-                    // 不在 Solo 集合中但有人在 = Auto-Mute = 红色
+                } else if main_set_has_any {
                     Some(ChannelMarker::Mute)
                 } else {
-                    // Solo 集合为空 = 灰色
                     None
                 }
             }
             ContextType::Mute => {
-                // 当前是 Mute 上下文
-                if is_in_set {
-                    // 在 Mute 集合中 = 红色
+                if is_in_main_set {
                     Some(ChannelMarker::Mute)
-                } else if has_any_in_set {
-                    // 不在 Mute 集合中但有人在 = Auto-Solo = 绿色
+                } else if main_set_has_any {
                     Some(ChannelMarker::Solo)
                 } else {
-                    // Mute 集合为空 = 灰色
                     None
                 }
             }
         };
 
-        // 计算是否有声音
-        let has_sound = marker == Some(ChannelMarker::Solo);
+        // 闪烁逻辑：只有 Compare 模式中 **被选中的通道** 闪烁
+        // Solo Compare: 只有 Solo 集合中的通道闪烁（绿色闪烁）
+        // Mute Compare: 只有 Mute 集合中的通道闪烁（红色闪烁）
+        // 其他通道（Auto-Mute 或 Auto-Solo）不闪烁
+        let is_blinking = is_compare_mode && is_in_main_set;
 
         ChannelDisplay {
-            has_sound,
+            has_sound: marker == Some(ChannelMarker::Solo),
             marker,
+            is_blinking,
         }
     }
 
@@ -640,6 +694,8 @@ pub struct ChannelDisplay {
     pub has_sound: bool,
     /// 标记 (S 或 M)
     pub marker: Option<ChannelMarker>,
+    /// 是否闪烁 (Compare 模式下激活的通道)
+    pub is_blinking: bool,
 }
 
 /// 通道标记

@@ -323,6 +323,7 @@ pub struct SpeakerBox<'a> {
     is_muted: bool,    // Mute 状态 (红色背景 + M 标记)
     scale: &'a ScaleContext,
     label: Option<&'a str>, // For "CH 7", "AUX" labels below
+    custom_size: Option<f32>, // 自定义尺寸（如果为 None 则使用默认值）
 }
 
 // 通道颜色
@@ -342,11 +343,18 @@ impl<'a> SpeakerBox<'a> {
             is_muted: false,
             scale,
             label: None,
+            custom_size: None,
         }
     }
 
     pub fn with_label(mut self, label: &'a str) -> Self {
         self.label = Some(label);
+        self
+    }
+
+    /// 设置自定义尺寸（正方形）
+    pub fn size(mut self, size: f32) -> Self {
+        self.custom_size = Some(size);
         self
     }
 
@@ -372,7 +380,15 @@ impl<'a> SpeakerBox<'a> {
 impl<'a> Widget for SpeakerBox<'a> {
     fn ui(self, ui: &mut Ui) -> Response {
         let s = self.scale;
-        let box_size = if self.is_sub { s.vec2(80.0, 80.0) } else { s.vec2(96.0, 96.0) };
+
+        // 使用自定义尺寸或默认值
+        let box_size = if let Some(custom) = self.custom_size {
+            Vec2::splat(custom)
+        } else if self.is_sub {
+            s.vec2(80.0, 80.0)
+        } else {
+            s.vec2(96.0, 96.0)
+        };
 
         // Container for Box + Label
         let (rect, response) = ui.allocate_exact_size(
@@ -386,10 +402,13 @@ impl<'a> Widget for SpeakerBox<'a> {
         let is_hovered = response.hovered();
 
         // 颜色逻辑（简化版）：
-        // - 无状态 (Idle)：灰色背景
+        // - 无状态 (Idle)：深色背景 rgb(30, 41, 59)
         // - Solo：绿色背景
         // - Mute：红色背景
         // 优先级：Mute > Solo > Idle
+        const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59);  // 深色背景
+        const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85);  // 悬停时稍亮
+
         let (bg_color, text_color, border_color) = if self.is_muted {
             // Mute 状态：红色
             (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
@@ -397,11 +416,11 @@ impl<'a> Widget for SpeakerBox<'a> {
             // Solo 状态：绿色
             (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
         } else {
-            // 无状态：灰色
+            // 无状态：深色
             if is_hovered {
-                (COLOR_BG_SIDEBAR, COLOR_TEXT_DARK, COLOR_BORDER_DARK)
+                (COLOR_IDLE_HOVER, Color32::WHITE, Color32::from_rgb(71, 85, 105))
             } else {
-                (Color32::WHITE, COLOR_TEXT_MEDIUM, COLOR_BORDER_MEDIUM)
+                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
             }
         };
 
@@ -487,6 +506,103 @@ impl<'a> Widget for SpeakerBox<'a> {
                 COLOR_TEXT_LIGHT,
             );
         }
+
+        response
+    }
+}
+
+// --- 4. 圆形 SUB 按钮 ---
+pub struct SubButton<'a> {
+    name: &'a str,
+    is_solo: bool,
+    is_muted: bool,
+    diameter: f32,
+    scale: &'a ScaleContext,
+}
+
+impl<'a> SubButton<'a> {
+    pub fn new(name: &'a str, scale: &'a ScaleContext) -> Self {
+        Self {
+            name,
+            is_solo: false,
+            is_muted: false,
+            diameter: scale.s(32.0),  // 默认直径 32px
+            scale,
+        }
+    }
+
+    /// 设置直径
+    pub fn diameter(mut self, d: f32) -> Self {
+        self.diameter = d;
+        self
+    }
+
+    /// 设置 Solo 状态 (绿色)
+    pub fn solo(mut self, is_solo: bool) -> Self {
+        self.is_solo = is_solo;
+        self
+    }
+
+    /// 设置 Mute 状态 (红色)
+    pub fn muted(mut self, is_muted: bool) -> Self {
+        self.is_muted = is_muted;
+        self
+    }
+}
+
+impl<'a> Widget for SubButton<'a> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let s = self.scale;
+        let size = Vec2::splat(self.diameter);
+
+        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let painter = ui.painter();
+        let center = rect.center();
+        let radius = self.diameter / 2.0;
+
+        let is_hovered = response.hovered();
+
+        // 颜色逻辑
+        const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59);  // 深色背景
+        const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85);  // 悬停时稍亮
+
+        let (bg_color, text_color, border_color) = if self.is_muted {
+            // Mute 状态：红色
+            (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
+        } else if self.is_solo {
+            // Solo 状态：绿色
+            (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+        } else {
+            // 无状态：深色
+            if is_hovered {
+                (COLOR_IDLE_HOVER, Color32::WHITE, Color32::from_rgb(71, 85, 105))
+            } else {
+                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+            }
+        };
+
+        // 绘制圆形背景
+        painter.circle_filled(center, radius, bg_color);
+        painter.circle_stroke(center, radius, Stroke::new(s.s(1.0), border_color));
+
+        // 绘制文字（缩写，例如 "S1", "SL", "SR"）
+        // 从名称中提取缩写
+        let abbrev = if self.name.len() > 4 {
+            // "SUB L" -> "L", "SUB R" -> "R", "SUB F" -> "F", etc.
+            self.name.chars().last().unwrap_or('S').to_string()
+        } else if self.name == "SUB" {
+            "S".to_string()
+        } else {
+            self.name.chars().next().unwrap_or('S').to_string()
+        };
+
+        painter.text(
+            center,
+            Align2::CENTER_CENTER,
+            abbrev,
+            s.mono_font(11.0),
+            text_color,
+        );
 
         response
     }

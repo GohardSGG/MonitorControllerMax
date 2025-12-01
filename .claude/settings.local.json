@@ -5,7 +5,13 @@
       "Bash(cargo doc:*)",
       "Bash(cat:*)",
       "Bash(tree:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(cargo clean:*)",
+      "Bash(powershell \"(Get-Item ''Library\\nih-plug\\src\\audio_setup.rs'').LastWriteTime = Get-Date\")",
+      "Bash(dir /b \"c:\\Code\\MonitorControllerMax\\target\\release\\*.dll\")",
+      "Bash(dir:*)",
+      "Bash(powershell \"(Get-Item ''c:\\Code\\MonitorControllerMax\\target\\release\\*.vst3'') | Select-Object Name, LastWriteTime\")",
+      "Bash(powershell \"(Get-Item ''C:\\Code\\MonitorControllerMax\\target\\bundled\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")"
     ],
     "deny": [],
     "ask": []

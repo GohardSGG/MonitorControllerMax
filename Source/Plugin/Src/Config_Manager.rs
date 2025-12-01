@@ -21,7 +21,8 @@ pub struct Layout {
     pub name: String,
     pub width: u32,
     pub height: u32,
-    pub channels: Vec<ChannelInfo>,
+    pub main_channels: Vec<ChannelInfo>,  // 主声道（在网格中显示）
+    pub sub_channels: Vec<ChannelInfo>,   // SUB 声道（在上下轨道中显示）
     pub total_channels: usize,
 }
 
@@ -79,7 +80,8 @@ impl ConfigManager {
     }
 
     pub fn get_layout(&self, speaker_name: &str, sub_name: &str) -> Layout {
-        let mut channels = Vec::new();
+        let mut main_channels = Vec::new();
+        let mut sub_channels = Vec::new();
         let mut channel_idx = 0;
         let mut width = 5;
         let mut height = 5;
@@ -126,7 +128,7 @@ impl ConfigManager {
             for key in standard_order.iter() {
                 if let Some(val) = layout_map.get(*key) {
                     if let Some(grid_pos) = val.as_u64() {
-                        channels.push(ChannelInfo {
+                        main_channels.push(ChannelInfo {
                             name: key.to_string(),
                             grid_pos: grid_pos as u32,
                             channel_index: channel_idx,
@@ -135,12 +137,12 @@ impl ConfigManager {
                     }
                 }
             }
-            
+
             // Second pass: Any other channels not in standard list?
             for (k, v) in layout_map {
                 if k != "Size" && !standard_order.contains(&k.as_str()) {
                      if let Some(grid_pos) = v.as_u64() {
-                        channels.push(ChannelInfo {
+                        main_channels.push(ChannelInfo {
                             name: k.clone(),
                             grid_pos: grid_pos as u32,
                             channel_index: channel_idx,
@@ -158,12 +160,12 @@ impl ConfigManager {
                 // Let's just sort keys alphabetically for SUBs? "SUB L", "SUB R".
                 let mut keys: Vec<_> = sub_map.keys().collect();
                 keys.sort();
-                
+
                 for key in keys {
                     let grid_pos = sub_map[key];
-                    channels.push(ChannelInfo {
+                    sub_channels.push(ChannelInfo {
                         name: key.clone(),
-                        grid_pos: grid_pos, // 1-6 map to orbits
+                        grid_pos: grid_pos, // 1-6 对应上下轨道的 6 个位置
                         channel_index: channel_idx,
                     });
                     channel_idx += 1;
@@ -171,12 +173,15 @@ impl ConfigManager {
             }
         }
 
+        let total_channels = main_channels.len() + sub_channels.len();
+
         Layout {
             name: format!("{}+{}", speaker_name, sub_name),
             width,
             height,
-            total_channels: channels.len(),
-            channels,
+            main_channels,
+            sub_channels,
+            total_channels,
         }
     }
 }

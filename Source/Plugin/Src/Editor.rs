@@ -9,7 +9,7 @@ use nih_plug_egui::egui::{
 };
 use std::sync::Arc;
 use crate::Params::{MonitorParams, PluginRole};
-use crate::Components::*;
+use crate::Components::{self, *};
 use crate::scale::ScaleContext;
 use crate::config_manager::CONFIG;
 use crate::mcm_info;
@@ -603,7 +603,7 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
     });
 }
 
-/// 渲染音箱矩阵（动态布局，交互管理器绑定版）
+/// 渲染音箱矩阵（新版：SUB 在上下轨道，整体居中）
 fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, _setter: &ParamSetter) {
     // 绘制背景网格
     let rect = ui.max_rect();
@@ -625,103 +625,71 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
 
     let layout = CONFIG.get_layout(&speaker_name, &sub_name);
 
-    // 获取交互管理器
-    let interaction = get_interaction_manager();
+    // === 动态计算尺寸 ===
+    let grid_w = layout.width as f32;
+    let grid_h = layout.height as f32;
 
-    // 计算矩阵尺寸以实现居中
-    let box_size = scale.s(96.0);      // 音箱盒子尺寸
-    let spacing_x = scale.s(32.0);
-    let spacing_y = scale.s(24.0);
-    let label_height = scale.s(20.0);  // 底部标签高度
-
-    // 动态计算矩阵尺寸
-    let grid_width = layout.width as f32;
-    let grid_height = layout.height as f32;
-    let matrix_width = box_size * grid_width + spacing_x * (grid_width - 1.0).max(0.0);
-    let matrix_height = (box_size + label_height) * grid_height + spacing_y * (grid_height - 1.0).max(0.0);
-
-    // 计算居中所需的间距
+    // 可用区域
     let available_width = ui.available_width();
     let available_height = ui.available_height();
-    let left_padding = ((available_width - matrix_width) / 2.0).max(0.0);
-    let top_padding = ((available_height - matrix_height) / 2.0).max(0.0);
 
-    // 使用水平布局添加左侧间距
-    ui.horizontal(|ui| {
-        ui.add_space(left_padding);
+    // 间距常量
+    let grid_spacing = scale.s(12.0);      // 主网格内部间距
+    let sub_spacing = scale.s(16.0);       // SUB 行与主网格的间距
+    let label_height = scale.s(20.0);      // 通道标签高度
 
-        ui.vertical(|ui| {
-            ui.add_space(top_padding);
+    // 计算主网格按钮大小（基于可用宽度）
+    // 宽度约束：降低比例让主音箱稍小
+    let max_width_for_grid = available_width * 0.75;
+    let box_size_from_width = (max_width_for_grid - grid_spacing * (grid_w - 1.0)) / grid_w;
 
-            let spacing = scale.vec2(32.0, 24.0);
-            Grid::new("speaker_matrix")
-                .num_columns(layout.width as usize)
-                .spacing(spacing)
-                .show(ui, |ui| {
-                    // 遍历网格位置
-                    for row in 0..layout.height {
-                        for col in 0..layout.width {
-                            // grid_pos 从 1 开始，计算方式：row * width + col + 1
-                            let grid_pos = row * layout.width + col + 1;
+    // 高度约束：需要容纳 SUB行 + 间距 + 主网格 + 间距 + SUB行
+    // SUB 比例提高到 0.7，让 SUB 相对更大
+    let sub_ratio = 0.7;
+    let total_sub_overhead = 2.0 * (sub_spacing);  // 两个间距
+    let main_grid_overhead = label_height * grid_h + grid_spacing * (grid_h - 1.0);
+    let max_height_for_content = available_height * 0.95;
+    let box_size_from_height = (max_height_for_content - total_sub_overhead - main_grid_overhead) / (2.0 * sub_ratio + grid_h);
 
-                            // 查找该位置的通道
-                            if let Some(ch) = layout.channels.iter()
-                                .find(|c| c.grid_pos == grid_pos) {
-                                let ch_idx = ch.channel_index;
-                                let is_sub = ch.name.contains("SUB");
+    // 取较小值，确保两个方向都能容纳
+    let box_size = box_size_from_width.min(box_size_from_height).max(scale.s(40.0));  // 最小 40px
 
-                                // 使用新的 get_channel_display API 获取通道显示状态
-                                let display = interaction.get_channel_display(ch_idx, is_sub);
+    // SUB 按钮直径 = 主按钮的 55%
+    let sub_diameter = box_size * sub_ratio;
+    let sub_row_height = sub_diameter + scale.s(4.0);  // 一点余量
 
-                                // 根据 display 状态设置 SpeakerBox
-                                let show_solo = display.marker == Some(ChannelMarker::Solo);
-                                let show_mute = display.marker == Some(ChannelMarker::Mute);
+    // 计算实际内容尺寸
+    let main_grid_width = box_size * grid_w + grid_spacing * (grid_w - 1.0);
+    let main_grid_height = (box_size + label_height) * grid_h + grid_spacing * (grid_h - 1.0);
+    let total_content_height = sub_row_height + sub_spacing + main_grid_height + sub_spacing + sub_row_height;
 
-                                let label_text = format!("CH {}", ch_idx + 1);
-                                let speaker_box = SpeakerBox::new(&ch.name, scale)
-                                    .solo(show_solo)
-                                    .muted(show_mute)
-                                    .with_label(&label_text);
+    // 计算居中偏移
+    let top_padding = ((available_height - total_content_height) / 2.0).max(0.0);
 
-                                let response = ui.add(speaker_box);
+    // 垂直布局：整体居中
+    ui.vertical(|ui| {
+        // 顶部留白实现垂直居中
+        ui.add_space(top_padding);
 
-                                // 点击处理
-                                if response.clicked() {
-                                    if is_sub {
-                                        // SUB 点击检测（单击/双击）
-                                        let click_type = interaction.detect_sub_click(ch_idx);
-                                        match click_type {
-                                            SubClickType::SingleClick => {
-                                                // 单击: 加入当前 Context
-                                                interaction.on_channel_click(ch_idx, is_sub);
-                                                mcm_info!("[Editor] SUB {} ({}) single click", ch_idx, ch.name);
-                                            }
-                                            SubClickType::DoubleClick => {
-                                                // 双击: User Mute 反转
-                                                interaction.on_sub_double_click(ch_idx);
-                                                mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", ch_idx, ch.name);
-                                            }
-                                        }
-                                    } else {
-                                        // Main 通道单击
-                                        interaction.on_channel_click(ch_idx, is_sub);
-                                        mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
-                                    }
-                                }
+        // 上方 SUB 行
+        ui.horizontal(|ui| {
+            let padding = (available_width - main_grid_width) / 2.0;
+            ui.add_space(padding.max(0.0));
+            render_sub_row_dynamic(ui, scale, &layout, 1..=3, sub_diameter, main_grid_width);
+        });
 
-                                // 右键: SUB 的 User Mute 反转（替代双击）
-                                if response.secondary_clicked() && is_sub {
-                                    interaction.on_sub_double_click(ch_idx);
-                                    mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", ch_idx, ch.name);
-                                }
-                            } else {
-                                // 空位：绘制占位符
-                                ui.allocate_space(Vec2::new(box_size, box_size + label_height));
-                            }
-                        }
-                        ui.end_row();
-                    }
-                });
+        ui.add_space(sub_spacing);
+
+        // 主网格
+        render_main_grid_dynamic(ui, scale, &layout, box_size, grid_spacing, label_height);
+
+        ui.add_space(sub_spacing);
+
+        // 下方 SUB 行
+        ui.horizontal(|ui| {
+            let padding = (available_width - main_grid_width) / 2.0;
+            ui.add_space(padding.max(0.0));
+            render_sub_row_dynamic(ui, scale, &layout, 4..=6, sub_diameter, main_grid_width);
         });
     });
 }
@@ -821,4 +789,133 @@ fn draw_grid_background(ui: &mut egui::Ui, rect: egui::Rect, scale: &ScaleContex
         );
         y += grid_size;
     }
+}
+
+/// 渲染 SUB 通道行（动态尺寸版本）
+fn render_sub_row_dynamic(
+    ui: &mut egui::Ui,
+    scale: &ScaleContext,
+    layout: &crate::config_manager::Layout,
+    pos_range: std::ops::RangeInclusive<u32>,
+    sub_diameter: f32,
+    container_width: f32,
+) {
+    let interaction = get_interaction_manager();
+
+    // 计算 SUB 行内的间距，使 3 个按钮均匀分布在 container_width 内
+    // 总宽度 = 3 * sub_diameter + 2 * spacing = container_width
+    let sub_spacing = (container_width - sub_diameter * 3.0) / 2.0;
+
+    let range_end = *pos_range.end();
+    for pos in pos_range.clone() {
+        // 查找该位置的 SUB 通道
+        if let Some(ch) = layout.sub_channels.iter().find(|c| c.grid_pos == pos) {
+            let display = interaction.get_channel_display(ch.channel_index, true);
+            let sub_btn = Components::SubButton::new(&ch.name, scale)
+                .diameter(sub_diameter)
+                .solo(display.marker == Some(ChannelMarker::Solo))
+                .muted(display.marker == Some(ChannelMarker::Mute));
+
+            let response = ui.add(sub_btn);
+
+            if response.clicked() {
+                let click_type = interaction.detect_sub_click(ch.channel_index);
+                match click_type {
+                    SubClickType::SingleClick => {
+                        interaction.on_channel_click(ch.channel_index, true);
+                        mcm_info!("[Editor] SUB {} ({}) single click", ch.channel_index, ch.name);
+                    }
+                    SubClickType::DoubleClick => {
+                        interaction.on_sub_double_click(ch.channel_index);
+                        mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", ch.channel_index, ch.name);
+                    }
+                }
+            }
+
+            // 右键：SUB 的 User Mute 反转（替代双击）
+            if response.secondary_clicked() {
+                interaction.on_sub_double_click(ch.channel_index);
+                mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", ch.channel_index, ch.name);
+            }
+        } else {
+            // 空槽位占位（圆形直径）
+            ui.allocate_space(Vec2::splat(sub_diameter));
+        }
+
+        if pos != range_end {
+            ui.add_space(sub_spacing.max(scale.s(8.0)));  // 最小间距 8px
+        }
+    }
+}
+
+/// 渲染主网格（动态尺寸版本，接收预计算的 box_size）
+fn render_main_grid_dynamic(
+    ui: &mut egui::Ui,
+    scale: &ScaleContext,
+    layout: &crate::config_manager::Layout,
+    box_size: f32,
+    grid_spacing: f32,
+    label_height: f32,
+) {
+    let interaction = get_interaction_manager();
+    let grid_w = layout.width as f32;
+
+    // 居中
+    let actual_width = box_size * grid_w + grid_spacing * (grid_w - 1.0);
+    let padding = (ui.available_width() - actual_width) / 2.0;
+
+    ui.horizontal(|ui| {
+        ui.add_space(padding.max(0.0));
+
+        ui.vertical(|ui| {
+            Grid::new("main_speaker_grid")
+                .num_columns(layout.width as usize)
+                .spacing(Vec2::new(grid_spacing, grid_spacing))
+                .show(ui, |ui| {
+                    for row in 0..layout.height {
+                        for col in 0..layout.width {
+                            let grid_pos = row * layout.width + col + 1;
+
+                            if let Some(ch) = layout.main_channels.iter().find(|c| c.grid_pos == grid_pos) {
+                                let ch_idx = ch.channel_index;
+                                let is_sub = false;
+
+                                // 使用新的 get_channel_display API 获取通道显示状态
+                                let display = interaction.get_channel_display(ch_idx, is_sub);
+
+                                // 闪烁逻辑：如果是 Compare 模式，根据计时器决定是否显示
+                                let blink_show = interaction.should_blink_show();
+                                let (show_solo, show_mute) = if display.is_blinking && !blink_show {
+                                    // 闪烁的"灭"阶段：显示为灰色
+                                    (false, false)
+                                } else {
+                                    // 正常显示或闪烁的"亮"阶段
+                                    (display.marker == Some(ChannelMarker::Solo),
+                                     display.marker == Some(ChannelMarker::Mute))
+                                };
+
+                                let channel_label = format!("CH {}", ch_idx + 1);
+                                let speaker_box = SpeakerBox::new(&ch.name, scale)
+                                    .size(box_size)
+                                    .solo(show_solo)
+                                    .muted(show_mute)
+                                    .with_label(&channel_label);
+
+                                let response = ui.add(speaker_box);
+
+                                // 点击处理
+                                if response.clicked() {
+                                    interaction.on_channel_click(ch_idx, is_sub);
+                                    mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
+                                }
+                            } else {
+                                // 空位：绘制占位符
+                                ui.allocate_space(Vec2::new(box_size, box_size + label_height));
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    });
 }
