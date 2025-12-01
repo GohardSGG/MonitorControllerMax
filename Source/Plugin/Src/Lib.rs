@@ -2,10 +2,6 @@
 
 use nih_plug::prelude::*;
 use std::sync::Arc;
-use simplelog::*;
-use std::fs::File;
-use std::panic;
-use std::io::Write;
 
 pub mod Components;
 mod Editor;
@@ -18,6 +14,12 @@ mod config_manager;
 mod network;
 mod network_protocol;
 mod channel_logic;
+mod logger;
+
+// Include auto-generated audio layouts from build.rs
+mod Audio_Layouts {
+    include!(concat!(env!("OUT_DIR"), "/Audio_Layouts.rs"));
+}
 
 use Params::MonitorParams;
 use network::NetworkManager;
@@ -29,6 +31,9 @@ pub struct MonitorControllerMax {
 
 impl Default for MonitorControllerMax {
     fn default() -> Self {
+        // Initialize logger FIRST, before any other initialization
+        logger::init();
+
         Self {
             params: Arc::new(MonitorParams::default()),
             network: NetworkManager::new(),
@@ -44,29 +49,8 @@ impl Plugin for MonitorControllerMax {
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[
-        AudioIOLayout {
-            main_input_channels: NonZeroU32::new(Params::MAX_CHANNELS as u32),
-            main_output_channels: NonZeroU32::new(Params::MAX_CHANNELS as u32),
-            ..AudioIOLayout::const_default()
-        },
-        // Also support common layouts for compatibility if host doesn't like 32
-        AudioIOLayout {
-            main_input_channels: NonZeroU32::new(2),
-            main_output_channels: NonZeroU32::new(2),
-            ..AudioIOLayout::const_default()
-        },
-        AudioIOLayout {
-            main_input_channels: NonZeroU32::new(6),
-            main_output_channels: NonZeroU32::new(6),
-            ..AudioIOLayout::const_default()
-        },
-        AudioIOLayout {
-            main_input_channels: NonZeroU32::new(12),
-            main_output_channels: NonZeroU32::new(12),
-            ..AudioIOLayout::const_default()
-        },
-    ];
+    // Audio IO layouts are auto-generated from Speaker_Config.json by build.rs
+    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = Audio_Layouts::GENERATED_AUDIO_IO_LAYOUTS;
 
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
@@ -86,13 +70,26 @@ impl Plugin for MonitorControllerMax {
 
     fn initialize(
         &mut self,
-        _audio_io_layout: &AudioIOLayout,
+        audio_io_layout: &AudioIOLayout,
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        // Log initialization is done in default() via logger::init()
-        // Here we just log that initialize was called
-        log::info!("Plugin initialize() called");
+        mcm_info!("Plugin initialize() called");
+
+        // Debug: Log audio IO layout information
+        let input_channels = audio_io_layout.main_input_channels.map(|n| n.get()).unwrap_or(0);
+        let output_channels = audio_io_layout.main_output_channels.map(|n| n.get()).unwrap_or(0);
+        mcm_info!("[AudioIO] Input channels: {}, Output channels: {}", input_channels, output_channels);
+        mcm_info!("[AudioIO] Layout name: {}", audio_io_layout.name());
+        mcm_info!("[AudioIO] Main input name: {}", audio_io_layout.main_input_name());
+        mcm_info!("[AudioIO] Main output name: {}", audio_io_layout.main_output_name());
+
+        // Debug: Log all available layouts
+        mcm_info!("[AudioIO] Available layouts count: {}", Self::AUDIO_IO_LAYOUTS.len());
+        for (i, layout) in Self::AUDIO_IO_LAYOUTS.iter().enumerate() {
+            let ch = layout.main_input_channels.map(|n| n.get()).unwrap_or(0);
+            mcm_info!("[AudioIO] Layout[{}]: {} ({} channels)", i, layout.name(), ch);
+        }
 
         Registry::GlobalRegistry::register_instance();
         
@@ -101,7 +98,11 @@ impl Plugin for MonitorControllerMax {
         let role = self.params.role.value();
         match role {
             Params::PluginRole::Master => self.network.init_master(9123),
-            Params::PluginRole::Slave => self.network.init_slave("127.0.0.1", 9123), // Hardcoded IP for now
+            Params::PluginRole::Slave => self.network.init_slave("127.0.0.1", 9123),
+            Params::PluginRole::Standalone => {
+                // No network initialization - pure local mode
+                mcm_info!("Running in Standalone mode (no network)");
+            }
         }
         
         true

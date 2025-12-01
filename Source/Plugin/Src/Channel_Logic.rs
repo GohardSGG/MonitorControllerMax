@@ -87,8 +87,9 @@ impl ChannelLogic {
 
             // Logic Core (v4.0 Spec)
             let pass = match role {
-                PluginRole::Master => {
+                PluginRole::Master | PluginRole::Standalone => {
                     // Master Logic (Source Control)
+                    // Standalone behaves like Master but without network broadcasting
                     if user_mute {
                         0.0
                     } else {

@@ -8,8 +8,10 @@ use crate::config_manager::CONFIG;
 // Define max channels constant. Must match array size.
 pub const MAX_CHANNELS: usize = 32;
 
-#[derive(Enum, PartialEq, Eq, Clone, Copy)]
+#[derive(Enum, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum PluginRole {
+    #[name = "Standalone"]
+    Standalone,
     #[name = "Master (Source)"]
     Master,
     #[name = "Slave (Monitor)"]
@@ -102,11 +104,11 @@ impl Default for MonitorParams {
 
             master_gain: FloatParam::new(
                 "Master Gain",
-                util::db_to_gain(0.0),
+                util::db_to_gain(0.0),  // 默认 0 dB (unity gain)
                 FloatRange::Skewed {
-                    min: util::db_to_gain(-60.0),
-                    max: util::db_to_gain(12.0),
-                    factor: FloatRange::gain_skew_factor(-60.0, 12.0),
+                    min: util::MINUS_INFINITY_GAIN,  // -∞ dB
+                    max: util::db_to_gain(0.0),      // 0 dB (无增益)
+                    factor: FloatRange::gain_skew_factor(-80.0, 0.0),
                 },
             )
             .with_unit(" dB")
@@ -116,7 +118,7 @@ impl Default for MonitorParams {
             dim: BoolParam::new("Dim", false),
             cut: BoolParam::new("Cut", false),
             
-            role: EnumParam::new("Role", PluginRole::Master),
+            role: EnumParam::new("Role", PluginRole::Standalone),
             solo_mode: EnumParam::new("Solo Mode", SoloMode::SIP),
 
             layout: IntParam::new(

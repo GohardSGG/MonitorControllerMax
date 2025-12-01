@@ -1,15 +1,18 @@
 #![allow(non_snake_case)]
 
 use nih_plug::editor::Editor;
+use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, EguiState, resizable_window::ResizableWindow};
 use nih_plug_egui::egui::{
     self, Visuals, Vec2, Color32, Layout, Align, RichText, ComboBox,
     Stroke, LayerId, Frame, TopBottomPanel, SidePanel, CentralPanel, Grid, StrokeKind
 };
 use std::sync::Arc;
-use crate::Params::MonitorParams;
+use crate::Params::{MonitorParams, PluginRole};
 use crate::Components::*;
 use crate::scale::ScaleContext;
+use crate::config_manager::CONFIG;
+use crate::mcm_info;
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -23,13 +26,15 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
     let egui_state = EguiState::from_size(BASE_WIDTH as u32, BASE_HEIGHT as u32);
     let egui_state_clone = egui_state.clone();
 
-    let _params_clone = params.clone();
+    let params_clone = params.clone();
 
     create_egui_editor(
         egui_state,
         (),
         |_, _| {},
-        move |ctx, _setter, _state| {
+        move |ctx, setter, _state| {
+            // 获取 params 的引用供渲染函数使用
+            let params = &params_clone;
             // 1. 从 EguiState 获取物理像素尺寸（关键！不能用 ctx.screen_rect()）
             let (physical_width, _) = egui_state_clone.size();
             let scale = ScaleContext::from_physical_size(physical_width, BASE_WIDTH);
@@ -78,7 +83,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         .min_height(scale.s(40.0)) // <-- CHANGED to min_height for flexibility
                         .frame(Frame::new().fill(Color32::WHITE))
                         .show(ctx, |ui| {
-                            render_header(ui, &scale);
+                            render_header(ui, &scale, params, setter);
                         });
 
                     // 左侧控制面板
@@ -87,7 +92,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         .resizable(false)
                         .frame(panel_frame) // <-- Apply clean frame
                         .show(ctx, |ui| {
-                            render_sidebar(ui, &scale);
+                            render_sidebar(ui, &scale, params, setter);
                         });
 
                     // 中央内容区域（音箱矩阵 + 日志面板）
@@ -123,7 +128,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                             CentralPanel::default()
                                 .frame(Frame::new())
                                 .show_inside(ui, |ui| {
-                                    render_speaker_matrix(ui, &scale);
+                                    render_speaker_matrix(ui, &scale, params, setter);
                                 });
                         });
                 });
@@ -131,8 +136,8 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
     )
 }
 
-/// 渲染顶部标题栏 - 手动精细校准版 (Scheme B)
-fn render_header(ui: &mut egui::Ui, scale: &ScaleContext) {
+/// 渲染顶部标题栏 - 参数绑定版
+fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
     let _header_height = scale.s(40.0);
     
     // --- 🟢 关键微调变量 (MANUAL TWEAK VARS) 🟢 ---
@@ -197,74 +202,134 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext) {
                 );
             };
 
-            // --- Helper: 带微调偏移的 Dropdown ---
-            // 使用 allocate_ui 分配固定空间，彻底防止布局重叠
-            let dropdown_render = |ui: &mut egui::Ui, id: &str, width: f32, current_val: &mut usize, options: &[&str]| {
-                // 1. 定义容器尺寸：宽度由参数决定，高度占满 Header (40.0)
-                let box_size = Vec2::new(width, scale.s(40.0));
-                
+            // === 从配置系统获取布局选项 ===
+            let speaker_layouts = CONFIG.get_speaker_layouts();
+            let sub_layouts = CONFIG.get_sub_layouts();
+
+            // === 从参数系统读取当前值 ===
+            let current_role = params.role.value();
+            let current_layout_idx = params.layout.value() as usize;
+            let current_sub_idx = params.sub_layout.value() as usize;
+
+            // --- Helper: 带微调偏移的 Dropdown (参数绑定版) ---
+            let dropdown_y_offset_local = dropdown_y_offset;
+            let combo_font_local = combo_font.clone();
+
+            // 1. Subs dropdown (First in Right-to-Left layout = Last Visually)
+            {
+                let box_size = Vec2::new(scale.s(80.0), scale.s(40.0));
                 ui.allocate_ui(box_size, |ui| {
-                    // 2. 内部垂直布局 (Top-Down)
-                    ui.set_min_width(width);
+                    ui.set_min_width(scale.s(80.0));
                     ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                        // 3. 计算居中 Padding
-                        // 估算 ComboBox 高度约 20.0 (包含边框可能略多，这里主要控制视觉重心)
                         let estimated_combo_height = scale.s(20.0);
                         let base_padding = (box_size.y - estimated_combo_height) / 2.0;
-                        
-                        // 4. 应用 Padding + 用户微调偏移
-                        let final_padding = base_padding + dropdown_y_offset;
+                        let final_padding = base_padding + dropdown_y_offset_local;
                         if final_padding > 0.0 {
                             ui.add_space(final_padding);
                         }
 
-                        ComboBox::from_id_salt(id)
-                            .selected_text(RichText::new(options[*current_val]).font(combo_font.clone()))
-                            .width(width)
+                        let current_sub_name = sub_layouts.get(current_sub_idx)
+                            .cloned()
+                            .unwrap_or_else(|| "None".to_string());
+
+                        ComboBox::from_id_salt("sub_layout_combo")
+                            .selected_text(RichText::new(&current_sub_name).font(combo_font_local.clone()))
+                            .width(scale.s(80.0))
                             .show_ui(ui, |ui| {
-                                for (i, opt) in options.iter().enumerate() {
-                                    if ui.selectable_label(*current_val == i, RichText::new(*opt).font(combo_font.clone())).clicked() {
-                                        *current_val = i;
-                                        ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new(id), *current_val));
+                                for (i, name) in sub_layouts.iter().enumerate() {
+                                    if ui.selectable_label(current_sub_idx == i, RichText::new(name).font(combo_font_local.clone())).clicked() {
+                                        mcm_info!("[Editor] Sub layout changed: {} -> {}", current_sub_name, name);
+                                        setter.begin_set_parameter(&params.sub_layout);
+                                        setter.set_parameter(&params.sub_layout, i as i32);
+                                        setter.end_set_parameter(&params.sub_layout);
                                     }
                                 }
                             });
                     });
                 });
-            };
+            }
 
-            // 1. Subs dropdown (First in Right-to-Left layout = Last Visually)
-            let subs_id_str = "subs_select_combo";
-            let subs_id = ui.id().with(subs_id_str);
-            let mut selected_subs = ui.memory(|mem| mem.data.get_temp::<usize>(subs_id).unwrap_or(0));
-            let subs_options = ["None", "Mono", "Stereo", "LCR"];
-
-            dropdown_render(ui, subs_id_str, scale.s(80.0), &mut selected_subs, &subs_options);
-            
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Sub");
             ui.add_space(scale.s(12.0));
 
-            // 2. Maps dropdown (Middle)
-            let format_id_str = "channel_format_combo";
-            let format_id = ui.id().with(format_id_str);
-            let mut selected_format = ui.memory(|mem| mem.data.get_temp::<usize>(format_id).unwrap_or(1));
-            let formats = ["Stereo", "5.1", "7.1", "7.1.4"];
+            // 2. Maps dropdown (Speaker Layout)
+            {
+                let box_size = Vec2::new(scale.s(80.0), scale.s(40.0));
+                ui.allocate_ui(box_size, |ui| {
+                    ui.set_min_width(scale.s(80.0));
+                    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                        let estimated_combo_height = scale.s(20.0);
+                        let base_padding = (box_size.y - estimated_combo_height) / 2.0;
+                        let final_padding = base_padding + dropdown_y_offset_local;
+                        if final_padding > 0.0 {
+                            ui.add_space(final_padding);
+                        }
 
-            dropdown_render(ui, format_id_str, scale.s(80.0), &mut selected_format, &formats);
+                        let current_layout_name = speaker_layouts.get(current_layout_idx)
+                            .cloned()
+                            .unwrap_or_else(|| "Unknown".to_string());
+
+                        ComboBox::from_id_salt("speaker_layout_combo")
+                            .selected_text(RichText::new(&current_layout_name).font(combo_font_local.clone()))
+                            .width(scale.s(80.0))
+                            .show_ui(ui, |ui| {
+                                for (i, name) in speaker_layouts.iter().enumerate() {
+                                    if ui.selectable_label(current_layout_idx == i, RichText::new(name).font(combo_font_local.clone())).clicked() {
+                                        mcm_info!("[Editor] Speaker layout changed: {} -> {}", current_layout_name, name);
+                                        setter.begin_set_parameter(&params.layout);
+                                        setter.set_parameter(&params.layout, i as i32);
+                                        setter.end_set_parameter(&params.layout);
+                                    }
+                                }
+                            });
+                    });
+                });
+            }
 
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Map");
             ui.add_space(scale.s(12.0));
 
-            // 3. Role dropdown (Last in Right-to-Left layout = First Visually)
-            let role_id_str = "role_select_combo";
-            let role_id = ui.id().with(role_id_str);
-            let mut selected_role = ui.memory(|mem| mem.data.get_temp::<usize>(role_id).unwrap_or(0));
-            let roles = ["Standalone", "Master", "Slave"];
-            
-            dropdown_render(ui, role_id_str, scale.s(100.0), &mut selected_role, &roles);
-            
+            // 3. Role dropdown (Plugin Role)
+            {
+                let box_size = Vec2::new(scale.s(100.0), scale.s(40.0));
+                let role_names = ["Standalone", "Master", "Slave"];
+                let current_role_idx = current_role as usize;
+
+                ui.allocate_ui(box_size, |ui| {
+                    ui.set_min_width(scale.s(100.0));
+                    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                        let estimated_combo_height = scale.s(20.0);
+                        let base_padding = (box_size.y - estimated_combo_height) / 2.0;
+                        let final_padding = base_padding + dropdown_y_offset_local;
+                        if final_padding > 0.0 {
+                            ui.add_space(final_padding);
+                        }
+
+                        ComboBox::from_id_salt("role_combo")
+                            .selected_text(RichText::new(role_names[current_role_idx]).font(combo_font_local.clone()))
+                            .width(scale.s(100.0))
+                            .show_ui(ui, |ui| {
+                                for (i, name) in role_names.iter().enumerate() {
+                                    if ui.selectable_label(current_role_idx == i, RichText::new(*name).font(combo_font_local.clone())).clicked() {
+                                        let new_role = match i {
+                                            0 => PluginRole::Standalone,
+                                            1 => PluginRole::Master,
+                                            2 => PluginRole::Slave,
+                                            _ => PluginRole::Standalone,
+                                        };
+                                        mcm_info!("[Editor] Role changed: {:?} -> {:?}", current_role, new_role);
+                                        setter.begin_set_parameter(&params.role);
+                                        setter.set_parameter(&params.role, new_role);
+                                        setter.end_set_parameter(&params.role);
+                                    }
+                                }
+                            });
+                    });
+                });
+            }
+
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Role");
 
@@ -325,8 +390,8 @@ fn custom_button(ui: &mut egui::Ui, primary: &str, secondary: &str, active: bool
     response
 }
 
-/// 渲染左侧控制面板
-fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext) {
+/// 渲染左侧控制面板 - 参数绑定版
+fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
     
     ui.add_space(scale.s(24.0));
 
@@ -347,13 +412,27 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext) {
             ui.separator();
             ui.add_space(scale.s(24.0));
 
-            // Volume Knob Area（使用 memory 持久化值）
+            // Volume Knob Area - 绑定到 params.master_gain
             ui.vertical_centered(|ui| {
-                let volume_id = ui.id().with("main_volume");
-                let mut volume_val = ui.memory(|mem| mem.data.get_temp::<f32>(volume_id).unwrap_or(8.0));
+                // 从 params 读取当前增益值并转换为 dB 显示
+                let current_gain = params.master_gain.value();
+                let current_db = nih_plug::util::gain_to_db(current_gain);
+
+                // TechVolumeKnob 使用 dB 值（范围 -∞ 到 0 dB）
+                let mut volume_val = current_db;
                 let response = ui.add(TechVolumeKnob::new(&mut volume_val, scale));
+
                 if response.changed() {
-                    ui.memory_mut(|mem| mem.data.insert_temp(volume_id, volume_val));
+                    // 转换回增益值并设置参数（拖动时静默更新）
+                    let new_gain = nih_plug::util::db_to_gain(volume_val);
+                    setter.begin_set_parameter(&params.master_gain);
+                    setter.set_parameter(&params.master_gain, new_gain);
+                    setter.end_set_parameter(&params.master_gain);
+                }
+
+                // 只在拖动结束时记录日志
+                if response.drag_stopped() {
+                    mcm_info!("[Editor] Master volume set to: {:.1} dB", volume_val);
                 }
             });
 
@@ -364,13 +443,37 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext) {
             ui.painter().hline(line_rect.x_range(), line_rect.top(), Stroke::new(1.0, COLOR_BORDER_LIGHT));
             ui.add_space(scale.s(16.0)); // Space below the line
 
-            // DIM + CUT buttons
+            // DIM + CUT buttons - 绑定到 params
             let button_width = (sidebar_content_width - scale.s(8.0)) / 2.0; // 减去中间间隙
             ui.horizontal(|ui| {
-                ui.add(BrutalistButton::new("DIM", scale).width(button_width));
+                // DIM 按钮
+                let dim_active = params.dim.value();
+                let dim_btn = BrutalistButton::new("DIM", scale)
+                    .width(button_width)
+                    .active(dim_active);
+                if ui.add(dim_btn).clicked() {
+                    let new_value = !dim_active;
+                    mcm_info!("[Editor] DIM toggled: {} -> {}", dim_active, new_value);
+                    setter.begin_set_parameter(&params.dim);
+                    setter.set_parameter(&params.dim, new_value);
+                    setter.end_set_parameter(&params.dim);
+                }
+
                 ui.add_space(scale.s(8.0));
-                // --- FIX 3: Button label change ---
-                ui.add(BrutalistButton::new("CUT", scale).width(button_width).danger(true));
+
+                // CUT 按钮
+                let cut_active = params.cut.value();
+                let cut_btn = BrutalistButton::new("CUT", scale)
+                    .width(button_width)
+                    .danger(true)
+                    .active(cut_active);
+                if ui.add(cut_btn).clicked() {
+                    let new_value = !cut_active;
+                    mcm_info!("[Editor] CUT toggled: {} -> {}", cut_active, new_value);
+                    setter.begin_set_parameter(&params.cut);
+                    setter.set_parameter(&params.cut, new_value);
+                    setter.end_set_parameter(&params.cut);
+                }
             });
 
             // Second separator
@@ -446,22 +549,39 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext) {
     });
 }
 
-/// 渲染音箱矩阵（居中显示）
-fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext) {
+/// 渲染音箱矩阵（动态布局，参数绑定版）
+fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
     // 绘制背景网格
     let rect = ui.max_rect();
     draw_grid_background(ui, rect, scale);
 
+    // === 从配置系统获取当前布局 ===
+    let layout_idx = params.layout.value() as usize;
+    let sub_idx = params.sub_layout.value() as usize;
+
+    let speaker_layouts = CONFIG.get_speaker_layouts();
+    let sub_layouts = CONFIG.get_sub_layouts();
+
+    let speaker_name = speaker_layouts.get(layout_idx)
+        .cloned()
+        .unwrap_or_else(|| "7.1.4".to_string());
+    let sub_name = sub_layouts.get(sub_idx)
+        .cloned()
+        .unwrap_or_else(|| "None".to_string());
+
+    let layout = CONFIG.get_layout(&speaker_name, &sub_name);
+
     // 计算矩阵尺寸以实现居中
-    let box_size = scale.s(96.0);      // 最大的盒子尺寸
-    let spacing_x = scale.s(48.0);
-    let spacing_y = scale.s(40.0);
+    let box_size = scale.s(96.0);      // 音箱盒子尺寸
+    let spacing_x = scale.s(32.0);
+    let spacing_y = scale.s(24.0);
     let label_height = scale.s(20.0);  // 底部标签高度
 
-    // 矩阵总宽度 = 3个盒子 + 2个间距
-    let matrix_width = box_size * 3.0 + spacing_x * 2.0;
-    // 矩阵总高度 = 3行盒子 + 2个间距 + 标签
-    let matrix_height = (box_size + label_height) * 3.0 + spacing_y * 2.0;
+    // 动态计算矩阵尺寸
+    let grid_width = layout.width as f32;
+    let grid_height = layout.height as f32;
+    let matrix_width = box_size * grid_width + spacing_x * (grid_width - 1.0).max(0.0);
+    let matrix_height = (box_size + label_height) * grid_height + spacing_y * (grid_height - 1.0).max(0.0);
 
     // 计算居中所需的间距
     let available_width = ui.available_width();
@@ -476,27 +596,67 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext) {
         ui.vertical(|ui| {
             ui.add_space(top_padding);
 
-            let spacing = scale.vec2(48.0, 40.0);
+            let spacing = scale.vec2(32.0, 24.0);
             Grid::new("speaker_matrix")
+                .num_columns(layout.width as usize)
                 .spacing(spacing)
                 .show(ui, |ui| {
-                    // Row 1: L C R
-                    ui.add(SpeakerBox::new("L", true, scale));
-                    ui.add(SpeakerBox::new("C", true, scale));
-                    ui.add(SpeakerBox::new("R", true, scale));
-                    ui.end_row();
+                    // 遍历网格位置
+                    for row in 0..layout.height {
+                        for col in 0..layout.width {
+                            // grid_pos 从 1 开始，计算方式：row * width + col + 1
+                            let grid_pos = row * layout.width + col + 1;
 
-                    // Row 2: SUB-L LFE SUB-R
-                    ui.add(SpeakerBox::new("SUB L", false, scale));
-                    ui.add(SpeakerBox::new("LFE", true, scale));
-                    ui.add(SpeakerBox::new("SUB R", false, scale));
-                    ui.end_row();
+                            // 查找该位置的通道
+                            if let Some(ch) = layout.channels.iter()
+                                .find(|c| c.grid_pos == grid_pos) {
+                                // 获取通道状态
+                                let ch_idx = ch.channel_index;
+                                let is_muted = if ch_idx < params.channels.len() {
+                                    params.channels[ch_idx].mute.value()
+                                } else {
+                                    false
+                                };
+                                let is_solo = if ch_idx < params.channels.len() {
+                                    params.channels[ch_idx].solo.value()
+                                } else {
+                                    false
+                                };
 
-                    // Row 3: LR SUB RR
-                    ui.add(SpeakerBox::new("LR", true, scale).with_label("CH 7"));
-                    ui.add(SpeakerBox::new("SUB", false, scale).with_label("AUX"));
-                    ui.add(SpeakerBox::new("RR", true, scale).with_label("CH 8"));
-                    ui.end_row();
+                                // 渲染音箱盒子
+                                let label_text = format!("CH {}", ch_idx + 1);
+                                let speaker_box = SpeakerBox::new(&ch.name, !is_muted, scale)
+                                    .solo(is_solo)
+                                    .with_label(&label_text);
+
+                                let response = ui.add(speaker_box);
+
+                                // 点击切换 Solo
+                                if response.clicked() && ch_idx < params.channels.len() {
+                                    let new_solo = !is_solo;
+                                    mcm_info!("[Editor] Channel {} ({}) Solo toggled: {} -> {}",
+                                        ch_idx, ch.name, is_solo, new_solo);
+                                    setter.begin_set_parameter(&params.channels[ch_idx].solo);
+                                    setter.set_parameter(&params.channels[ch_idx].solo, new_solo);
+                                    setter.end_set_parameter(&params.channels[ch_idx].solo);
+                                }
+
+                                // 右键切换 Mute
+                                if response.secondary_clicked() && ch_idx < params.channels.len() {
+                                    let new_mute = !is_muted;
+                                    mcm_info!("[Editor] Channel {} ({}) Mute toggled: {} -> {}",
+                                        ch_idx, ch.name, is_muted, new_mute);
+                                    setter.begin_set_parameter(&params.channels[ch_idx].mute);
+                                    setter.set_parameter(&params.channels[ch_idx].mute, new_mute);
+                                    setter.end_set_parameter(&params.channels[ch_idx].mute);
+                                }
+                            } else {
+                                // 空位：绘制占位符
+                                ui.allocate_space(Vec2::new(box_size, box_size + label_height));
+                            }
+                        }
+                        ui.end_row();
+                    }
                 });
         });
     });

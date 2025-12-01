@@ -29,32 +29,32 @@ pub fn process_audio(
     
     // 1. Determine RenderState
     let render_state = match role {
-        PluginRole::Master => {
+        PluginRole::Master | PluginRole::Standalone => {
             // A. Compute Logic Locally
-            // Need current layout to identify SUBs
-            // In a real plugin, layout selection is dynamic. 
-            // We use the index from params.layout (IntParam)
+            // Standalone behaves like Master but without network broadcasting
             let layout_idx = params.layout.value() as usize;
             let sub_layout_idx = params.sub_layout.value() as usize;
-            
+
             let speaker_names = CONFIG.get_speaker_layouts();
             let sub_names = CONFIG.get_sub_layouts();
-            
+
             let speaker_name = speaker_names.get(layout_idx).map(|s| s.as_str()).unwrap_or("7.1.4");
             let sub_name = sub_names.get(sub_layout_idx).map(|s| s.as_str()).unwrap_or("None");
-            
+
             let layout = CONFIG.get_layout(speaker_name, sub_name);
-            
+
             let state = ChannelLogic::compute(params, &layout, None);
-            
-            // B. Broadcast to Network (Fire and Forget)
-            if let Some(sender) = &network.sender {
-                let net_state = NetworkRenderState::from_render_state(&state);
-                // Try send, don't block audio thread
-                // unbounded channel is non-blocking
-                let _ = sender.send(net_state);
+
+            // B. Broadcast to Network (only for Master, not Standalone)
+            if role == PluginRole::Master {
+                if let Some(sender) = &network.sender {
+                    let net_state = NetworkRenderState::from_render_state(&state);
+                    // Try send, don't block audio thread
+                    // unbounded channel is non-blocking
+                    let _ = sender.send(net_state);
+                }
             }
-            
+
             state
         },
         PluginRole::Slave => {
@@ -63,14 +63,13 @@ pub fn process_audio(
             // AtomicCell load is lock-free.
             if let Some(net_state) = network.latest_state.load() {
                 // Convert NetworkRenderState back to RenderState
-                // This is simple mapping
                 RenderState {
                     master_gain: net_state.master_gain,
                     channel_gains: net_state.channel_gains,
                     channel_mute_mask: net_state.channel_mute_mask,
                 }
             } else {
-                // Initial state / Disconnected for too long? 
+                // Initial state / Disconnected for too long?
                 // Default to mute or unity? Default trait is unity gain.
                 // Safest is maybe Mute? Or Unity?
                 // Let's use default (Unity, no mute) or Mute.

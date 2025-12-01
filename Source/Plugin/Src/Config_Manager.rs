@@ -6,6 +6,9 @@ use lazy_static::lazy_static;
 // Embed the default config
 const DEFAULT_CONFIG_JSON: &str = include_str!("../../Resource/Speaker_Config.json");
 
+// UTF-8 BOM 字符
+const UTF8_BOM: &str = "\u{FEFF}";
+
 #[derive(Debug, Clone)]
 pub struct ChannelInfo {
     pub name: String,
@@ -39,7 +42,11 @@ impl ConfigManager {
         // In a real scenario, we might try to load from a user file first.
         // For now, we just use the embedded default.
         // FAIL-SAFE: Do not panic here.
-        let raw_config: RawConfig = match serde_json::from_str(DEFAULT_CONFIG_JSON) {
+
+        // 移除可能存在的 UTF-8 BOM 字符
+        let json_str = DEFAULT_CONFIG_JSON.trim_start_matches(UTF8_BOM);
+
+        let raw_config: RawConfig = match serde_json::from_str(json_str) {
             Ok(cfg) => cfg,
             Err(e) => {
                 // If parsing fails, create an empty safe config to prevent crash
@@ -51,7 +58,7 @@ impl ConfigManager {
                 }
             }
         };
-        
+
         Self { raw_config }
     }
 

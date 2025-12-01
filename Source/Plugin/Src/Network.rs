@@ -2,12 +2,12 @@ use std::sync::Arc;
 use std::thread;
 use crossbeam::channel::{unbounded, Sender};
 use crossbeam::atomic::AtomicCell;
-use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv}; // Fix: Added traits
+use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv};
 use bincode;
-use log::{info, error};
 use tokio::runtime::Runtime;
 
 use crate::network_protocol::NetworkRenderState;
+use crate::{mcm_info, mcm_error};
 // Removed unused import: RenderState
 
 pub struct NetworkManager {
@@ -38,10 +38,10 @@ impl NetworkManager {
                 let endpoint = format!("tcp://0.0.0.0:{}", port);
                 
                 if let Err(e) = socket.bind(&endpoint).await {
-                    error!("ZMQ Bind Error: {}", e);
+                    mcm_error!("ZMQ Bind Error: {}", e);
                     return;
                 }
-                info!("ZMQ Publisher bound to {}", endpoint);
+                mcm_info!("ZMQ Publisher bound to {}", endpoint);
 
                 while let Ok(state) = rx.recv() {
                     if let Ok(bytes) = bincode::serialize(&state) {
@@ -62,14 +62,14 @@ impl NetworkManager {
             rt.block_on(async move {
                 let mut socket = SubSocket::new();
                 if let Err(e) = socket.connect(&endpoint).await {
-                    error!("ZMQ Connect Error: {}", e);
+                    mcm_error!("ZMQ Connect Error: {}", e);
                     return;
                 }
                 if let Err(e) = socket.subscribe("").await {
-                    error!("ZMQ Subscribe Error: {}", e);
+                    mcm_error!("ZMQ Subscribe Error: {}", e);
                     return;
                 }
-                info!("ZMQ Subscriber connected to {}", endpoint);
+                mcm_info!("ZMQ Subscriber connected to {}", endpoint);
 
                 loop {
                     // This blocks (asynchronously) until data arrives
@@ -83,7 +83,7 @@ impl NetworkManager {
                             }
                         }
                         Err(e) => {
-                            error!("ZMQ Recv Error: {}", e);
+                            mcm_error!("ZMQ Recv Error: {}", e);
                             // Simple retry delay?
                             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                         }

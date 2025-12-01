@@ -159,8 +159,8 @@ pub struct TechVolumeKnob<'a> {
 
 impl<'a> TechVolumeKnob<'a> {
     pub fn new(value: &'a mut f32, scale: &'a ScaleContext) -> Self {
-        // We'll keep the internal value as dB, but display as percentage
-        Self { value, min: -60.0, max: 12.0, scale } 
+        // 范围: -∞ dB (显示为 -80) 到 0 dB (无增益)
+        Self { value, min: -80.0, max: 0.0, scale }
     }
 }
 
@@ -304,11 +304,15 @@ impl<'a> Widget for TechVolumeKnob<'a> {
 // --- 3. Speaker Box ---
 pub struct SpeakerBox<'a> {
     name: &'a str,
-    active: bool,
+    active: bool,      // !muted (声音开启)
     is_sub: bool,
+    is_solo: bool,     // Solo 状态
     scale: &'a ScaleContext,
     label: Option<&'a str>, // For "CH 7", "AUX" labels below
 }
+
+// Solo 指示颜色（黄色）
+const COLOR_SOLO_INDICATOR: Color32 = Color32::from_rgb(253, 224, 71); // Yellow-300
 
 impl<'a> SpeakerBox<'a> {
     pub fn new(name: &'a str, active: bool, scale: &'a ScaleContext) -> Self {
@@ -316,6 +320,7 @@ impl<'a> SpeakerBox<'a> {
             name,
             active,
             is_sub: name.contains("SUB") || name == "LFE",
+            is_solo: false,
             scale,
             label: None,
         }
@@ -323,6 +328,12 @@ impl<'a> SpeakerBox<'a> {
 
     pub fn with_label(mut self, label: &'a str) -> Self {
         self.label = Some(label);
+        self
+    }
+
+    /// 设置 Solo 状态
+    pub fn solo(mut self, is_solo: bool) -> Self {
+        self.is_solo = is_solo;
         self
     }
 }
@@ -343,11 +354,20 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         let is_hovered = response.hovered();
 
-        let (bg_color, text_color, border_color) = if self.active {
+        // 颜色逻辑：
+        // - Solo 状态：黄色背景
+        // - Active (未 Mute)：深色背景
+        // - Muted：白色背景
+        let (bg_color, text_color, border_color) = if self.is_solo {
+            // Solo 状态：黄色高亮
+            (COLOR_SOLO_INDICATOR, COLOR_TEXT_DARK, Color32::from_rgb(202, 138, 4)) // Yellow border
+        } else if self.active {
+            // Active (未 Mute)：深色
             (COLOR_ACTIVE_SLATE_BG, Color32::WHITE, COLOR_ACTIVE_SLATE_BG)
         } else if is_hovered {
             (Color32::WHITE, COLOR_TEXT_MEDIUM, COLOR_TEXT_MEDIUM)
         } else {
+            // Muted：浅色
             (Color32::WHITE, COLOR_BORDER_LIGHT, COLOR_BORDER_MEDIUM)
         };
 
@@ -357,7 +377,13 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         // 2. Corner Accents (Tech Feel)
         let corner_len = s.s(4.0);
-        let corner_color = if self.active { Color32::WHITE } else { COLOR_BORDER_MEDIUM };
+        let corner_color = if self.is_solo {
+            COLOR_TEXT_DARK // 黄色背景上用深色角标
+        } else if self.active {
+            Color32::WHITE
+        } else {
+            COLOR_BORDER_MEDIUM
+        };
 
         // TL
         painter.rect_filled(Rect::from_min_size(box_rect.min, Vec2::splat(corner_len)), 0.0, corner_color);
@@ -368,7 +394,23 @@ impl<'a> Widget for SpeakerBox<'a> {
         // BR
         painter.rect_filled(Rect::from_min_size(box_rect.right_bottom() - Vec2::splat(corner_len), Vec2::splat(corner_len)), 0.0, corner_color);
 
-        // 3. Text
+        // 3. Solo 指示器 (如果是 Solo 状态，在左上角绘制 "S" 标记)
+        if self.is_solo {
+            let indicator_rect = Rect::from_min_size(
+                box_rect.min + Vec2::new(s.s(6.0), s.s(6.0)),
+                Vec2::splat(s.s(16.0))
+            );
+            painter.rect_filled(indicator_rect, s.s(2.0), COLOR_TEXT_DARK);
+            painter.text(
+                indicator_rect.center(),
+                Align2::CENTER_CENTER,
+                "S",
+                s.mono_font(10.0),
+                COLOR_SOLO_INDICATOR,
+            );
+        }
+
+        // 4. Text (通道名称)
         painter.text(
             box_rect.center(),
             Align2::CENTER_CENTER,
@@ -377,14 +419,14 @@ impl<'a> Widget for SpeakerBox<'a> {
             text_color,
         );
 
-        // 4. External Label (if any)
+        // 5. External Label (if any)
         if let Some(label_text) = self.label {
             let label_rect = Rect::from_min_size(
                 box_rect.left_bottom() + Vec2::new(0.0, s.s(4.0)),
                 Vec2::new(box_size.x, s.s(14.0))
             );
             // Label background tag
-            let tag_width = s.s(30.0);
+            let tag_width = s.s(40.0); // 稍微加宽以容纳 "CH XX"
             let tag_rect = Rect::from_center_size(label_rect.center(), s.vec2(tag_width, 12.0));
             painter.rect_filled(tag_rect, 0.0, Color32::WHITE);
 
