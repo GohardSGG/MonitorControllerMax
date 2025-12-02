@@ -28,32 +28,25 @@ pub enum SoloMode {
 
 #[derive(Params)]
 pub struct ChannelParams {
-    #[id = "mute"]
-    pub mute: BoolParam,
     #[id = "solo"]
     pub solo: BoolParam,
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "mute"]
+    pub mute: BoolParam,
+}
+
+impl ChannelParams {
+    pub fn new(index: usize) -> Self {
+        let prefix = format!("Ch {}", index + 1);
+        Self {
+            solo: BoolParam::new(format!("{} Solo", prefix), false),
+            mute: BoolParam::new(format!("{} Mute", prefix), false),
+        }
+    }
 }
 
 impl Default for ChannelParams {
     fn default() -> Self {
-        Self {
-            mute: BoolParam::new("Mute", false),
-            solo: BoolParam::new("Solo", false),
-            gain: FloatParam::new(
-                "Trim",
-                util::db_to_gain(0.0),
-                FloatRange::Skewed {
-                    min: util::db_to_gain(-12.0),
-                    max: util::db_to_gain(12.0),
-                    factor: FloatRange::gain_skew_factor(-12.0, 12.0),
-                },
-            )
-            .with_unit(" dB")
-            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
-            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
-        }
+        Self::new(0)
     }
 }
 
@@ -85,10 +78,10 @@ pub struct MonitorParams {
     #[id = "sub_layout_idx"]
     pub sub_layout: IntParam,
 
-    // Array of channel parameters
+    // Array of channel parameters (Solo/Mute only, no Trim)
     #[nested(array, group = "Channels")]
     pub channels: [ChannelParams; MAX_CHANNELS],
-    
+
     // Allow Automation (Global Override)
     #[id = "allow_automation"]
     pub allow_automation: BoolParam,
@@ -133,8 +126,8 @@ impl Default for MonitorParams {
                 IntRange::Linear { min: 0, max: (sub_layouts.len().saturating_sub(1)) as i32 }
             ),
 
-            channels: std::array::from_fn(|_| ChannelParams::default()),
-            
+            channels: std::array::from_fn(|i| ChannelParams::new(i)),
+
             allow_automation: BoolParam::new("Allow Automation", false),
         }
     }

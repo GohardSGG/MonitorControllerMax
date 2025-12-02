@@ -1,5 +1,6 @@
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::config_manager::Layout;
+use crate::Interaction::get_interaction_manager;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -27,7 +28,7 @@ impl ChannelLogic {
     /// Pure function to compute RenderState from Params and Layout
     /// `override_role`: If Some, use this role instead of params.role
     pub fn compute(params: &MonitorParams, layout: &Layout, override_role: Option<PluginRole>) -> RenderState {
-        let role = override_role.unwrap_or(params.role.value());
+        let _role = override_role.unwrap_or(params.role.value());
         let master_gain = params.master_gain.value();
         let dim_active = params.dim.value();
         let cut_active = params.cut.value();
@@ -45,38 +46,10 @@ impl ChannelLogic {
         
         state.master_gain = global_gain;
 
-        // 2. Identify Groups and Sets
-        let mut solo_set_main = false;
-        let mut solo_set_sub = false;
-        
-        // We need to know which indices correspond to SUBs.
-        // The layout.channels info tells us.
-        // We can pre-calculate a mask or iterate. Iterating 32 is fast.
-        
-        // First pass: Analyze State
-        for i in 0..layout.total_channels {
-            if i >= MAX_CHANNELS { break; }
+        // 2. 获取 InteractionManager
+        let interaction = get_interaction_manager();
 
-            // 查找通道信息：先查 main_channels，再查 sub_channels
-            let channel_info = layout.main_channels.iter()
-                .chain(layout.sub_channels.iter())
-                .find(|ch| ch.channel_index == i);
-
-            if let Some(ch_info) = channel_info {
-                // 只有名字包含 "SUB" 的是 Group S，LFE 属于 Group M
-                let real_is_sub = ch_info.name.contains("SUB");
-
-                if params.channels[i].solo.value() {
-                    if real_is_sub {
-                        solo_set_sub = true;
-                    } else {
-                        solo_set_main = true;
-                    }
-                }
-            }
-        }
-
-        // 3. Compute Per-Channel Gain
+        // 3. 计算每个通道的增益
         for i in 0..layout.total_channels {
             if i >= MAX_CHANNELS { break; }
 
@@ -86,82 +59,13 @@ impl ChannelLogic {
                 .find(|ch| ch.channel_index == i);
 
             let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
-            let user_mute = params.channels[i].mute.value();
-            let user_solo = params.channels[i].solo.value();
-            let channel_trim = params.channels[i].gain.value(); // Channel Trim
 
-            // Logic Core (v4.0 Spec)
-            let pass = match role {
-                PluginRole::Master | PluginRole::Standalone => {
-                    // Master Logic (Source Control)
-                    // Standalone behaves like Master but without network broadcasting
-                    if user_mute {
-                        0.0
-                    } else {
-                        // AND conditions
-                        let _cond1 = (solo_set_main && !is_sub && user_solo) || (!solo_set_main);
-                        // Explanation:
-                        // If SoloSet_Main is NOT empty: Only allow if I am in SoloSet_Main (and I am Main).
-                        // If I am SUB, this condition doesn't block me here? 
-                        // Wait, spec says:
-                        // "For Main Channel i: ... AND ( (SoloSet_Main not empty AND i in SoloSet) OR ... )"
-                        
-                        let is_main = !is_sub;
-                        
-                        // Condition A: Main Channel Logic
-                        let allow_main = if is_main {
-                            if solo_set_main {
-                                user_solo // Must be explicitly soloed
-                            } else if solo_set_sub {
-                                true // "没 Solo 主，但 Solo SUB，全通喂饱"
-                            } else {
-                                true // No solos
-                            }
-                        } else {
-                            true // Master doesn't filter SUBs (generated downstream usually, but if present here, let pass)
-                        };
-                        
-                        if allow_main { 1.0 } else { 0.0 }
-                    }
-                },
-                PluginRole::Slave => {
-                    // Slave Logic (Monitor Control)
-                    // Pre-check: If Master cut it, it's cut (handled by audio chain).
-                    // We just calculate "Monitor Mute".
-                    
-                    if user_mute {
-                        0.0
-                    } else {
-                        let is_main = !is_sub;
-                        
-                        if is_main {
-                            // Main Channel
-                            if solo_set_main {
-                                if user_solo { 1.0 } else { 0.0 }
-                            } else if solo_set_sub {
-                                0.0 // Solo Only SUB -> Auto-Mute Main
-                            } else {
-                                1.0
-                            }
-                        } else {
-                            // SUB Channel
-                            // "Pass IF: ... AND (SoloSet_Sub is empty OR i in SoloSet_Sub) ..."
-                            // "AND (Master has any main channel open?)" -> "联动豁免: 有源才有声"
-                            // This "Has Source" check is implicit in physics, but we can enforce mute if we know source is dead.
-                            // But for simple logic:
-                            
-                            if solo_set_sub {
-                                if user_solo { 1.0 } else { 0.0 }
-                            } else {
-                                1.0 // Default open (Immunity)
-                            }
-                        }
-                    }
-                }
-            };
+            // 核心：直接使用 InteractionManager 的状态
+            let display = interaction.get_channel_display(i, is_sub);
+            let pass = if display.has_sound { 1.0 } else { 0.0 };
 
-            state.channel_gains[i] = if pass > 0.5 { channel_trim } else { 0.0 };
-            
+            state.channel_gains[i] = pass;
+
             if pass < 0.5 {
                 state.channel_mute_mask |= 1 << i;
             }

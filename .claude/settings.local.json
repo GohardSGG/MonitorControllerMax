@@ -11,7 +11,8 @@
       "Bash(dir /b \"c:\\Code\\MonitorControllerMax\\target\\release\\*.dll\")",
       "Bash(dir:*)",
       "Bash(powershell \"(Get-Item ''c:\\Code\\MonitorControllerMax\\target\\release\\*.vst3'') | Select-Object Name, LastWriteTime\")",
-      "Bash(powershell \"(Get-Item ''C:\\Code\\MonitorControllerMax\\target\\bundled\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")"
+      "Bash(powershell \"(Get-Item ''C:\\Code\\MonitorControllerMax\\target\\bundled\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")",
+      "Bash(powershell \"(Get-Item ''C:\\Plugins\\VST Dev\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")"
     ],
     "deny": [],
     "ask": []

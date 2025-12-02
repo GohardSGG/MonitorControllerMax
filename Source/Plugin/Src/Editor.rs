@@ -675,13 +675,13 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         ui.horizontal(|ui| {
             let padding = (available_width - main_grid_width) / 2.0;
             ui.add_space(padding.max(0.0));
-            render_sub_row_dynamic(ui, scale, &layout, 1..=3, sub_diameter, main_grid_width);
+            render_sub_row_dynamic(ui, scale, &layout, 1..=3, sub_diameter, main_grid_width, params, _setter);
         });
 
         ui.add_space(sub_spacing);
 
         // 主网格
-        render_main_grid_dynamic(ui, scale, &layout, box_size, grid_spacing, label_height);
+        render_main_grid_dynamic(ui, scale, &layout, box_size, grid_spacing, label_height, params, _setter);
 
         ui.add_space(sub_spacing);
 
@@ -689,7 +689,7 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         ui.horizontal(|ui| {
             let padding = (available_width - main_grid_width) / 2.0;
             ui.add_space(padding.max(0.0));
-            render_sub_row_dynamic(ui, scale, &layout, 4..=6, sub_diameter, main_grid_width);
+            render_sub_row_dynamic(ui, scale, &layout, 4..=6, sub_diameter, main_grid_width, params, _setter);
         });
     });
 }
@@ -799,6 +799,8 @@ fn render_sub_row_dynamic(
     pos_range: std::ops::RangeInclusive<u32>,
     sub_diameter: f32,
     container_width: f32,
+    params: &Arc<MonitorParams>,
+    setter: &ParamSetter,
 ) {
     let interaction = get_interaction_manager();
 
@@ -830,12 +832,26 @@ fn render_sub_row_dynamic(
                         mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", ch.channel_index, ch.name);
                     }
                 }
+
+                // 同步状态到 VST3 参数
+                let new_display = interaction.get_channel_display(ch.channel_index, true);
+                let is_solo = new_display.marker == Some(ChannelMarker::Solo);
+                let is_mute = new_display.marker == Some(ChannelMarker::Mute);
+                setter.set_parameter(&params.channels[ch.channel_index].solo, is_solo);
+                setter.set_parameter(&params.channels[ch.channel_index].mute, is_mute);
             }
 
             // 右键：SUB 的 User Mute 反转（替代双击）
             if response.secondary_clicked() {
                 interaction.on_sub_double_click(ch.channel_index);
                 mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", ch.channel_index, ch.name);
+
+                // 同步状态到 VST3 参数
+                let new_display = interaction.get_channel_display(ch.channel_index, true);
+                let is_solo = new_display.marker == Some(ChannelMarker::Solo);
+                let is_mute = new_display.marker == Some(ChannelMarker::Mute);
+                setter.set_parameter(&params.channels[ch.channel_index].solo, is_solo);
+                setter.set_parameter(&params.channels[ch.channel_index].mute, is_mute);
             }
         } else {
             // 空槽位占位（圆形直径）
@@ -856,6 +872,8 @@ fn render_main_grid_dynamic(
     box_size: f32,
     grid_spacing: f32,
     label_height: f32,
+    params: &Arc<MonitorParams>,
+    setter: &ParamSetter,
 ) {
     let interaction = get_interaction_manager();
     let grid_w = layout.width as f32;
@@ -907,6 +925,13 @@ fn render_main_grid_dynamic(
                                 if response.clicked() {
                                     interaction.on_channel_click(ch_idx, is_sub);
                                     mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
+
+                                    // 同步状态到 VST3 参数
+                                    let new_display = interaction.get_channel_display(ch_idx, is_sub);
+                                    let is_solo = new_display.marker == Some(ChannelMarker::Solo);
+                                    let is_mute = new_display.marker == Some(ChannelMarker::Mute);
+                                    setter.set_parameter(&params.channels[ch_idx].solo, is_solo);
+                                    setter.set_parameter(&params.channels[ch_idx].mute, is_mute);
                                 }
                             } else {
                                 // 空位：绘制占位符
