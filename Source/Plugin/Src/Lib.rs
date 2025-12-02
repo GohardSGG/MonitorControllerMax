@@ -105,7 +105,7 @@ impl Plugin for MonitorControllerMax {
             Params::PluginRole::Master => {
                 self.network.init_master(9123);
                 // Initialize OSC for Master (sends to hardware + receives from hardware)
-                self.osc.init();
+                self.osc.init(output_channels as usize);
                 mcm_info!("[OSC] Initialized for Master mode");
             }
             Params::PluginRole::Slave => {
@@ -116,7 +116,7 @@ impl Plugin for MonitorControllerMax {
             Params::PluginRole::Standalone => {
                 // No network initialization - pure local mode
                 // Initialize OSC for Standalone (local hardware control)
-                self.osc.init();
+                self.osc.init(output_channels as usize);
                 mcm_info!("[OSC] Initialized for Standalone mode");
             }
         }

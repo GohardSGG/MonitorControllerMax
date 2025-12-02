@@ -8,6 +8,8 @@ use std::time::Duration;
 use crossbeam::channel::{unbounded, Sender, Receiver, TryRecvError};
 use rosc::{OscPacket, OscMessage, OscType, encoder};
 use log::{info, warn, error};
+use parking_lot::RwLock;
+use lazy_static::lazy_static;
 
 use crate::Interaction::INTERACTION;
 use crate::config_manager::CONFIG;
@@ -43,7 +45,64 @@ pub enum OscOutMessage {
     MasterVolume { value: f32 },
 
     /// 广播所有状态 (初始化时使用)
-    BroadcastAll,
+    BroadcastAll { channel_count: usize },
+}
+
+/// 全局 OSC 发送器 (线程安全单例)
+pub struct OscSender {
+    tx: RwLock<Option<Sender<OscOutMessage>>>,
+}
+
+impl OscSender {
+    pub const fn new() -> Self {
+        Self {
+            tx: RwLock::new(None),
+        }
+    }
+
+    /// 注册发送通道 (由 OscManager::init 调用)
+    pub fn register(&self, tx: Sender<OscOutMessage>) {
+        *self.tx.write() = Some(tx);
+    }
+
+    /// 注销发送通道 (由 OscManager::shutdown 调用)
+    pub fn unregister(&self) {
+        *self.tx.write() = None;
+    }
+
+    /// 发送 Solo 模式按钮状态
+    pub fn send_mode_solo(&self, on: bool) {
+        self.send(OscOutMessage::ModeSolo { on });
+    }
+
+    /// 发送 Mute 模式按钮状态
+    pub fn send_mode_mute(&self, on: bool) {
+        self.send(OscOutMessage::ModeMute { on });
+    }
+
+    /// 发送通道 Solo LED 状态
+    pub fn send_solo_led(&self, ch_idx: usize, on: bool) {
+        let ch_name = OscManager::channel_index_to_name(ch_idx);
+        self.send(OscOutMessage::SoloLed { channel: ch_name, on });
+    }
+
+    /// 发送通道 Mute LED 状态
+    pub fn send_mute_led(&self, ch_idx: usize, on: bool) {
+        let ch_name = OscManager::channel_index_to_name(ch_idx);
+        self.send(OscOutMessage::MuteLed { channel: ch_name, on });
+    }
+
+    /// 内部发送方法
+    fn send(&self, msg: OscOutMessage) {
+        if let Some(tx) = self.tx.read().as_ref() {
+            let _ = tx.try_send(msg);
+        }
+    }
+}
+
+lazy_static! {
+    /// 全局 OSC 发送器单例
+    pub static ref OSC_SENDER: OscSender = OscSender::new();
 }
 
 /// OSC 管理器 - 多线程架构
@@ -56,6 +115,9 @@ pub struct OscManager {
 
     /// 闪烁相位 (true = 亮, false = 灭)
     blink_phase: Arc<AtomicBool>,
+
+    /// 当前音频布局的通道数
+    channel_count: usize,
 
     /// 线程句柄
     send_thread: Option<JoinHandle<()>>,
@@ -70,6 +132,7 @@ impl OscManager {
             send_tx: None,
             is_running: Arc::new(AtomicBool::new(false)),
             blink_phase: Arc::new(AtomicBool::new(false)),
+            channel_count: 0,
             send_thread: None,
             receive_thread: None,
             blink_thread: None,
@@ -77,13 +140,16 @@ impl OscManager {
     }
 
     /// 初始化 OSC (Master 或 Standalone 模式)
-    pub fn init(&mut self) {
+    pub fn init(&mut self, channel_count: usize) {
         if self.is_running.load(Ordering::Relaxed) {
             warn!("[OSC] Already running, skipping initialization");
             return;
         }
 
-        info!("[OSC] Initializing OSC Manager...");
+        info!("[OSC] Initializing OSC Manager with {} channels...", channel_count);
+
+        // 存储通道数
+        self.channel_count = channel_count;
 
         // 创建消息队列
         let (send_tx, send_rx) = unbounded::<OscOutMessage>();
@@ -109,10 +175,13 @@ impl OscManager {
             blink_phase_clone
         ));
 
+        // 注册到全局发送器
+        OSC_SENDER.register(send_tx.clone());
+
         info!("[OSC] All threads started successfully");
 
         // 广播初始状态
-        let _ = send_tx.try_send(OscOutMessage::BroadcastAll);
+        let _ = send_tx.try_send(OscOutMessage::BroadcastAll { channel_count });
     }
 
     /// 关闭 OSC 系统
@@ -138,6 +207,9 @@ impl OscManager {
         }
 
         self.send_tx = None;
+
+        // 注销全局发送器
+        OSC_SENDER.unregister();
 
         info!("[OSC] OSC Manager shutdown complete");
     }
@@ -263,12 +335,12 @@ impl OscManager {
                     let ch_name = Self::channel_index_to_name(ch_idx);
 
                     // 根据当前模式决定闪烁哪个 LED
-                    if INTERACTION.is_solo_active() {
+                    if INTERACTION.is_solo_blinking() {
                         let _ = tx.try_send(OscOutMessage::SoloLed {
                             channel: ch_name,
                             on: new_phase
                         });
-                    } else if INTERACTION.is_mute_active() {
+                    } else if INTERACTION.is_mute_blinking() {
                         let _ = tx.try_send(OscOutMessage::MuteLed {
                             channel: ch_name,
                             on: new_phase
@@ -277,10 +349,10 @@ impl OscManager {
                 }
 
                 // 模式按钮闪烁
-                if INTERACTION.is_solo_active() {
+                if INTERACTION.is_solo_blinking() {
                     let _ = tx.try_send(OscOutMessage::ModeSolo { on: new_phase });
                 }
-                if INTERACTION.is_mute_active() {
+                if INTERACTION.is_mute_blinking() {
                     let _ = tx.try_send(OscOutMessage::ModeMute { on: new_phase });
                 }
             }
@@ -311,8 +383,8 @@ impl OscManager {
             OscOutMessage::MasterVolume { value } => {
                 Self::send_osc_float(socket, target, "/Monitor/Master/Volume", value);
             }
-            OscOutMessage::BroadcastAll => {
-                Self::broadcast_all_states(socket, target);
+            OscOutMessage::BroadcastAll { channel_count } => {
+                Self::broadcast_all_states(socket, target, channel_count);
             }
         }
     }
@@ -439,12 +511,11 @@ impl OscManager {
     }
 
     /// 广播所有当前状态
-    fn broadcast_all_states(socket: &UdpSocket, target: &str) {
-        info!("[OSC] Broadcasting all states...");
+    fn broadcast_all_states(socket: &UdpSocket, target: &str, channel_count: usize) {
+        info!("[OSC] Broadcasting all states for {} channels...", channel_count);
 
         // 1. 所有通道的 Solo/Mute 状态
-        // TODO: Get actual layout from params, for now broadcast all 18 channels
-        for idx in 0..18 {
+        for idx in 0..channel_count {
             let ch_name = Self::channel_index_to_name(idx);
 
             // Solo LED
@@ -477,7 +548,7 @@ impl OscManager {
     }
 
     /// 通道索引 → 名称映射 (匹配旧版 C++ 实现)
-    fn channel_index_to_name(idx: usize) -> String {
+    pub fn channel_index_to_name(idx: usize) -> String {
         let names = ["L", "R", "C", "LFE", "LR", "RR", "LSS", "RSS",
                      "LRS", "RRS", "LTF", "RTF", "LTB", "RTB",
                      "SUB_F", "SUB_B", "SUB_L", "SUB_R"];

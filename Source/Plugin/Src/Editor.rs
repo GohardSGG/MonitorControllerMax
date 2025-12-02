@@ -15,6 +15,7 @@ use crate::scale::ScaleContext;
 use crate::config_manager::CONFIG;
 use crate::mcm_info;
 use crate::Interaction::{get_interaction_manager, SubClickType, ChannelMarker, InteractionManager};
+use crate::osc::OSC_SENDER;
 
 // 用于跨帧追踪布局变化的静态变量
 static PREV_LAYOUT: AtomicI32 = AtomicI32::new(-1);  // -1 表示未初始化
@@ -552,6 +553,12 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
 
                 // 同步所有通道的 enable 参数
                 sync_all_channel_params(params, setter, &interaction);
+
+                // 发送 OSC 模式状态
+                OSC_SENDER.send_mode_solo(interaction.is_solo_active());
+                if !interaction.is_mute_active() {
+                    OSC_SENDER.send_mode_mute(false);
+                }
             }
 
             ui.add_space(scale.s(12.0));
@@ -581,6 +588,12 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
 
                 // 同步所有通道的 enable 参数
                 sync_all_channel_params(params, setter, &interaction);
+
+                // 发送 OSC 模式状态
+                OSC_SENDER.send_mode_mute(interaction.is_mute_active());
+                if !interaction.is_solo_active() {
+                    OSC_SENDER.send_mode_solo(false);
+                }
             }
 
             ui.add_space(scale.s(24.0));
@@ -1139,6 +1152,18 @@ fn render_main_grid_dynamic(
 
                                     // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
                                     sync_all_channel_params(params, setter, interaction);
+
+                                    // 发送 OSC 通道 LED 状态
+                                    let display = interaction.get_channel_display(ch_idx, is_sub);
+                                    match display.marker {
+                                        Some(ChannelMarker::Solo) => OSC_SENDER.send_solo_led(ch_idx, true),
+                                        Some(ChannelMarker::Mute) => OSC_SENDER.send_mute_led(ch_idx, true),
+                                        None => {
+                                            // 清除所有 LED
+                                            OSC_SENDER.send_solo_led(ch_idx, false);
+                                            OSC_SENDER.send_mute_led(ch_idx, false);
+                                        }
+                                    }
                                 }
                             } else {
                                 // 空位：绘制占位符
