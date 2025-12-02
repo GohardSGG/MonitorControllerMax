@@ -731,6 +731,71 @@ impl InteractionManager {
         let counter = self.blink_counter.load(Ordering::Relaxed);
         (counter / 15) % 2 == 0
     }
+
+    // ========== OSC 集成方法 ==========
+
+    /// 切换 Solo 模式 (用于 OSC /Monitor/Mode/Solo)
+    pub fn toggle_solo_mode(&self) {
+        self.on_solo_button_click();
+    }
+
+    /// 切换 Mute 模式 (用于 OSC /Monitor/Mode/Mute)
+    pub fn toggle_mute_mode(&self) {
+        self.on_mute_button_click();
+    }
+
+    /// 处理通道点击 (用于 OSC 通道消息)
+    pub fn handle_click(&self, ch: usize) {
+        self.on_channel_click(ch, false);
+    }
+
+    /// 检查 Solo 是否激活 (Primary 或 Compare)
+    pub fn is_solo_active(&self) -> bool {
+        *self.primary.read() == PrimaryMode::Solo || *self.compare.read() == CompareMode::Solo
+    }
+
+    /// 检查 Mute 是否激活 (Primary 或 Compare)
+    pub fn is_mute_active(&self) -> bool {
+        *self.primary.read() == PrimaryMode::Mute || *self.compare.read() == CompareMode::Mute
+    }
+
+    /// 获取需要闪烁的通道索引列表 (用于 OSC 闪烁定时器)
+    pub fn get_blinking_channels(&self) -> Vec<usize> {
+        let compare = *self.compare.read();
+
+        match compare {
+            CompareMode::Solo => {
+                // Solo Compare 模式: 返回 solo_set 中的所有通道
+                let solo_set = self.solo_set.read();
+                (0..32)
+                    .filter(|&ch| (solo_set.main >> ch) & 1 == 1)
+                    .collect()
+            }
+            CompareMode::Mute => {
+                // Mute Compare 模式: 返回 mute_set 中的所有通道
+                let mute_set = self.mute_set.read();
+                (0..32)
+                    .filter(|&ch| (mute_set.main >> ch) & 1 == 1)
+                    .collect()
+            }
+            CompareMode::None => {
+                // 无比较模式，无闪烁
+                Vec::new()
+            }
+        }
+    }
+
+    /// 检查通道是否应该显示 Solo LED (用于 OSC 反馈)
+    pub fn is_channel_solo(&self, ch: usize) -> bool {
+        let display = self.get_channel_display(ch, false);
+        display.marker == Some(ChannelMarker::Solo)
+    }
+
+    /// 检查通道是否应该显示 Mute LED (用于 OSC 反馈)
+    pub fn is_channel_muted(&self, ch: usize) -> bool {
+        let display = self.get_channel_display(ch, false);
+        display.marker == Some(ChannelMarker::Mute)
+    }
 }
 
 /// 当前激活的 Context 类型
@@ -779,11 +844,15 @@ impl Default for InteractionManager {
 }
 
 // ========== 全局单例 ==========
-use std::sync::OnceLock;
+use lazy_static::lazy_static;
 
-static INTERACTION_MANAGER: OnceLock<InteractionManager> = OnceLock::new();
+lazy_static! {
+    /// 全局交互管理器 (线程安全)
+    pub static ref INTERACTION: InteractionManager = InteractionManager::new();
+}
 
-/// 获取全局交互管理器
+/// 获取全局交互管理器 (已弃用,使用 INTERACTION 替代)
+#[deprecated(note = "Use INTERACTION static instead")]
 pub fn get_interaction_manager() -> &'static InteractionManager {
-    INTERACTION_MANAGER.get_or_init(InteractionManager::new)
+    &INTERACTION
 }

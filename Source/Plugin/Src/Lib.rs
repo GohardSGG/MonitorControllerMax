@@ -16,6 +16,7 @@ mod network_protocol;
 mod channel_logic;
 mod logger;
 mod Interaction;
+mod osc;
 
 // Include auto-generated audio layouts from build.rs
 mod Audio_Layouts {
@@ -24,10 +25,12 @@ mod Audio_Layouts {
 
 use Params::MonitorParams;
 use network::NetworkManager;
+use osc::OscManager;
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
     network: NetworkManager,
+    osc: OscManager,
 }
 
 impl Default for MonitorControllerMax {
@@ -38,6 +41,7 @@ impl Default for MonitorControllerMax {
         Self {
             params: Arc::new(MonitorParams::default()),
             network: NetworkManager::new(),
+            osc: OscManager::new(),
         }
     }
 }
@@ -98,14 +102,25 @@ impl Plugin for MonitorControllerMax {
         // TODO: Port should be configurable via params or config
         let role = self.params.role.value();
         match role {
-            Params::PluginRole::Master => self.network.init_master(9123),
-            Params::PluginRole::Slave => self.network.init_slave("127.0.0.1", 9123),
+            Params::PluginRole::Master => {
+                self.network.init_master(9123);
+                // Initialize OSC for Master (sends to hardware + receives from hardware)
+                self.osc.init();
+                mcm_info!("[OSC] Initialized for Master mode");
+            }
+            Params::PluginRole::Slave => {
+                self.network.init_slave("127.0.0.1", 9123);
+                // Slave mode does NOT use OSC (no hardware control)
+                mcm_info!("[OSC] Disabled for Slave mode");
+            }
             Params::PluginRole::Standalone => {
                 // No network initialization - pure local mode
-                mcm_info!("Running in Standalone mode (no network)");
+                // Initialize OSC for Standalone (local hardware control)
+                self.osc.init();
+                mcm_info!("[OSC] Initialized for Standalone mode");
             }
         }
-        
+
         true
     }
 
@@ -141,6 +156,15 @@ impl Vst3Plugin for MonitorControllerMax {
         Vst3SubCategory::Tools,
         Vst3SubCategory::Spatial,
     ];
+}
+
+impl Drop for MonitorControllerMax {
+    fn drop(&mut self) {
+        mcm_info!("[Plugin] Shutting down...");
+        // OSC Manager will auto-shutdown via its own Drop impl
+        // but we can explicitly shutdown for cleaner logs
+        self.osc.shutdown();
+    }
 }
 
 nih_export_clap!(MonitorControllerMax);
