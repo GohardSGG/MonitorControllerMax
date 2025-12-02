@@ -8,12 +8,17 @@ use nih_plug_egui::egui::{
     Stroke, LayerId, Frame, TopBottomPanel, SidePanel, CentralPanel, Grid, StrokeKind
 };
 use std::sync::Arc;
-use crate::Params::{MonitorParams, PluginRole};
+use std::sync::atomic::{AtomicI32, Ordering};
+use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Components::{self, *};
 use crate::scale::ScaleContext;
 use crate::config_manager::CONFIG;
 use crate::mcm_info;
-use crate::Interaction::{get_interaction_manager, SubClickType, ChannelMarker};
+use crate::Interaction::{get_interaction_manager, SubClickType, ChannelMarker, InteractionManager};
+
+// 用于跨帧追踪布局变化的静态变量
+static PREV_LAYOUT: AtomicI32 = AtomicI32::new(-1);  // -1 表示未初始化
+static PREV_SUB_LAYOUT: AtomicI32 = AtomicI32::new(-1);
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -36,6 +41,50 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
         move |ctx, setter, _state| {
             // 获取 params 的引用供渲染函数使用
             let params = &params_clone;
+
+            // === 布局变化检测（使用 AtomicI32 跨帧持久化）===
+            let current_layout = params.layout.value();
+            let current_sub_layout = params.sub_layout.value();
+
+            let prev_layout = PREV_LAYOUT.load(Ordering::Relaxed);
+            let prev_sub = PREV_SUB_LAYOUT.load(Ordering::Relaxed);
+
+            // 检测变化：prev != -1（已初始化）且值不同
+            let layout_changed = (prev_layout != -1 && prev_layout != current_layout) ||
+                                 (prev_sub != -1 && prev_sub != current_sub_layout);
+
+            // 更新存储的值
+            PREV_LAYOUT.store(current_layout, Ordering::Relaxed);
+            PREV_SUB_LAYOUT.store(current_sub_layout, Ordering::Relaxed);
+
+            // 如果布局发生变化且处于手动模式，同步所有通道参数
+            if layout_changed {
+                let interaction = get_interaction_manager();
+                if !interaction.is_automation_mode() {
+                    // 获取布局名称和通道数
+                    let speaker_layouts = CONFIG.get_speaker_layouts();
+                    let sub_layouts = CONFIG.get_sub_layouts();
+
+                    let prev_speaker_name = speaker_layouts.get(prev_layout as usize)
+                        .cloned().unwrap_or_else(|| "?".to_string());
+                    let curr_speaker_name = speaker_layouts.get(current_layout as usize)
+                        .cloned().unwrap_or_else(|| "?".to_string());
+                    let prev_sub_name = sub_layouts.get(prev_sub as usize)
+                        .cloned().unwrap_or_else(|| "?".to_string());
+                    let curr_sub_name = sub_layouts.get(current_sub_layout as usize)
+                        .cloned().unwrap_or_else(|| "?".to_string());
+
+                    let prev_total = CONFIG.get_layout(&prev_speaker_name, &prev_sub_name).total_channels;
+                    let curr_total = CONFIG.get_layout(&curr_speaker_name, &curr_sub_name).total_channels;
+
+                    mcm_info!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
+                        prev_speaker_name, prev_sub_name, curr_speaker_name, curr_sub_name,
+                        prev_total, curr_total);
+
+                    sync_all_channel_params(params, setter, interaction);
+                }
+            }
+
             // 1. 从 EguiState 获取物理像素尺寸（关键！不能用 ctx.screen_rect()）
             let (physical_width, _) = egui_state_clone.size();
             let scale = ScaleContext::from_physical_size(physical_width, BASE_WIDTH);
@@ -137,6 +186,57 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
     )
 }
 
+/// 同步所有通道的 enable 参数到 VST3（手动模式下使用）
+fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, interaction: &InteractionManager) {
+    // 获取当前布局信息
+    let layout_idx = params.layout.value() as usize;
+    let sub_idx = params.sub_layout.value() as usize;
+
+    let speaker_layouts = CONFIG.get_speaker_layouts();
+    let sub_layouts = CONFIG.get_sub_layouts();
+
+    let speaker_name = speaker_layouts.get(layout_idx)
+        .cloned()
+        .unwrap_or_else(|| "7.1.4".to_string());
+    let sub_name = sub_layouts.get(sub_idx)
+        .cloned()
+        .unwrap_or_else(|| "None".to_string());
+
+    let layout = CONFIG.get_layout(&speaker_name, &sub_name);
+
+    // 同步所有通道并生成摘要
+    let mut on_mask: u32 = 0;
+    for i in 0..layout.total_channels {
+        if i >= MAX_CHANNELS { break; }
+
+        // 查找通道信息
+        let channel_info = layout.main_channels.iter()
+            .chain(layout.sub_channels.iter())
+            .find(|ch| ch.channel_index == i);
+
+        let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
+
+        // 获取通道显示状态
+        let display = interaction.get_channel_display(i, is_sub);
+
+        // 记录到位掩码
+        if display.has_sound {
+            on_mask |= 1 << i;
+        }
+
+        // 同步到 VST3 参数
+        setter.begin_set_parameter(&params.channels[i].enable);
+        setter.set_parameter(&params.channels[i].enable, display.has_sound);
+        setter.end_set_parameter(&params.channels[i].enable);
+    }
+
+    // 输出同步摘要日志
+    let on_count = on_mask.count_ones();
+    let off_count = layout.total_channels as u32 - on_count;
+    mcm_info!("[SYNC] {}ch: {}on/{}off mask=0x{:x}",
+        layout.total_channels, on_count, off_count, on_mask);
+}
+
 /// 渲染顶部标题栏 - 参数绑定版
 fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
     let _header_height = scale.s(40.0);
@@ -212,12 +312,17 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             let current_layout_idx = params.layout.value() as usize;
             let current_sub_idx = params.sub_layout.value() as usize;
 
+            // === 检查是否允许布局切换 ===
+            let interaction = get_interaction_manager();
+            let is_automation = interaction.is_automation_mode();
+            let can_change_layout = !is_automation; // 自动化模式下禁止切换布局
+
             // --- Helper: 带微调偏移的 Dropdown (参数绑定版) ---
             let dropdown_y_offset_local = dropdown_y_offset;
             let combo_font_local = combo_font.clone();
 
             // 1. Subs dropdown (First in Right-to-Left layout = Last Visually)
-            {
+            ui.add_enabled_ui(can_change_layout, |ui| {
                 let box_size = Vec2::new(scale.s(80.0), scale.s(40.0));
                 ui.allocate_ui(box_size, |ui| {
                     ui.set_min_width(scale.s(80.0));
@@ -248,14 +353,14 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                             });
                     });
                 });
-            }
+            });
 
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Sub");
             ui.add_space(scale.s(12.0));
 
             // 2. Maps dropdown (Speaker Layout)
-            {
+            ui.add_enabled_ui(can_change_layout, |ui| {
                 let box_size = Vec2::new(scale.s(80.0), scale.s(40.0));
                 ui.allocate_ui(box_size, |ui| {
                     ui.set_min_width(scale.s(80.0));
@@ -286,7 +391,7 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                             });
                     });
                 });
-            }
+            });
 
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Map");
@@ -321,6 +426,16 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                                             _ => PluginRole::Standalone,
                                         };
                                         mcm_info!("[Editor] Role changed: {:?} -> {:?}", current_role, new_role);
+
+                                        // 如果切换到 Master/Slave，自动退出自动化模式
+                                        if new_role != PluginRole::Standalone {
+                                            let interaction = get_interaction_manager();
+                                            if interaction.is_automation_mode() {
+                                                interaction.exit_automation_mode();
+                                                mcm_info!("[Editor] Auto-exited automation mode (switched to {:?})", new_role);
+                                            }
+                                        }
+
                                         setter.begin_set_parameter(&params.role);
                                         setter.set_parameter(&params.role, new_role);
                                         setter.end_set_parameter(&params.role);
@@ -434,6 +549,9 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 mcm_info!("[Editor] SOLO clicked: ({:?}, {:?}) -> ({:?}, {:?})",
                     primary_before, compare_before,
                     interaction.get_primary(), interaction.get_compare());
+
+                // 同步所有通道的 enable 参数
+                sync_all_channel_params(params, setter, &interaction);
             }
 
             ui.add_space(scale.s(12.0));
@@ -460,11 +578,75 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 mcm_info!("[Editor] MUTE clicked: ({:?}, {:?}) -> ({:?}, {:?})",
                     primary_before, compare_before,
                     interaction.get_primary(), interaction.get_compare());
+
+                // 同步所有通道的 enable 参数
+                sync_all_channel_params(params, setter, &interaction);
             }
 
             ui.add_space(scale.s(24.0));
             ui.separator();
             ui.add_space(scale.s(24.0));
+
+            // ========== 自动化模式切换 ==========
+            let role = params.role.value();
+            let is_automation = interaction.is_automation_mode();
+            let can_use_automation = role == crate::Params::PluginRole::Standalone;
+
+            // 自动化模式切换按钮
+            ui.add_enabled_ui(can_use_automation, |ui| {
+                let button_text = if is_automation { "退出自动化" } else { "启用自动化" };
+                let auto_btn = BrutalistButton::new(button_text, scale)
+                    .full_width(true)
+                    .active(is_automation);
+
+                if ui.add(auto_btn).clicked() {
+                    if is_automation {
+                        interaction.exit_automation_mode();
+                        mcm_info!("[AUTO] Exit: idle state, will sync to all=On on next UI update");
+                        // 同步所有通道参数到全 On（退出自动化 = Idle）
+                        sync_all_channel_params(params, setter, &interaction);
+                    } else {
+                        // 弹出确认对话框（使用 egui 的临时状态）
+                        let dialog_id = ui.id().with("automation_confirm");
+                        ui.memory_mut(|m| m.data.insert_temp(dialog_id, true));
+                    }
+                }
+            });
+
+            if !can_use_automation {
+                ui.label(egui::RichText::new("(仅 Standalone 可用)")
+                    .size(scale.s(9.0))
+                    .color(egui::Color32::from_rgb(156, 163, 175)));
+            }
+
+            // 确认对话框
+            let dialog_id = ui.id().with("automation_confirm");
+            let show_dialog = ui.memory(|m| m.data.get_temp::<bool>(dialog_id).unwrap_or(false));
+            if show_dialog {
+                egui::Window::new("确认启用自动化")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ui.ctx(), |ui| {
+                        ui.label("启用自动化模式将清空当前的 Solo/Mute 设置。");
+                        ui.label("确定要继续吗？");
+                        ui.add_space(scale.s(12.0));
+                        ui.horizontal(|ui| {
+                            if ui.button("确定").clicked() {
+                                interaction.enter_automation_mode();
+                                mcm_info!("[AUTO] Enter: cleared all state, params unchanged (controlled by DAW)");
+                                ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
+                            }
+                            if ui.button("取消").clicked() {
+                                ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
+                            }
+                        });
+                    });
+            }
+
+            ui.add_space(scale.s(16.0));
+            ui.separator();
+            ui.add_space(scale.s(16.0));
 
             // Volume Knob Area - 绑定到 params.master_gain
             ui.vertical_centered(|ui| {
@@ -605,6 +787,24 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
 
 /// 渲染音箱矩阵（新版：SUB 在上下轨道，整体居中）
 fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, _setter: &ParamSetter) {
+    // 检查是否处于自动化模式
+    let interaction = get_interaction_manager();
+    let is_automation = interaction.is_automation_mode();
+
+    // 自动化模式全局提示
+    if is_automation {
+        ui.horizontal(|ui| {
+            ui.add_space(scale.s(16.0));
+            ui.label(egui::RichText::new("🔒 自动化控制中")
+                .size(scale.s(14.0))
+                .color(egui::Color32::from_rgb(251, 191, 36))); // Amber-400
+            ui.label(egui::RichText::new("(通道状态由 VST3 参数控制)")
+                .size(scale.s(11.0))
+                .color(egui::Color32::from_rgb(156, 163, 175))); // Gray-400
+        });
+        ui.add_space(scale.s(8.0));
+    }
+
     // 绘制背景网格
     let rect = ui.max_rect();
     draw_grid_background(ui, rect, scale);
@@ -803,6 +1003,7 @@ fn render_sub_row_dynamic(
     setter: &ParamSetter,
 ) {
     let interaction = get_interaction_manager();
+    let is_automation = interaction.is_automation_mode();
 
     // 计算 SUB 行内的间距，使 3 个按钮均匀分布在 container_width 内
     // 总宽度 = 3 * sub_diameter + 2 * spacing = container_width
@@ -812,15 +1013,26 @@ fn render_sub_row_dynamic(
     for pos in pos_range.clone() {
         // 查找该位置的 SUB 通道
         if let Some(ch) = layout.sub_channels.iter().find(|c| c.grid_pos == pos) {
-            let display = interaction.get_channel_display(ch.channel_index, true);
-            let sub_btn = Components::SubButton::new(&ch.name, scale)
-                .diameter(sub_diameter)
-                .solo(display.marker == Some(ChannelMarker::Solo))
-                .muted(display.marker == Some(ChannelMarker::Mute));
+            let sub_btn = if is_automation {
+                // 自动化模式：从参数读取状态，显示为锁定样式
+                let enable = params.channels[ch.channel_index].enable.value();
+                Components::SubButton::new(&ch.name, scale)
+                    .diameter(sub_diameter)
+                    .enabled(enable)
+                    .locked(true)
+            } else {
+                // 手动模式：使用 InteractionManager 状态
+                let display = interaction.get_channel_display(ch.channel_index, true);
+                Components::SubButton::new(&ch.name, scale)
+                    .diameter(sub_diameter)
+                    .solo(display.marker == Some(ChannelMarker::Solo))
+                    .muted(display.marker == Some(ChannelMarker::Mute))
+            };
 
             let response = ui.add(sub_btn);
 
-            if response.clicked() {
+            // 点击处理（仅手动模式）
+            if response.clicked() && !is_automation {
                 let click_type = interaction.detect_sub_click(ch.channel_index);
                 match click_type {
                     SubClickType::SingleClick => {
@@ -833,25 +1045,17 @@ fn render_sub_row_dynamic(
                     }
                 }
 
-                // 同步状态到 VST3 参数
-                let new_display = interaction.get_channel_display(ch.channel_index, true);
-                let is_solo = new_display.marker == Some(ChannelMarker::Solo);
-                let is_mute = new_display.marker == Some(ChannelMarker::Mute);
-                setter.set_parameter(&params.channels[ch.channel_index].solo, is_solo);
-                setter.set_parameter(&params.channels[ch.channel_index].mute, is_mute);
+                // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
+                sync_all_channel_params(params, setter, interaction);
             }
 
-            // 右键：SUB 的 User Mute 反转（替代双击）
-            if response.secondary_clicked() {
+            // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式）
+            if response.secondary_clicked() && !is_automation {
                 interaction.on_sub_double_click(ch.channel_index);
                 mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", ch.channel_index, ch.name);
 
-                // 同步状态到 VST3 参数
-                let new_display = interaction.get_channel_display(ch.channel_index, true);
-                let is_solo = new_display.marker == Some(ChannelMarker::Solo);
-                let is_mute = new_display.marker == Some(ChannelMarker::Mute);
-                setter.set_parameter(&params.channels[ch.channel_index].solo, is_solo);
-                setter.set_parameter(&params.channels[ch.channel_index].mute, is_mute);
+                // 全通道同步（SUB Mute 操作可能影响整体状态）
+                sync_all_channel_params(params, setter, interaction);
             }
         } else {
             // 空槽位占位（圆形直径）
@@ -897,41 +1101,44 @@ fn render_main_grid_dynamic(
                             if let Some(ch) = layout.main_channels.iter().find(|c| c.grid_pos == grid_pos) {
                                 let ch_idx = ch.channel_index;
                                 let is_sub = false;
-
-                                // 使用新的 get_channel_display API 获取通道显示状态
-                                let display = interaction.get_channel_display(ch_idx, is_sub);
-
-                                // 闪烁逻辑：如果是 Compare 模式，根据计时器决定是否显示
-                                let blink_show = interaction.should_blink_show();
-                                let (show_solo, show_mute) = if display.is_blinking && !blink_show {
-                                    // 闪烁的"灭"阶段：显示为灰色
-                                    (false, false)
-                                } else {
-                                    // 正常显示或闪烁的"亮"阶段
-                                    (display.marker == Some(ChannelMarker::Solo),
-                                     display.marker == Some(ChannelMarker::Mute))
-                                };
+                                let is_automation = interaction.is_automation_mode();
 
                                 let channel_label = format!("CH {}", ch_idx + 1);
-                                let speaker_box = SpeakerBox::new(&ch.name, scale)
-                                    .size(box_size)
-                                    .solo(show_solo)
-                                    .muted(show_mute)
-                                    .with_label(&channel_label);
+                                let speaker_box = if is_automation {
+                                    // 自动化模式：从参数读取状态，显示为锁定样式
+                                    let enable = params.channels[ch_idx].enable.value();
+                                    SpeakerBox::new(&ch.name, scale)
+                                        .size(box_size)
+                                        .enabled(enable)
+                                        .locked(true)
+                                        .with_label(&channel_label)
+                                } else {
+                                    // 手动模式：使用 InteractionManager 状态
+                                    let display = interaction.get_channel_display(ch_idx, is_sub);
+                                    let blink_show = interaction.should_blink_show();
+                                    let (show_solo, show_mute) = if display.is_blinking && !blink_show {
+                                        (false, false)
+                                    } else {
+                                        (display.marker == Some(ChannelMarker::Solo),
+                                         display.marker == Some(ChannelMarker::Mute))
+                                    };
+
+                                    SpeakerBox::new(&ch.name, scale)
+                                        .size(box_size)
+                                        .solo(show_solo)
+                                        .muted(show_mute)
+                                        .with_label(&channel_label)
+                                };
 
                                 let response = ui.add(speaker_box);
 
-                                // 点击处理
-                                if response.clicked() {
+                                // 点击处理（仅手动模式）
+                                if response.clicked() && !is_automation {
                                     interaction.on_channel_click(ch_idx, is_sub);
                                     mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
 
-                                    // 同步状态到 VST3 参数
-                                    let new_display = interaction.get_channel_display(ch_idx, is_sub);
-                                    let is_solo = new_display.marker == Some(ChannelMarker::Solo);
-                                    let is_mute = new_display.marker == Some(ChannelMarker::Mute);
-                                    setter.set_parameter(&params.channels[ch_idx].solo, is_solo);
-                                    setter.set_parameter(&params.channels[ch_idx].mute, is_mute);
+                                    // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
+                                    sync_all_channel_params(params, setter, interaction);
                                 }
                             } else {
                                 // 空位：绘制占位符

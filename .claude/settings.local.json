@@ -12,7 +12,13 @@
       "Bash(dir:*)",
       "Bash(powershell \"(Get-Item ''c:\\Code\\MonitorControllerMax\\target\\release\\*.vst3'') | Select-Object Name, LastWriteTime\")",
       "Bash(powershell \"(Get-Item ''C:\\Code\\MonitorControllerMax\\target\\bundled\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")",
-      "Bash(powershell \"(Get-Item ''C:\\Plugins\\VST Dev\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")"
+      "Bash(powershell \"(Get-Item ''C:\\Plugins\\VST Dev\\monitor_controller_max.vst3'') | Select-Object Name, LastWriteTime, @{Name=''Size'';Expression={''{0:N2} MB'' -f ($_Length/1MB)}}\")",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 30\")",
+      "Bash(powershell \"(Get-Item ''c:\\Code\\MonitorControllerMax\\target\\release\\monitor_controller_max.dll'').LastWriteTime\")",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 50\")",
+      "Bash(find:*)",
+      "Bash(git -C \"c:\\Code\\MonitorControllerMax\" log --oneline -20)",
+      "Bash(git -C c:CodeMonitorControllerMax log --all --oneline \"--grep=OSC\\|hardware\\|Loupedeck\\|StreamDeck\" -i)"
     ],
     "deny": [],
     "ask": []

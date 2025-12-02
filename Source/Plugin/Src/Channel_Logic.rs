@@ -32,10 +32,10 @@ impl ChannelLogic {
         let master_gain = params.master_gain.value();
         let dim_active = params.dim.value();
         let cut_active = params.cut.value();
-        
+
         let mut state = RenderState::default();
-        
-        // 1. Global Level Processing
+
+        // 1. Global Level Processing (两种模式都生效)
         let global_gain = if cut_active {
             0.0
         } else if dim_active {
@@ -43,34 +43,49 @@ impl ChannelLogic {
         } else {
             master_gain
         };
-        
+
         state.master_gain = global_gain;
 
         // 2. 获取 InteractionManager
         let interaction = get_interaction_manager();
 
-        // 3. 计算每个通道的增益
-        for i in 0..layout.total_channels {
-            if i >= MAX_CHANNELS { break; }
+        // 3. 双路径音频处理
+        if interaction.is_automation_mode() {
+            // ========== 自动化模式：直接读取 VST3 Enable 参数 ==========
+            for i in 0..layout.total_channels {
+                if i >= MAX_CHANNELS { break; }
 
-            // 查找通道信息
-            let channel_info = layout.main_channels.iter()
-                .chain(layout.sub_channels.iter())
-                .find(|ch| ch.channel_index == i);
+                let enable = params.channels[i].enable.value();
+                state.channel_gains[i] = if enable { 1.0 } else { 0.0 };
 
-            let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
+                if !enable {
+                    state.channel_mute_mask |= 1 << i;
+                }
+            }
+        } else {
+            // ========== 手动模式：使用 InteractionManager 状态机 ==========
+            for i in 0..layout.total_channels {
+                if i >= MAX_CHANNELS { break; }
 
-            // 核心：直接使用 InteractionManager 的状态
-            let display = interaction.get_channel_display(i, is_sub);
-            let pass = if display.has_sound { 1.0 } else { 0.0 };
+                // 查找通道信息
+                let channel_info = layout.main_channels.iter()
+                    .chain(layout.sub_channels.iter())
+                    .find(|ch| ch.channel_index == i);
 
-            state.channel_gains[i] = pass;
+                let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
 
-            if pass < 0.5 {
-                state.channel_mute_mask |= 1 << i;
+                // 核心：直接使用 InteractionManager 的状态
+                let display = interaction.get_channel_display(i, is_sub);
+                let pass = if display.has_sound { 1.0 } else { 0.0 };
+
+                state.channel_gains[i] = pass;
+
+                if pass < 0.5 {
+                    state.channel_mute_mask |= 1 << i;
+                }
             }
         }
-        
+
         state
     }
 }

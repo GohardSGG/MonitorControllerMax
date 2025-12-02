@@ -28,18 +28,14 @@ pub enum SoloMode {
 
 #[derive(Params)]
 pub struct ChannelParams {
-    #[id = "solo"]
-    pub solo: BoolParam,
-    #[id = "mute"]
-    pub mute: BoolParam,
+    #[id = "enable"]
+    pub enable: BoolParam,
 }
 
 impl ChannelParams {
     pub fn new(index: usize) -> Self {
-        let prefix = format!("Ch {}", index + 1);
         Self {
-            solo: BoolParam::new(format!("{} Solo", prefix), false),
-            mute: BoolParam::new(format!("{} Mute", prefix), false),
+            enable: BoolParam::new(format!("Ch {} Enable", index + 1), true),
         }
     }
 }
@@ -78,13 +74,9 @@ pub struct MonitorParams {
     #[id = "sub_layout_idx"]
     pub sub_layout: IntParam,
 
-    // Array of channel parameters (Solo/Mute only, no Trim)
+    // Array of channel parameters (Enable only)
     #[nested(array, group = "Channels")]
     pub channels: [ChannelParams; MAX_CHANNELS],
-
-    // Allow Automation (Global Override)
-    #[id = "allow_automation"]
-    pub allow_automation: BoolParam,
 }
 
 impl Default for MonitorParams {
@@ -127,8 +119,6 @@ impl Default for MonitorParams {
             ),
 
             channels: std::array::from_fn(|i| ChannelParams::new(i)),
-
-            allow_automation: BoolParam::new("Allow Automation", false),
         }
     }
 }

@@ -324,6 +324,8 @@ pub struct SpeakerBox<'a> {
     scale: &'a ScaleContext,
     label: Option<&'a str>, // For "CH 7", "AUX" labels below
     custom_size: Option<f32>, // 自定义尺寸（如果为 None 则使用默认值）
+    is_locked: bool,   // 自动化模式锁定
+    is_enabled: bool,  // 自动化模式的 On/Off 状态
 }
 
 // 通道颜色
@@ -344,6 +346,8 @@ impl<'a> SpeakerBox<'a> {
             scale,
             label: None,
             custom_size: None,
+            is_locked: false,
+            is_enabled: false,
         }
     }
 
@@ -375,6 +379,18 @@ impl<'a> SpeakerBox<'a> {
         }
         self
     }
+
+    /// 设置锁定状态 (自动化模式)
+    pub fn locked(mut self, locked: bool) -> Self {
+        self.is_locked = locked;
+        self
+    }
+
+    /// 设置启用状态 (自动化模式的 On/Off)
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.is_enabled = enabled;
+        self
+    }
 }
 
 impl<'a> Widget for SpeakerBox<'a> {
@@ -390,10 +406,10 @@ impl<'a> Widget for SpeakerBox<'a> {
             s.vec2(96.0, 96.0)
         };
 
-        // Container for Box + Label
+        // Container for Box + Label (锁定模式下禁用点击)
         let (rect, response) = ui.allocate_exact_size(
             if self.label.is_some() { box_size + Vec2::new(0.0, s.s(20.0)) } else { box_size },
-            Sense::click()
+            if self.is_locked { Sense::hover() } else { Sense::click() }
         );
 
         let box_rect = Rect::from_min_size(rect.min, box_size);
@@ -401,15 +417,20 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         let is_hovered = response.hovered();
 
-        // 颜色逻辑（简化版）：
-        // - 无状态 (Idle)：深色背景 rgb(30, 41, 59)
-        // - Solo：绿色背景
-        // - Mute：红色背景
-        // 优先级：Mute > Solo > Idle
+        // 颜色逻辑
         const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59);  // 深色背景
         const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85);  // 悬停时稍亮
 
-        let (bg_color, text_color, border_color) = if self.is_muted {
+        let (mut bg_color, mut text_color, border_color) = if self.is_locked {
+            // 锁定模式：使用 is_enabled 决定颜色
+            if self.is_enabled {
+                // On 状态：绿色（降低不透明度）
+                (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+            } else {
+                // Off 状态：深灰色
+                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+            }
+        } else if self.is_muted {
             // Mute 状态：红色
             (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
         } else if self.is_solo {
@@ -423,6 +444,12 @@ impl<'a> Widget for SpeakerBox<'a> {
                 (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
             }
         };
+
+        // 锁定模式：降低不透明度
+        if self.is_locked {
+            bg_color = Color32::from_rgba_unmultiplied(bg_color.r(), bg_color.g(), bg_color.b(), 128);
+            text_color = Color32::from_rgba_unmultiplied(text_color.r(), text_color.g(), text_color.b(), 128);
+        }
 
         // 1. Box Background
         painter.rect_filled(box_rect, 0.0, bg_color);
@@ -478,6 +505,17 @@ impl<'a> Widget for SpeakerBox<'a> {
             );
         }
 
+        // 3.6 锁定指示器 (如果是自动化模式，在中心绘制锁定图标)
+        if self.is_locked {
+            painter.text(
+                box_rect.center() + Vec2::new(0.0, s.s(20.0)),
+                Align2::CENTER_CENTER,
+                "🔒",
+                s.font(12.0),
+                Color32::from_rgb(251, 191, 36), // Amber-400
+            );
+        }
+
         // 4. Text (通道名称)
         painter.text(
             box_rect.center(),
@@ -518,6 +556,8 @@ pub struct SubButton<'a> {
     is_muted: bool,
     diameter: f32,
     scale: &'a ScaleContext,
+    is_locked: bool,
+    is_enabled: bool,
 }
 
 impl<'a> SubButton<'a> {
@@ -528,6 +568,8 @@ impl<'a> SubButton<'a> {
             is_muted: false,
             diameter: scale.s(32.0),  // 默认直径 32px
             scale,
+            is_locked: false,
+            is_enabled: false,
         }
     }
 
@@ -548,6 +590,18 @@ impl<'a> SubButton<'a> {
         self.is_muted = is_muted;
         self
     }
+
+    /// 设置锁定状态 (自动化模式)
+    pub fn locked(mut self, locked: bool) -> Self {
+        self.is_locked = locked;
+        self
+    }
+
+    /// 设置启用状态 (自动化模式的 On/Off)
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.is_enabled = enabled;
+        self
+    }
 }
 
 impl<'a> Widget for SubButton<'a> {
@@ -555,7 +609,10 @@ impl<'a> Widget for SubButton<'a> {
         let s = self.scale;
         let size = Vec2::splat(self.diameter);
 
-        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let (rect, response) = ui.allocate_exact_size(
+            size,
+            if self.is_locked { Sense::hover() } else { Sense::click() }
+        );
         let painter = ui.painter();
         let center = rect.center();
         let radius = self.diameter / 2.0;
@@ -566,7 +623,14 @@ impl<'a> Widget for SubButton<'a> {
         const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59);  // 深色背景
         const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85);  // 悬停时稍亮
 
-        let (bg_color, text_color, border_color) = if self.is_muted {
+        let (mut bg_color, mut text_color, border_color) = if self.is_locked {
+            // 锁定模式：使用 is_enabled 决定颜色
+            if self.is_enabled {
+                (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+            } else {
+                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+            }
+        } else if self.is_muted {
             // Mute 状态：红色
             (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
         } else if self.is_solo {
@@ -580,6 +644,12 @@ impl<'a> Widget for SubButton<'a> {
                 (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
             }
         };
+
+        // 锁定模式：降低不透明度
+        if self.is_locked {
+            bg_color = Color32::from_rgba_unmultiplied(bg_color.r(), bg_color.g(), bg_color.b(), 128);
+            text_color = Color32::from_rgba_unmultiplied(text_color.r(), text_color.g(), text_color.b(), 128);
+        }
 
         // 绘制圆形背景
         painter.circle_filled(center, radius, bg_color);

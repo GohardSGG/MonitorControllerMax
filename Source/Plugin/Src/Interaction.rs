@@ -8,6 +8,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
+use crate::mcm_info;
 
 /// 主模式 - 先进入的模式，常亮
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +180,9 @@ pub struct InteractionManager {
 
     /// 闪烁计数器 (用于动画)
     blink_counter: AtomicU32,
+
+    /// 自动化模式 (是否处于自动化控制模式)
+    automation_mode: RwLock<bool>,
 }
 
 impl InteractionManager {
@@ -193,6 +197,7 @@ impl InteractionManager {
             user_mute_sub: RwLock::new(0),
             double_click: RwLock::new(DoubleClickDetector::new()),
             blink_counter: AtomicU32::new(0),
+            automation_mode: RwLock::new(false),
         }
     }
 
@@ -248,6 +253,31 @@ impl InteractionManager {
     /// 检查通道是否在 Mute 集合中
     pub fn is_in_mute_set(&self, ch: usize, is_sub: bool) -> bool {
         self.mute_set.read().contains(ch, is_sub)
+    }
+
+    // ========== 自动化模式管理 ==========
+
+    /// 检查是否处于自动化模式
+    pub fn is_automation_mode(&self) -> bool {
+        *self.automation_mode.read()
+    }
+
+    /// 进入自动化模式（清空所有状态机状态）
+    pub fn enter_automation_mode(&self) {
+        *self.solo_set.write() = ChannelSet::new();
+        *self.mute_set.write() = ChannelSet::new();
+        *self.primary.write() = PrimaryMode::None;
+        *self.compare.write() = CompareMode::None;
+        *self.solo_has_memory.write() = false;
+        *self.mute_has_memory.write() = false;
+        *self.user_mute_sub.write() = 0;
+        *self.automation_mode.write() = true;
+    }
+
+    /// 退出自动化模式（保持清空状态）
+    pub fn exit_automation_mode(&self) {
+        *self.automation_mode.write() = false;
+        // 不恢复任何状态，保持 Idle
     }
 
     // ========== 辅助函数 ==========
@@ -336,6 +366,14 @@ impl InteractionManager {
             }
             Action::None => {}
         }
+
+        // 记录状态变化（在所有操作完成后）
+        let new_primary = *self.primary.read();
+        let new_compare = *self.compare.read();
+        let solo_mask = self.solo_set.read().main;
+        let mute_mask = self.mute_set.read().main;
+        mcm_info!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo=0x{:x} mute=0x{:x}",
+            current_primary, current_compare, new_primary, new_compare, solo_mask, mute_mask);
     }
 
     /// MUTE 按钮点击
@@ -410,6 +448,14 @@ impl InteractionManager {
             }
             Action::None => {}
         }
+
+        // 记录状态变化（在所有操作完成后）
+        let new_primary = *self.primary.read();
+        let new_compare = *self.compare.read();
+        let solo_mask = self.solo_set.read().main;
+        let mute_mask = self.mute_set.read().main;
+        mcm_info!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo=0x{:x} mute=0x{:x}",
+            current_primary, current_compare, new_primary, new_compare, solo_mask, mute_mask);
     }
 
     // ========== 通道操作 ==========
@@ -442,7 +488,7 @@ impl InteractionManager {
         let compare = *self.compare.read();
         let ctx = self.get_active_context();
 
-        match ctx {
+        let result = match ctx {
             None => {
                 // Idle 状态，什么都不做
                 false
@@ -485,14 +531,28 @@ impl InteractionManager {
 
                 true
             }
+        };
+
+        // 记录通道点击日志
+        if result {
+            let solo_mask = self.solo_set.read().main;
+            let mute_mask = self.mute_set.read().main;
+            let ch_type = if is_sub { "SUB" } else { "Main" };
+            mcm_info!("[CH] {}{} click: solo=0x{:x} mute=0x{:x}",
+                ch_type, ch, solo_mask, mute_mask);
         }
+
+        result
     }
 
     /// SUB 双击 - User Mute (强制静音，优先级最高)
     pub fn on_sub_double_click(&self, ch: usize) -> bool {
         if ch < 32 {
+            let old_mask = *self.user_mute_sub.read();
             let mut user_mute = self.user_mute_sub.write();
             *user_mute ^= 1 << ch;  // 切换位
+            let new_mask = *user_mute;
+            mcm_info!("[CH] SUB{} dblclick: user_mute 0x{:x}->0x{:x}", ch, old_mask, new_mask);
             true
         } else {
             false
@@ -520,10 +580,10 @@ impl InteractionManager {
         let primary = *self.primary.read();
         let compare = *self.compare.read();
 
-        // Idle 状态：全部灰色
+        // Idle 状态：全部灰色（UI），但音频全通（has_sound = true）
         if primary == PrimaryMode::None {
             return ChannelDisplay {
-                has_sound: false,
+                has_sound: true,   // ← 修复：Idle = 全通
                 marker: None,
                 is_blinking: false,
             };
