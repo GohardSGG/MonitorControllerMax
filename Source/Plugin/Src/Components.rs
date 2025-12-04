@@ -172,8 +172,8 @@ pub struct TechVolumeKnob<'a> {
 
 impl<'a> TechVolumeKnob<'a> {
     pub fn new(value: &'a mut f32, scale: &'a ScaleContext) -> Self {
-        // 范围: -∞ dB (显示为 -80) 到 0 dB (无增益)
-        Self { value, min: -80.0, max: 0.0, scale }
+        // 范围: 0% 到 100% (线性百分比，匹配旧 C++ 版本的 OSC 行为)
+        Self { value, min: 0.0, max: 100.0, scale }
     }
 }
 
@@ -298,7 +298,9 @@ impl<'a> Widget for TechVolumeKnob<'a> {
         painter.line_segment([p1, p2], Stroke::new(s.s(4.0), COLOR_TEXT_DARK));
 
         // --- FIX: Restore the percentage display ---
-        let t = (*self.value - self.min) / (self.max - self.min);
+        // 确保值在合法范围内，避免显示负百分比
+        let clamped_value = (*self.value).clamp(self.min, self.max);
+        let t = (clamped_value - self.min) / (self.max - self.min);
         let percentage = t * 100.0;
 
         // The text is drawn on top of the rhombus, so it's placed here at the end.

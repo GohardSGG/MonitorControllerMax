@@ -26,6 +26,7 @@ rust-embed = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 rosc = "0.10"
+dirs = "5.0"
 
 [build-dependencies]
 serde_json = "1.0"

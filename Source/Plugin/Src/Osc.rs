@@ -2,23 +2,17 @@
 
 use std::net::UdpSocket;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use crossbeam::channel::{unbounded, Sender, Receiver, TryRecvError};
+use crossbeam::channel::{unbounded, Sender, Receiver};
 use rosc::{OscPacket, OscMessage, OscType, encoder};
 use log::{info, warn, error};
 use parking_lot::RwLock;
 use lazy_static::lazy_static;
 
 use crate::Interaction::INTERACTION;
-use crate::config_manager::CONFIG;
-
-/// OSC Send Port (Plugin → Hardware)
-const OSC_SEND_PORT: u16 = 7444;
-
-/// OSC Receive Port (Hardware → Plugin)
-const OSC_RECEIVE_PORT: u16 = 7445;
+use crate::config_file::APP_CONFIG;
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;
@@ -26,14 +20,22 @@ const BLINK_INTERVAL_MS: u64 = 500;
 /// Maximum queued OSC messages to prevent memory overflow
 const MAX_QUEUE_SIZE: usize = 1000;
 
+/// 当前音频布局的通道数（用于广播）
+static CURRENT_CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// 通道 LED 状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelLedState {
+    Off = 0,    // 不亮
+    Mute = 1,   // 红色
+    Solo = 2,   // 绿色
+}
+
 /// OSC 输出消息类型
 #[derive(Debug, Clone)]
 pub enum OscOutMessage {
-    /// Solo LED 状态: channel name, on (1.0 = green, 0.0 = off)
-    SoloLed { channel: String, on: bool },
-
-    /// Mute LED 状态: channel name, on (1.0 = red, 0.0 = off)
-    MuteLed { channel: String, on: bool },
+    /// 通道 LED 状态: channel name, state (0=off, 1=mute/red, 2=solo/green)
+    ChannelLed { channel: String, state: ChannelLedState },
 
     /// Solo Mode 按钮状态: on (1.0 = active/blinking, 0.0 = off)
     ModeSolo { on: bool },
@@ -44,8 +46,19 @@ pub enum OscOutMessage {
     /// Master Volume 值: 0.0 to 1.0
     MasterVolume { value: f32 },
 
+    /// Dim 状态: on (1.0 = active, 0.0 = off)
+    Dim { on: bool },
+
+    /// Cut 状态: on (1.0 = active, 0.0 = off)
+    Cut { on: bool },
+
     /// 广播所有状态 (初始化时使用)
-    BroadcastAll { channel_count: usize },
+    BroadcastAll {
+        channel_count: usize,
+        master_volume: f32,
+        dim: bool,
+        cut: bool,
+    },
 }
 
 /// 全局 OSC 发送器 (线程安全单例)
@@ -80,16 +93,25 @@ impl OscSender {
         self.send(OscOutMessage::ModeMute { on });
     }
 
-    /// 发送通道 Solo LED 状态
-    pub fn send_solo_led(&self, ch_idx: usize, on: bool) {
+    /// 发送通道 LED 状态（合并版）
+    pub fn send_channel_led(&self, ch_idx: usize, state: ChannelLedState) {
         let ch_name = OscManager::channel_index_to_name(ch_idx);
-        self.send(OscOutMessage::SoloLed { channel: ch_name, on });
+        self.send(OscOutMessage::ChannelLed { channel: ch_name, state });
     }
 
-    /// 发送通道 Mute LED 状态
-    pub fn send_mute_led(&self, ch_idx: usize, on: bool) {
-        let ch_name = OscManager::channel_index_to_name(ch_idx);
-        self.send(OscOutMessage::MuteLed { channel: ch_name, on });
+    /// 发送主音量（0.0 ~ 1.0 线性值）
+    pub fn send_master_volume(&self, value: f32) {
+        self.send(OscOutMessage::MasterVolume { value });
+    }
+
+    /// 发送 Dim 状态
+    pub fn send_dim(&self, on: bool) {
+        self.send(OscOutMessage::Dim { on });
+    }
+
+    /// 发送 Cut 状态
+    pub fn send_cut(&self, on: bool) {
+        self.send(OscOutMessage::Cut { on });
     }
 
     /// 内部发送方法
@@ -103,6 +125,65 @@ impl OscSender {
 lazy_static! {
     /// 全局 OSC 发送器单例
     pub static ref OSC_SENDER: OscSender = OscSender::new();
+}
+
+/// OSC 接收状态 (从外部接收到的参数变化)
+pub struct OscReceiver {
+    /// Master Volume (使用 f32 的位表示存储在 AtomicU32 中)
+    master_volume: AtomicU32,
+    /// Dim 状态
+    dim: AtomicBool,
+    /// Cut 状态
+    cut: AtomicBool,
+    /// 是否有待处理的变化
+    has_pending: AtomicBool,
+}
+
+impl OscReceiver {
+    pub const fn new() -> Self {
+        Self {
+            master_volume: AtomicU32::new(0),  // 0.0 的位表示
+            dim: AtomicBool::new(false),
+            cut: AtomicBool::new(false),
+            has_pending: AtomicBool::new(false),
+        }
+    }
+
+    /// 设置 Master Volume (从 OSC 接收)
+    pub fn set_master_volume(&self, value: f32) {
+        self.master_volume.store(value.to_bits(), Ordering::Relaxed);
+        self.has_pending.store(true, Ordering::Relaxed);
+    }
+
+    /// 设置 Dim (从 OSC 接收)
+    pub fn set_dim(&self, on: bool) {
+        self.dim.store(on, Ordering::Relaxed);
+        self.has_pending.store(true, Ordering::Relaxed);
+    }
+
+    /// 设置 Cut (从 OSC 接收)
+    pub fn set_cut(&self, on: bool) {
+        self.cut.store(on, Ordering::Relaxed);
+        self.has_pending.store(true, Ordering::Relaxed);
+    }
+
+    /// 获取并清除待处理的变化
+    pub fn get_pending_changes(&self) -> Option<(f32, bool, bool)> {
+        if !self.has_pending.swap(false, Ordering::Relaxed) {
+            return None;
+        }
+
+        let volume = f32::from_bits(self.master_volume.load(Ordering::Relaxed));
+        let dim = self.dim.load(Ordering::Relaxed);
+        let cut = self.cut.load(Ordering::Relaxed);
+
+        Some((volume, dim, cut))
+    }
+}
+
+lazy_static! {
+    /// 全局 OSC 接收器单例
+    pub static ref OSC_RECEIVER: OscReceiver = OscReceiver::new();
 }
 
 /// OSC 管理器 - 多线程架构
@@ -140,7 +221,7 @@ impl OscManager {
     }
 
     /// 初始化 OSC (Master 或 Standalone 模式)
-    pub fn init(&mut self, channel_count: usize) {
+    pub fn init(&mut self, channel_count: usize, master_volume: f32, dim: bool, cut: bool) {
         if self.is_running.load(Ordering::Relaxed) {
             warn!("[OSC] Already running, skipping initialization");
             return;
@@ -150,6 +231,8 @@ impl OscManager {
 
         // 存储通道数
         self.channel_count = channel_count;
+        // 存储通道数供静态方法使用
+        CURRENT_CHANNEL_COUNT.store(channel_count, Ordering::Relaxed);
 
         // 创建消息队列
         let (send_tx, send_rx) = unbounded::<OscOutMessage>();
@@ -181,7 +264,12 @@ impl OscManager {
         info!("[OSC] All threads started successfully");
 
         // 广播初始状态
-        let _ = send_tx.try_send(OscOutMessage::BroadcastAll { channel_count });
+        let _ = send_tx.try_send(OscOutMessage::BroadcastAll {
+            channel_count,
+            master_volume,
+            dim,
+            cut,
+        });
     }
 
     /// 关闭 OSC 系统
@@ -228,14 +316,23 @@ impl OscManager {
         self.blink_phase.load(Ordering::Relaxed)
     }
 
+    /// 更新当前音频布局的通道数（当 GUI 布局变化时调用）
+    pub fn update_channel_count(new_count: usize) {
+        CURRENT_CHANNEL_COUNT.store(new_count, Ordering::Relaxed);
+        info!("[OSC] Channel count updated to: {}", new_count);
+    }
+
     // ==================== 线程实现 ====================
 
-    /// 发送线程 - 处理 UDP 7444 发送
+    /// 发送线程 - 处理 UDP 发送
     fn spawn_send_thread(rx: Receiver<OscOutMessage>, is_running: Arc<AtomicBool>) -> JoinHandle<()> {
         thread::spawn(move || {
-            info!("[OSC Send] Thread started, binding to 0.0.0.0:0 → broadcast to 127.0.0.1:{}", OSC_SEND_PORT);
+            let config = APP_CONFIG.get();
+            let send_port = config.osc_send_port;
 
-            // 绑定 UDP Socket (发送到 127.0.0.1:7444)
+            info!("[OSC Send] Thread started, binding to 0.0.0.0:0 → broadcast to 127.0.0.1:{}", send_port);
+
+            // 绑定 UDP Socket
             let socket = match UdpSocket::bind("0.0.0.0:0") {
                 Ok(s) => s,
                 Err(e) => {
@@ -244,19 +341,26 @@ impl OscManager {
                 }
             };
 
-            let target_addr = format!("127.0.0.1:{}", OSC_SEND_PORT);
+            let target_addr = format!("127.0.0.1:{}", send_port);
 
-            // 主循环
+            // 主循环：使用阻塞接收 + 批量处理，消除轮询延迟
             while is_running.load(Ordering::Relaxed) {
-                match rx.try_recv() {
+                // 阻塞等待第一条消息（100ms 超时用于检查运行状态）
+                match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(msg) => {
+                        // 立即处理第一条消息
                         Self::process_outgoing_message(&socket, &target_addr, msg);
+
+                        // 批量处理队列中所有待发消息（避免消息间延迟）
+                        while let Ok(msg) = rx.try_recv() {
+                            Self::process_outgoing_message(&socket, &target_addr, msg);
+                        }
                     }
-                    Err(TryRecvError::Empty) => {
-                        // 没有消息,短暂休眠
-                        thread::sleep(Duration::from_millis(1));
+                    Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
+                        // 超时正常，继续等待
+                        continue;
                     }
-                    Err(TryRecvError::Disconnected) => {
+                    Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
                         warn!("[OSC Send] Channel disconnected, exiting thread");
                         break;
                     }
@@ -267,13 +371,16 @@ impl OscManager {
         })
     }
 
-    /// 接收线程 - 处理 UDP 7445 接收
+    /// 接收线程 - 处理 UDP 接收
     fn spawn_receive_thread(is_running: Arc<AtomicBool>) -> JoinHandle<()> {
         thread::spawn(move || {
-            info!("[OSC Recv] Thread started, binding to 0.0.0.0:{}", OSC_RECEIVE_PORT);
+            let config = APP_CONFIG.get();
+            let recv_port = config.osc_receive_port;
+
+            info!("[OSC Recv] Thread started, binding to 0.0.0.0:{}", recv_port);
 
             // 绑定 UDP Socket
-            let socket = match UdpSocket::bind(format!("0.0.0.0:{}", OSC_RECEIVE_PORT)) {
+            let socket = match UdpSocket::bind(format!("0.0.0.0:{}", recv_port)) {
                 Ok(s) => s,
                 Err(e) => {
                     error!("[OSC Recv] Failed to bind socket: {}", e);
@@ -334,18 +441,21 @@ impl OscManager {
                 for ch_idx in blinking_channels {
                     let ch_name = Self::channel_index_to_name(ch_idx);
 
-                    // 根据当前模式决定闪烁哪个 LED
-                    if INTERACTION.is_solo_blinking() {
-                        let _ = tx.try_send(OscOutMessage::SoloLed {
-                            channel: ch_name,
-                            on: new_phase
-                        });
-                    } else if INTERACTION.is_mute_blinking() {
-                        let _ = tx.try_send(OscOutMessage::MuteLed {
-                            channel: ch_name,
-                            on: new_phase
-                        });
-                    }
+                    // 闪烁时交替亮/灭
+                    let state = if new_phase {
+                        if INTERACTION.is_solo_blinking() {
+                            ChannelLedState::Solo
+                        } else {
+                            ChannelLedState::Mute
+                        }
+                    } else {
+                        ChannelLedState::Off
+                    };
+
+                    let _ = tx.try_send(OscOutMessage::ChannelLed {
+                        channel: ch_name,
+                        state
+                    });
                 }
 
                 // 模式按钮闪烁
@@ -366,13 +476,9 @@ impl OscManager {
     /// 处理发送的 OSC 消息
     fn process_outgoing_message(socket: &UdpSocket, target: &str, msg: OscOutMessage) {
         match msg {
-            OscOutMessage::SoloLed { channel, on } => {
-                let addr = format!("/Monitor/Solo/{}", channel);
-                Self::send_osc_float(socket, target, &addr, if on { 1.0 } else { 0.0 });
-            }
-            OscOutMessage::MuteLed { channel, on } => {
-                let addr = format!("/Monitor/Mute/{}", channel);
-                Self::send_osc_float(socket, target, &addr, if on { 1.0 } else { 0.0 });
+            OscOutMessage::ChannelLed { channel, state } => {
+                let addr = format!("/Monitor/Channel/{}", channel);
+                Self::send_osc_float(socket, target, &addr, state as u8 as f32);
             }
             OscOutMessage::ModeSolo { on } => {
                 Self::send_osc_float(socket, target, "/Monitor/Mode/Solo", if on { 1.0 } else { 0.0 });
@@ -383,8 +489,14 @@ impl OscManager {
             OscOutMessage::MasterVolume { value } => {
                 Self::send_osc_float(socket, target, "/Monitor/Master/Volume", value);
             }
-            OscOutMessage::BroadcastAll { channel_count } => {
-                Self::broadcast_all_states(socket, target, channel_count);
+            OscOutMessage::Dim { on } => {
+                Self::send_osc_float(socket, target, "/Monitor/Master/Dim", if on { 1.0 } else { 0.0 });
+            }
+            OscOutMessage::Cut { on } => {
+                Self::send_osc_float(socket, target, "/Monitor/Master/Cut", if on { 1.0 } else { 0.0 });
+            }
+            OscOutMessage::BroadcastAll { channel_count, master_volume, dim, cut } => {
+                Self::broadcast_all_states(socket, target, channel_count, master_volume, dim, cut);
             }
         }
     }
@@ -430,6 +542,15 @@ impl OscManager {
             Self::handle_mode_solo(value);
         } else if addr == "/Monitor/Mode/Mute" {
             Self::handle_mode_mute(value);
+        } else if addr == "/Monitor/Master/Volume" {
+            Self::handle_master_volume(value);
+        } else if addr == "/Monitor/Master/Dim" {
+            Self::handle_dim(value);
+        } else if addr == "/Monitor/Master/Cut" {
+            Self::handle_cut(value);
+        } else if addr.starts_with("/Monitor/Channel/") {
+            let ch_name = &addr[17..]; // 跳过 "/Monitor/Channel/"
+            Self::handle_channel_click(ch_name, value);
         } else if addr.starts_with("/Monitor/Solo/") {
             let ch_name = &addr[14..]; // 跳过 "/Monitor/Solo/"
             Self::handle_solo_channel(ch_name, value);
@@ -447,6 +568,13 @@ impl OscManager {
         if value > 0.5 {
             info!("[OSC] Mode Solo pressed");
             INTERACTION.toggle_solo_mode();
+
+            // 回传模式按钮状态给硬件
+            let is_active = INTERACTION.is_solo_active();
+            OSC_SENDER.send_mode_solo(is_active);
+
+            // 广播所有通道 LED 状态
+            Self::broadcast_channel_states();
         }
     }
 
@@ -454,7 +582,39 @@ impl OscManager {
         if value > 0.5 {
             info!("[OSC] Mode Mute pressed");
             INTERACTION.toggle_mute_mode();
+
+            // 回传模式按钮状态给硬件
+            let is_active = INTERACTION.is_mute_active();
+            OSC_SENDER.send_mode_mute(is_active);
+
+            // 广播所有通道 LED 状态
+            Self::broadcast_channel_states();
         }
+    }
+
+    fn handle_channel_click(channel_name: &str, value: f32) {
+        let ch_idx = match Self::channel_name_to_index(channel_name) {
+            Some(idx) => idx,
+            None => {
+                warn!("[OSC] Unknown channel name: {}", channel_name);
+                return;
+            }
+        };
+
+        // 根据 value 区分语义
+        let state = value.round() as u8;
+
+        if state == 1 {
+            // value ≈ 1.0 → 点击事件（toggle）
+            info!("[OSC] Channel {} click (toggle)", channel_name);
+            INTERACTION.handle_click(ch_idx);
+        } else {
+            // value ≈ 0.0 或 2.0 → 目标状态（直接设置）
+            info!("[OSC] Channel {} set state → {}", channel_name, state);
+            INTERACTION.set_channel_state(ch_idx, state);
+        }
+
+        Self::broadcast_channel_states();
     }
 
     fn handle_solo_channel(channel_name: &str, value: f32) {
@@ -469,6 +629,7 @@ impl OscManager {
         if value > 0.5 {
             info!("[OSC] Solo channel pressed: {} (index {})", channel_name, ch_idx);
             INTERACTION.handle_click(ch_idx);
+            Self::broadcast_channel_states();
         }
     }
 
@@ -484,7 +645,27 @@ impl OscManager {
         if value > 0.5 {
             info!("[OSC] Mute channel pressed: {} (index {})", channel_name, ch_idx);
             INTERACTION.handle_click(ch_idx);
+            Self::broadcast_channel_states();
         }
+    }
+
+    fn handle_master_volume(value: f32) {
+        // 限制范围 0.0 ~ 1.0
+        let clamped = value.clamp(0.0, 1.0);
+        info!("[OSC] Master volume received: {:.3}", clamped);
+        OSC_RECEIVER.set_master_volume(clamped);
+    }
+
+    fn handle_dim(value: f32) {
+        let on = value > 0.5;
+        info!("[OSC] Dim received: {}", on);
+        OSC_RECEIVER.set_dim(on);
+    }
+
+    fn handle_cut(value: f32) {
+        let on = value > 0.5;
+        info!("[OSC] Cut received: {}", on);
+        OSC_RECEIVER.set_cut(on);
     }
 
     // ==================== 工具函数 ====================
@@ -511,25 +692,25 @@ impl OscManager {
     }
 
     /// 广播所有当前状态
-    fn broadcast_all_states(socket: &UdpSocket, target: &str, channel_count: usize) {
+    fn broadcast_all_states(socket: &UdpSocket, target: &str, channel_count: usize, master_volume: f32, dim: bool, cut: bool) {
         info!("[OSC] Broadcasting all states for {} channels...", channel_count);
 
-        // 1. 所有通道的 Solo/Mute 状态
+        // 1. 所有通道的 LED 状态（三态：0=off, 1=mute, 2=solo）
         for idx in 0..channel_count {
             let ch_name = Self::channel_index_to_name(idx);
 
-            // Solo LED
-            let solo_on = INTERACTION.is_channel_solo(idx);
-            Self::send_osc_float(socket, target,
-                &format!("/Monitor/Solo/{}", ch_name),
-                if solo_on { 1.0 } else { 0.0 }
-            );
+            // 确定通道状态
+            let state = if INTERACTION.is_channel_solo(idx) {
+                ChannelLedState::Solo  // 2 = 绿色
+            } else if INTERACTION.is_channel_muted(idx) {
+                ChannelLedState::Mute  // 1 = 红色
+            } else {
+                ChannelLedState::Off   // 0 = 不亮
+            };
 
-            // Mute LED
-            let mute_on = INTERACTION.is_channel_muted(idx);
             Self::send_osc_float(socket, target,
-                &format!("/Monitor/Mute/{}", ch_name),
-                if mute_on { 1.0 } else { 0.0 }
+                &format!("/Monitor/Channel/{}", ch_name),
+                state as u8 as f32
             );
         }
 
@@ -541,10 +722,46 @@ impl OscManager {
             if INTERACTION.is_mute_active() { 1.0 } else { 0.0 }
         );
 
-        // 3. Master Volume (TODO: 从参数读取)
-        Self::send_osc_float(socket, target, "/Monitor/Master/Volume", 0.75);
+        // 3. Master Volume (从参数传入)
+        Self::send_osc_float(socket, target, "/Monitor/Master/Volume", master_volume);
+
+        // 4. Dim 状态
+        Self::send_osc_float(socket, target, "/Monitor/Master/Dim",
+            if dim { 1.0 } else { 0.0 }
+        );
+
+        // 5. Cut 状态
+        Self::send_osc_float(socket, target, "/Monitor/Master/Cut",
+            if cut { 1.0 } else { 0.0 }
+        );
 
         info!("[OSC] Broadcast complete");
+    }
+
+    /// 广播所有通道的 LED 状态（三态：0=off, 1=mute, 2=solo）
+    /// 用于通道点击后同步所有受影响的通道状态
+    pub fn broadcast_channel_states() {
+        let channel_count = CURRENT_CHANNEL_COUNT.load(Ordering::Relaxed);
+        if channel_count == 0 {
+            warn!("[OSC] Channel count not initialized, skipping broadcast");
+            return;
+        }
+
+        info!("[OSC] Broadcasting all channel LED states for {} channels...", channel_count);
+
+        for ch_idx in 0..channel_count {
+            let state = if INTERACTION.is_channel_solo(ch_idx) {
+                ChannelLedState::Solo  // 2 = 绿色
+            } else if INTERACTION.is_channel_muted(ch_idx) {
+                ChannelLedState::Mute  // 1 = 红色
+            } else {
+                ChannelLedState::Off   // 0 = 不亮
+            };
+
+            let ch_name = Self::channel_index_to_name(ch_idx);
+            info!("[OSC] Channel {} → {:?}", ch_name, state);
+            OSC_SENDER.send_channel_led(ch_idx, state);
+        }
     }
 
     /// 通道索引 → 名称映射 (匹配旧版 C++ 实现)

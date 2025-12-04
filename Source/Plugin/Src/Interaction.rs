@@ -74,6 +74,17 @@ impl ChannelSet {
         }
     }
 
+    /// 设置主声道状态（true=加入集合，false=移除）
+    pub fn set_main(&mut self, ch: usize, on: bool) {
+        if ch < 32 {
+            if on {
+                self.main |= 1 << ch;   // 设置位
+            } else {
+                self.main &= !(1 << ch); // 清除位
+            }
+        }
+    }
+
     /// 检查主声道是否在集合中
     pub fn contains_main(&self, ch: usize) -> bool {
         if ch < 32 {
@@ -543,6 +554,34 @@ impl InteractionManager {
         }
 
         result
+    }
+
+    /// 直接设置通道状态（用于 OSC 目标状态模式）
+    /// state: 0=Off, 1=Mute, 2=Solo（在当前上下文中）
+    pub fn set_channel_state(&self, ch: usize, state: u8) {
+        let ctx = self.get_active_context();
+
+        match ctx {
+            None => {
+                // Idle 状态，忽略
+            }
+            Some(ActiveContext::Solo) => {
+                let mut solo_set = self.solo_set.write();
+                match state {
+                    0 => solo_set.set_main(ch, false),  // Off = 移除 Solo
+                    2 => solo_set.set_main(ch, true),   // Solo = 加入 Solo
+                    _ => {}
+                }
+            }
+            Some(ActiveContext::Mute) => {
+                let mut mute_set = self.mute_set.write();
+                match state {
+                    0 => mute_set.set_main(ch, false),  // Off = 移除 Mute
+                    1 => mute_set.set_main(ch, true),   // Mute = 加入 Mute
+                    _ => {}
+                }
+            }
+        }
     }
 
     /// SUB 双击 - User Mute (强制静音，优先级最高)

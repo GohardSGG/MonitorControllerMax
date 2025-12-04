@@ -13,9 +13,10 @@ use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Components::{self, *};
 use crate::scale::ScaleContext;
 use crate::config_manager::CONFIG;
+use crate::config_file::APP_CONFIG;
 use crate::mcm_info;
 use crate::Interaction::{get_interaction_manager, SubClickType, ChannelMarker, InteractionManager};
-use crate::osc::OSC_SENDER;
+use crate::osc::{OSC_SENDER, OSC_RECEIVER, OscManager};
 
 // 用于跨帧追踪布局变化的静态变量
 static PREV_LAYOUT: AtomicI32 = AtomicI32::new(-1);  // -1 表示未初始化
@@ -82,8 +83,39 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         prev_speaker_name, prev_sub_name, curr_speaker_name, curr_sub_name,
                         prev_total, curr_total);
 
+                    // 更新 OSC 通道数（布局变化后立即更新）
+                    OscManager::update_channel_count(curr_total);
+
                     sync_all_channel_params(params, setter, interaction);
+
+                    // 布局变化后广播完整状态给硬件
+                    OscManager::broadcast_channel_states();
                 }
+            }
+
+            // === OSC 接收处理：检查是否有从外部接收的参数变化 ===
+            if let Some((volume, dim, cut)) = OSC_RECEIVER.get_pending_changes() {
+                // 更新 Master Volume
+                setter.begin_set_parameter(&params.master_gain);
+                setter.set_parameter(&params.master_gain, volume);
+                setter.end_set_parameter(&params.master_gain);
+
+                // 更新 Dim
+                setter.begin_set_parameter(&params.dim);
+                setter.set_parameter(&params.dim, dim);
+                setter.end_set_parameter(&params.dim);
+
+                // 更新 Cut
+                setter.begin_set_parameter(&params.cut);
+                setter.set_parameter(&params.cut, cut);
+                setter.end_set_parameter(&params.cut);
+
+                mcm_info!("[OSC Recv] Applied changes: volume={:.3}, dim={}, cut={}", volume, dim, cut);
+
+                // 立即回显 OSC 状态（告诉硬件控制器参数已更新）
+                OSC_SENDER.send_master_volume(volume);
+                OSC_SENDER.send_dim(dim);
+                OSC_SENDER.send_cut(cut);
             }
 
             // 1. 从 EguiState 获取物理像素尺寸（关键！不能用 ctx.screen_rect()）
@@ -182,6 +214,46 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                                     render_speaker_matrix(ui, &scale, params, setter);
                                 });
                         });
+
+                    // 设置弹窗
+                    let dialog_id = egui::Id::new("settings_dialog");
+                    let show_settings = ctx.memory(|m| m.data.get_temp::<bool>(dialog_id).unwrap_or(false));
+
+                    if show_settings {
+                        egui::Window::new("Settings")
+                            .collapsible(false)
+                            .resizable(false)
+                            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                            .show(ctx, |ui| {
+                                render_settings_content(ui, &scale, dialog_id, params, setter);
+                            });
+
+                        // 自动化确认对话框（从设置窗口触发）
+                        let confirm_id = egui::Id::new("automation_confirm_from_settings");
+                        let show_confirm = ctx.memory(|m| m.data.get_temp::<bool>(confirm_id).unwrap_or(false));
+                        if show_confirm {
+                            egui::Window::new("确认启用自动化")
+                                .collapsible(false)
+                                .resizable(false)
+                                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                                .show(ctx, |ui| {
+                                    ui.label("启用自动化模式将清空当前的 Solo/Mute 设置。");
+                                    ui.label("确定要继续吗？");
+                                    ui.add_space(scale.s(12.0));
+                                    ui.horizontal(|ui| {
+                                        if ui.button("确定").clicked() {
+                                            let interaction = get_interaction_manager();
+                                            interaction.enter_automation_mode();
+                                            mcm_info!("[AUTO] Enter: cleared all state, params unchanged (controlled by DAW)");
+                                            ui.memory_mut(|m| m.data.remove::<bool>(confirm_id));
+                                        }
+                                        if ui.button("取消").clicked() {
+                                            ui.memory_mut(|m| m.data.remove::<bool>(confirm_id));
+                                        }
+                                    });
+                                });
+                        }
+                    }
                 });
         },
     )
@@ -398,6 +470,21 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             label_with_offset(ui, "Map");
             ui.add_space(scale.s(12.0));
 
+            // 齿轮设置按钮
+            {
+                let gear_btn = ui.add(egui::Button::new(RichText::new("⚙")
+                    .font(scale.font(18.0))
+                    .color(COLOR_TEXT_MEDIUM))
+                    .frame(false));
+
+                if gear_btn.clicked() {
+                    let dialog_id = egui::Id::new("settings_dialog");
+                    ui.ctx().memory_mut(|m| m.data.insert_temp(dialog_id, true));
+                }
+            }
+
+            ui.add_space(scale.s(12.0));
+
             // 3. Role dropdown (Plugin Role)
             {
                 let box_size = Vec2::new(scale.s(100.0), scale.s(40.0));
@@ -559,6 +646,9 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 if !interaction.is_mute_active() {
                     OSC_SENDER.send_mode_mute(false);
                 }
+
+                // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
+                OscManager::broadcast_channel_states();
             }
 
             ui.add_space(scale.s(12.0));
@@ -594,94 +684,38 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 if !interaction.is_solo_active() {
                     OSC_SENDER.send_mode_solo(false);
                 }
+
+                // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
+                OscManager::broadcast_channel_states();
             }
 
             ui.add_space(scale.s(24.0));
             ui.separator();
             ui.add_space(scale.s(24.0));
-
-            // ========== 自动化模式切换 ==========
-            let role = params.role.value();
-            let is_automation = interaction.is_automation_mode();
-            let can_use_automation = role == crate::Params::PluginRole::Standalone;
-
-            // 自动化模式切换按钮
-            ui.add_enabled_ui(can_use_automation, |ui| {
-                let button_text = if is_automation { "退出自动化" } else { "启用自动化" };
-                let auto_btn = BrutalistButton::new(button_text, scale)
-                    .full_width(true)
-                    .active(is_automation);
-
-                if ui.add(auto_btn).clicked() {
-                    if is_automation {
-                        interaction.exit_automation_mode();
-                        mcm_info!("[AUTO] Exit: idle state, will sync to all=On on next UI update");
-                        // 同步所有通道参数到全 On（退出自动化 = Idle）
-                        sync_all_channel_params(params, setter, &interaction);
-                    } else {
-                        // 弹出确认对话框（使用 egui 的临时状态）
-                        let dialog_id = ui.id().with("automation_confirm");
-                        ui.memory_mut(|m| m.data.insert_temp(dialog_id, true));
-                    }
-                }
-            });
-
-            if !can_use_automation {
-                ui.label(egui::RichText::new("(仅 Standalone 可用)")
-                    .size(scale.s(9.0))
-                    .color(egui::Color32::from_rgb(156, 163, 175)));
-            }
-
-            // 确认对话框
-            let dialog_id = ui.id().with("automation_confirm");
-            let show_dialog = ui.memory(|m| m.data.get_temp::<bool>(dialog_id).unwrap_or(false));
-            if show_dialog {
-                egui::Window::new("确认启用自动化")
-                    .collapsible(false)
-                    .resizable(false)
-                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                    .show(ui.ctx(), |ui| {
-                        ui.label("启用自动化模式将清空当前的 Solo/Mute 设置。");
-                        ui.label("确定要继续吗？");
-                        ui.add_space(scale.s(12.0));
-                        ui.horizontal(|ui| {
-                            if ui.button("确定").clicked() {
-                                interaction.enter_automation_mode();
-                                mcm_info!("[AUTO] Enter: cleared all state, params unchanged (controlled by DAW)");
-                                ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
-                            }
-                            if ui.button("取消").clicked() {
-                                ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
-                            }
-                        });
-                    });
-            }
-
-            ui.add_space(scale.s(16.0));
-            ui.separator();
-            ui.add_space(scale.s(16.0));
 
             // Volume Knob Area - 绑定到 params.master_gain
             ui.vertical_centered(|ui| {
-                // 从 params 读取当前增益值并转换为 dB 显示
+                // 从 params 读取当前增益值并转换为百分比显示（匹配旧 C++ 版本）
                 let current_gain = params.master_gain.value();
-                let current_db = nih_plug::util::gain_to_db(current_gain);
+                // 0.0-1.0 增益 → 0-100 百分比（线性映射）
+                let mut volume_percent = current_gain * 100.0;
 
-                // TechVolumeKnob 使用 dB 值（范围 -∞ 到 0 dB）
-                let mut volume_val = current_db;
-                let response = ui.add(TechVolumeKnob::new(&mut volume_val, scale));
+                let response = ui.add(TechVolumeKnob::new(&mut volume_percent, scale));
 
                 if response.changed() {
-                    // 转换回增益值并设置参数（拖动时静默更新）
-                    let new_gain = nih_plug::util::db_to_gain(volume_val);
+                    // 转换回增益值：0-100% → 0.0-1.0
+                    let new_gain = (volume_percent / 100.0).clamp(0.0, 1.0);
                     setter.begin_set_parameter(&params.master_gain);
                     setter.set_parameter(&params.master_gain, new_gain);
                     setter.end_set_parameter(&params.master_gain);
+
+                    // 发送 OSC（使用 0-1 线性值）
+                    OSC_SENDER.send_master_volume(new_gain);
                 }
 
                 // 只在拖动结束时记录日志
                 if response.drag_stopped() {
-                    mcm_info!("[Editor] Master volume set to: {:.1} dB", volume_val);
+                    mcm_info!("[Editor] Master volume set to: {:.1}%", volume_percent);
                 }
             });
 
@@ -706,6 +740,9 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                     setter.begin_set_parameter(&params.dim);
                     setter.set_parameter(&params.dim, new_value);
                     setter.end_set_parameter(&params.dim);
+
+                    // 发送 OSC
+                    OSC_SENDER.send_dim(new_value);
                 }
 
                 ui.add_space(scale.s(8.0));
@@ -722,6 +759,9 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                     setter.begin_set_parameter(&params.cut);
                     setter.set_parameter(&params.cut, new_value);
                     setter.end_set_parameter(&params.cut);
+
+                    // 发送 OSC
+                    OSC_SENDER.send_cut(new_value);
                 }
             });
 
@@ -1060,6 +1100,9 @@ fn render_sub_row_dynamic(
 
                 // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
                 sync_all_channel_params(params, setter, interaction);
+
+                // 发送 OSC 所有通道 LED 状态（三态）
+                OscManager::broadcast_channel_states();
             }
 
             // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式）
@@ -1069,6 +1112,9 @@ fn render_sub_row_dynamic(
 
                 // 全通道同步（SUB Mute 操作可能影响整体状态）
                 sync_all_channel_params(params, setter, interaction);
+
+                // 发送 OSC 所有通道 LED 状态（三态）
+                OscManager::broadcast_channel_states();
             }
         } else {
             // 空槽位占位（圆形直径）
@@ -1153,17 +1199,8 @@ fn render_main_grid_dynamic(
                                     // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
                                     sync_all_channel_params(params, setter, interaction);
 
-                                    // 发送 OSC 通道 LED 状态
-                                    let display = interaction.get_channel_display(ch_idx, is_sub);
-                                    match display.marker {
-                                        Some(ChannelMarker::Solo) => OSC_SENDER.send_solo_led(ch_idx, true),
-                                        Some(ChannelMarker::Mute) => OSC_SENDER.send_mute_led(ch_idx, true),
-                                        None => {
-                                            // 清除所有 LED
-                                            OSC_SENDER.send_solo_led(ch_idx, false);
-                                            OSC_SENDER.send_mute_led(ch_idx, false);
-                                        }
-                                    }
+                                    // 发送 OSC 所有通道 LED 状态（三态）
+                                    OscManager::broadcast_channel_states();
                                 }
                             } else {
                                 // 空位：绘制占位符
@@ -1175,4 +1212,116 @@ fn render_main_grid_dynamic(
                 });
         });
     });
+}
+
+/// 渲染设置窗口内容
+fn render_settings_content(
+    ui: &mut egui::Ui,
+    scale: &ScaleContext,
+    dialog_id: egui::Id,
+    params: &Arc<MonitorParams>,
+    setter: &ParamSetter
+) {
+    let mut config = APP_CONFIG.get();
+    let mut changed = false;
+
+    ui.add_space(scale.s(8.0));
+
+    // ========== 自动化模式设置 ==========
+    ui.heading(RichText::new("Automation Mode").font(scale.font(16.0)));
+    ui.add_space(scale.s(12.0));
+
+    let interaction = get_interaction_manager();
+    let role = params.role.value();
+    let is_automation = interaction.is_automation_mode();
+    let can_use_automation = role == crate::Params::PluginRole::Standalone;
+
+    ui.add_enabled_ui(can_use_automation, |ui| {
+        let button_text = if is_automation { "退出自动化" } else { "启用自动化" };
+        let auto_btn = BrutalistButton::new(button_text, scale)
+            .full_width(true)
+            .active(is_automation);
+
+        if ui.add(auto_btn).clicked() {
+            if is_automation {
+                interaction.exit_automation_mode();
+                mcm_info!("[AUTO] Exit: idle state, will sync to all=On on next UI update");
+                // 同步所有通道参数到全 On（退出自动化 = Idle）
+                sync_all_channel_params(params, setter, &interaction);
+            } else {
+                // 弹出确认对话框
+                let confirm_id = egui::Id::new("automation_confirm_from_settings");
+                ui.memory_mut(|m| m.data.insert_temp(confirm_id, true));
+            }
+        }
+    });
+
+    if !can_use_automation {
+        ui.label(egui::RichText::new("(仅 Standalone 可用)")
+            .size(scale.s(9.0))
+            .color(egui::Color32::from_rgb(156, 163, 175)));
+    }
+
+    ui.add_space(scale.s(16.0));
+    ui.separator();
+    ui.add_space(scale.s(16.0));
+
+    // OSC 设置
+    ui.heading(RichText::new("OSC Settings").font(scale.font(16.0)));
+    ui.add_space(scale.s(12.0));
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Send Port:").font(scale.font(14.0)));
+        ui.add_space(scale.s(8.0));
+        let mut port_str = config.osc_send_port.to_string();
+        let text_edit = egui::TextEdit::singleline(&mut port_str)
+            .desired_width(scale.s(80.0));
+        if ui.add(text_edit).changed() {
+            if let Ok(port) = port_str.parse::<u16>() {
+                config.osc_send_port = port;
+                changed = true;
+            }
+        }
+    });
+
+    ui.add_space(scale.s(8.0));
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Receive Port:").font(scale.font(14.0)));
+        ui.add_space(scale.s(8.0));
+        let mut port_str = config.osc_receive_port.to_string();
+        let text_edit = egui::TextEdit::singleline(&mut port_str)
+            .desired_width(scale.s(80.0));
+        if ui.add(text_edit).changed() {
+            if let Ok(port) = port_str.parse::<u16>() {
+                config.osc_receive_port = port;
+                changed = true;
+            }
+        }
+    });
+
+    ui.add_space(scale.s(16.0));
+    ui.separator();
+    ui.add_space(scale.s(16.0));
+
+    // 按钮
+    ui.horizontal(|ui| {
+        if ui.button(RichText::new("Save").font(scale.font(14.0))).clicked() {
+            if let Err(e) = APP_CONFIG.apply_and_save(|c| *c = config.clone()) {
+                mcm_info!("[Settings] Failed to save config: {}", e);
+            } else {
+                mcm_info!("[Settings] Config saved: send_port={}, recv_port={}",
+                    config.osc_send_port, config.osc_receive_port);
+            }
+            ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
+        }
+
+        ui.add_space(scale.s(8.0));
+
+        if ui.button(RichText::new("Cancel").font(scale.font(14.0))).clicked() {
+            ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
+        }
+    });
+
+    ui.add_space(scale.s(8.0));
 }

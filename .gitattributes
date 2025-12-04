@@ -1,0 +1,60 @@
+# 统一行尾规则：所有文本文件使用 LF（Unix 风格）
+# 这样无论什么操作系统，仓库中都是 LF，避免换行符冲突
+
+# 默认：所有文件都作为文本处理，使用 LF
+* text=auto eol=lf
+
+# Rust 源代码文件明确使用 LF
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# 脚本文件使用 LF（跨平台兼容）
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.bat text eol=lf
+*.cmd text eol=lf
+
+# 配置文件使用 LF
+*.config text eol=lf
+*.ini text eol=lf
+*.conf text eol=lf
+
+# 二进制文件：不进行行尾转换
+*.dll binary
+*.exe binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.lib binary
+*.pdb binary
+*.vst3 binary
+*.clap binary
+*.component binary
+*.app binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.rar binary
+
+# 编译产物
+*.o binary
+*.obj binary
+*.a binary
+*.lib binary
+

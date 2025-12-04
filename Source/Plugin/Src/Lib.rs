@@ -10,6 +10,7 @@ mod Registry;
 mod Params;
 mod scale;
 mod config_manager;
+mod config_file;
 
 mod network;
 mod network_protocol;
@@ -105,7 +106,10 @@ impl Plugin for MonitorControllerMax {
             Params::PluginRole::Master => {
                 self.network.init_master(9123);
                 // Initialize OSC for Master (sends to hardware + receives from hardware)
-                self.osc.init(output_channels as usize);
+                let master_volume = self.params.master_gain.value();
+                let dim = self.params.dim.value();
+                let cut = self.params.cut.value();
+                self.osc.init(output_channels as usize, master_volume, dim, cut);
                 mcm_info!("[OSC] Initialized for Master mode");
             }
             Params::PluginRole::Slave => {
@@ -116,7 +120,10 @@ impl Plugin for MonitorControllerMax {
             Params::PluginRole::Standalone => {
                 // No network initialization - pure local mode
                 // Initialize OSC for Standalone (local hardware control)
-                self.osc.init(output_channels as usize);
+                let master_volume = self.params.master_gain.value();
+                let dim = self.params.dim.value();
+                let cut = self.params.cut.value();
+                self.osc.init(output_channels as usize, master_volume, dim, cut);
                 mcm_info!("[OSC] Initialized for Standalone mode");
             }
         }
