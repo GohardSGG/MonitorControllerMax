@@ -75,7 +75,9 @@ impl ChannelLogic {
                 let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
 
                 // 核心：直接使用 InteractionManager 的状态
-                let display = interaction.get_channel_display(i, is_sub);
+                // 注意：get_channel_display 期望 SUB 通道使用相对索引 (0-3)
+                let actual_ch = if is_sub { i - layout.main_channels.len() } else { i };
+                let display = interaction.get_channel_display(actual_ch, is_sub);
                 let pass = if display.has_sound { 1.0 } else { 0.0 };
 
                 state.channel_gains[i] = pass;

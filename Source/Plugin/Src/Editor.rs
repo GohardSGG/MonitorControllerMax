@@ -1066,6 +1066,10 @@ fn render_sub_row_dynamic(
     for pos in pos_range.clone() {
         // 查找该位置的 SUB 通道
         if let Some(ch) = layout.sub_channels.iter().find(|c| c.grid_pos == pos) {
+            // 计算 SUB 相对索引（0-3），用于 Interaction 函数
+            // ch.channel_index 是绝对索引（12-15），需要减去 main 通道数量
+            let sub_relative_idx = ch.channel_index - layout.main_channels.len();
+
             let sub_btn = if is_automation {
                 // 自动化模式：从参数读取状态，显示为锁定样式
                 let enable = params.channels[ch.channel_index].enable.value();
@@ -1075,7 +1079,8 @@ fn render_sub_row_dynamic(
                     .locked(true)
             } else {
                 // 手动模式：使用 InteractionManager 状态
-                let display = interaction.get_channel_display(ch.channel_index, true);
+                // 注意：get_channel_display(is_sub=true) 期望 SUB 相对索引 (0-3)
+                let display = interaction.get_channel_display(sub_relative_idx, true);
                 Components::SubButton::new(&ch.name, scale)
                     .diameter(sub_diameter)
                     .solo(display.marker == Some(ChannelMarker::Solo))
@@ -1086,15 +1091,18 @@ fn render_sub_row_dynamic(
 
             // 点击处理（仅手动模式）
             if response.clicked() && !is_automation {
-                let click_type = interaction.detect_sub_click(ch.channel_index);
+                // 使用相对索引进行双击检测（保持一致性）
+                let click_type = interaction.detect_sub_click(sub_relative_idx);
                 match click_type {
                     SubClickType::SingleClick => {
-                        interaction.on_channel_click(ch.channel_index, true);
-                        mcm_info!("[Editor] SUB {} ({}) single click", ch.channel_index, ch.name);
+                        // on_channel_click(is_sub=true) 期望 SUB 相对索引 (0-3)
+                        interaction.on_channel_click(sub_relative_idx, true);
+                        mcm_info!("[Editor] SUB {} ({}) single click", sub_relative_idx, ch.name);
                     }
                     SubClickType::DoubleClick => {
-                        interaction.on_sub_double_click(ch.channel_index);
-                        mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", ch.channel_index, ch.name);
+                        // on_sub_double_click 期望 SUB 相对索引 (0-3)
+                        interaction.on_sub_double_click(sub_relative_idx);
+                        mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", sub_relative_idx, ch.name);
                     }
                 }
 
@@ -1107,8 +1115,9 @@ fn render_sub_row_dynamic(
 
             // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式）
             if response.secondary_clicked() && !is_automation {
-                interaction.on_sub_double_click(ch.channel_index);
-                mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", ch.channel_index, ch.name);
+                // on_sub_double_click 期望 SUB 相对索引 (0-3)
+                interaction.on_sub_double_click(sub_relative_idx);
+                mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", sub_relative_idx, ch.name);
 
                 // 全通道同步（SUB Mute 操作可能影响整体状态）
                 sync_all_channel_params(params, setter, interaction);

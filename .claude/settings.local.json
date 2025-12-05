@@ -3,7 +3,11 @@
     "allow": [
       "Bash(powershell \"cd ''c:\\Code\\LogiPluginSdkTools\\MonitorOSCPlugin\\src''; dotnet build MonitorOSCPlugin.sln 2>&1 | Select-Object -Last 50\")",
       "Bash(powershell \"(Get-Item ''c:\\Code\\MonitorControllerMax\\target\\release\\monitor_controller_max.dll'').LastWriteTime\")",
-      "Bash(powershell \"(Get-Item ''C:\\Code\\LogiPluginSdkTools\\MonitorOSCPlugin\\bin\\Debug\\MonitorOSCPlugin.dll'').LastWriteTime\")"
+      "Bash(powershell \"(Get-Item ''C:\\Code\\LogiPluginSdkTools\\MonitorOSCPlugin\\bin\\Debug\\MonitorOSCPlugin.dll'').LastWriteTime\")",
+      "Bash(cargo build:*)",
+      "Bash(Select-Object -Last 100)",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 100\")",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 50\")"
     ],
     "deny": [],
     "ask": []

@@ -9,6 +9,24 @@ const DEFAULT_CONFIG_JSON: &str = include_str!("../../Resource/Speaker_Config.js
 // UTF-8 BOM 字符
 const UTF8_BOM: &str = "\u{FEFF}";
 
+/// 标准通道顺序 - 唯一真实来源（Single Source of Truth）
+/// Main 通道 (0-11) + SUB 通道 (12-15)
+/// 使用下划线版本作为内部标准格式
+pub const STANDARD_CHANNEL_ORDER: &[&str] = &[
+    // Main channels (7.1.4)
+    "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS",
+    "LTF", "RTF", "LTB", "RTB",
+    // SUB channels
+    "SUB_F", "SUB_B", "SUB_L", "SUB_R",
+];
+
+/// 标准通道顺序（带空格版本，用于 OSC 输出显示）
+pub const STANDARD_CHANNEL_ORDER_DISPLAY: &[&str] = &[
+    "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS",
+    "LTF", "RTF", "LTB", "RTB",
+    "SUB F", "SUB B", "SUB L", "SUB R",
+];
+
 #[derive(Debug, Clone)]
 pub struct ChannelInfo {
     pub name: String,
@@ -117,12 +135,8 @@ impl ConfigManager {
             // "L": 1, "R": 3 (in 2.0). 
             // If we sort by keys, C comes before L.
             
-            // WORKAROUND: We will define a standard order of keys to look for.
-            let standard_order = [
-                "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS", // 7.1
-                "LTF", "RTF", "LTB", "RTB", // Heights
-                "LBF", "RBF", "LBB", "RBB"  // Bottoms
-            ];
+            // 使用公共常量作为唯一真实来源（Single Source of Truth）
+            let standard_order = STANDARD_CHANNEL_ORDER;
 
             // First pass: Standard channels
             for key in standard_order.iter() {

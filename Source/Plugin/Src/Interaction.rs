@@ -101,6 +101,17 @@ impl ChannelSet {
         }
     }
 
+    /// 设置 SUB 声道状态（true=加入集合，false=移除）
+    pub fn set_sub(&mut self, ch: usize, on: bool) {
+        if ch < 32 {
+            if on {
+                self.sub |= 1 << ch;   // 设置位
+            } else {
+                self.sub &= !(1 << ch); // 清除位
+            }
+        }
+    }
+
     /// 检查 SUB 是否在集合中
     pub fn contains_sub(&self, ch: usize) -> bool {
         if ch < 32 {
@@ -558,8 +569,16 @@ impl InteractionManager {
 
     /// 直接设置通道状态（用于 OSC 目标状态模式）
     /// state: 0=Off, 1=Mute, 2=Solo（在当前上下文中）
+    ///
+    /// 通道索引映射：
+    /// - 0-11: Main 通道 (L, R, C, LFE, LSS, RSS, LRS, RRS, LTF, RTF, LTB, RTB)
+    /// - 12-15: SUB 通道 (SUB_F, SUB_B, SUB_L, SUB_R) → 内部索引 0-3
     pub fn set_channel_state(&self, ch: usize, state: u8) {
         let ctx = self.get_active_context();
+
+        // 判断是否为 SUB 通道（索引 12-15 对应 SUB 内部索引 0-3）
+        let is_sub = ch >= 12;
+        let actual_ch = if is_sub { ch - 12 } else { ch };
 
         match ctx {
             None => {
@@ -568,19 +587,106 @@ impl InteractionManager {
             Some(ActiveContext::Solo) => {
                 let mut solo_set = self.solo_set.write();
                 match state {
-                    0 => solo_set.set_main(ch, false),  // Off = 移除 Solo
-                    2 => solo_set.set_main(ch, true),   // Solo = 加入 Solo
+                    0 => {
+                        // Off = 移除 Solo
+                        if is_sub {
+                            solo_set.set_sub(actual_ch, false);
+                        } else {
+                            solo_set.set_main(actual_ch, false);
+                        }
+                    }
+                    2 => {
+                        // Solo = 加入 Solo
+                        if is_sub {
+                            solo_set.set_sub(actual_ch, true);
+                        } else {
+                            solo_set.set_main(actual_ch, true);
+                        }
+                    }
                     _ => {}
                 }
             }
             Some(ActiveContext::Mute) => {
                 let mut mute_set = self.mute_set.write();
                 match state {
-                    0 => mute_set.set_main(ch, false),  // Off = 移除 Mute
-                    1 => mute_set.set_main(ch, true),   // Mute = 加入 Mute
+                    0 => {
+                        // Off = 移除 Mute
+                        if is_sub {
+                            mute_set.set_sub(actual_ch, false);
+                        } else {
+                            mute_set.set_main(actual_ch, false);
+                        }
+                    }
+                    1 => {
+                        // Mute = 加入 Mute
+                        if is_sub {
+                            mute_set.set_sub(actual_ch, true);
+                        } else {
+                            mute_set.set_main(actual_ch, true);
+                        }
+                    }
                     _ => {}
                 }
             }
+        }
+    }
+
+    /// 设置通道声音状态（语义层，用于 Group_Dial）
+    /// has_sound: true = 有声音, false = 没声音
+    /// 根据当前 ActiveContext 正确解释语义
+    ///
+    /// 通道索引映射：
+    /// - 0-11: Main 通道 (L, R, C, LFE, LSS, RSS, LRS, RRS, LTF, RTF, LTB, RTB)
+    /// - 12-15: SUB 通道 (SUB_F, SUB_B, SUB_L, SUB_R) → 内部索引 0-3
+    pub fn set_channel_sound(&self, ch: usize, has_sound: bool) {
+        let ctx = self.get_active_context();
+
+        // 判断是否为 SUB 通道（索引 12-15 对应 SUB 内部索引 0-3）
+        let is_sub = ch >= 12;
+        let actual_ch = if is_sub { ch - 12 } else { ch };
+
+        match ctx {
+            Some(ActiveContext::Solo) => {
+                // Solo 上下文：有声音 = 加入 Solo，没声音 = 移除 Solo
+                if is_sub {
+                    self.solo_set.write().set_sub(actual_ch, has_sound);
+                } else {
+                    self.solo_set.write().set_main(actual_ch, has_sound);
+                }
+            }
+            Some(ActiveContext::Mute) => {
+                // Mute 上下文：有声音 = 移除 Mute，没声音 = 加入 Mute
+                if is_sub {
+                    self.mute_set.write().set_sub(actual_ch, !has_sound);
+                } else {
+                    self.mute_set.write().set_main(actual_ch, !has_sound);
+                }
+            }
+            None => {
+                // Idle 状态，忽略（C# 应该先发送模式激活）
+                return;
+            }
+        }
+
+        // 检查集合是否变空，自动退出模式
+        self.check_and_exit_empty_mode();
+    }
+
+    /// 检查集合是否变空，自动退出对应模式
+    fn check_and_exit_empty_mode(&self) {
+        let solo_empty = self.solo_set.read().is_empty();
+        let mute_empty = self.mute_set.read().is_empty();
+
+        // 检查 Solo 模式
+        if solo_empty && *self.primary.read() == PrimaryMode::Solo {
+            *self.primary.write() = PrimaryMode::None;
+            mcm_info!("[Mode] Solo set empty, auto-exiting Solo mode");
+        }
+
+        // 检查 Mute 模式
+        if mute_empty && *self.primary.read() == PrimaryMode::Mute {
+            *self.primary.write() = PrimaryMode::None;
+            mcm_info!("[Mode] Mute set empty, auto-exiting Mute mode");
         }
     }
 
@@ -784,8 +890,12 @@ impl InteractionManager {
     }
 
     /// 处理通道点击 (用于 OSC 通道消息)
+    /// 通道索引映射：0-11 = Main, 12-15 = SUB
     pub fn handle_click(&self, ch: usize) {
-        self.on_channel_click(ch, false);
+        // 判断是否为 SUB 通道（索引 12-15 对应 SUB 内部索引 0-3）
+        let is_sub = ch >= 12;
+        let actual_ch = if is_sub { ch - 12 } else { ch };
+        self.on_channel_click(actual_ch, is_sub);
     }
 
     /// 检查 Solo 是否激活 (Primary 或 Compare)
@@ -825,14 +935,26 @@ impl InteractionManager {
     }
 
     /// 检查通道是否应该显示 Solo LED (用于 OSC 反馈)
+    ///
+    /// 通道索引映射：
+    /// - 0-11: Main 通道
+    /// - 12-15: SUB 通道 → 内部索引 0-3
     pub fn is_channel_solo(&self, ch: usize) -> bool {
-        let display = self.get_channel_display(ch, false);
+        let is_sub = ch >= 12;
+        let actual_ch = if is_sub { ch - 12 } else { ch };
+        let display = self.get_channel_display(actual_ch, is_sub);
         display.marker == Some(ChannelMarker::Solo)
     }
 
     /// 检查通道是否应该显示 Mute LED (用于 OSC 反馈)
+    ///
+    /// 通道索引映射：
+    /// - 0-11: Main 通道
+    /// - 12-15: SUB 通道 → 内部索引 0-3
     pub fn is_channel_muted(&self, ch: usize) -> bool {
-        let display = self.get_channel_display(ch, false);
+        let is_sub = ch >= 12;
+        let actual_ch = if is_sub { ch - 12 } else { ch };
+        let display = self.get_channel_display(actual_ch, is_sub);
         display.marker == Some(ChannelMarker::Mute)
     }
 }

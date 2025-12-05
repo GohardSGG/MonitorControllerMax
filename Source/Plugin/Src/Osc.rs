@@ -13,6 +13,7 @@ use lazy_static::lazy_static;
 
 use crate::Interaction::INTERACTION;
 use crate::config_file::APP_CONFIG;
+use crate::config_manager::{STANDARD_CHANNEL_ORDER, STANDARD_CHANNEL_ORDER_DISPLAY};
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;
@@ -566,8 +567,27 @@ impl OscManager {
 
     fn handle_mode_solo(value: f32) {
         if value > 0.5 {
-            info!("[OSC] Mode Solo pressed");
-            INTERACTION.toggle_solo_mode();
+            let state = value.round() as u8;
+
+            match state {
+                1 => {
+                    // value=1 → toggle（Mode 按钮点击）
+                    info!("[OSC] Mode Solo toggle");
+                    INTERACTION.toggle_solo_mode();
+                }
+                2 => {
+                    // value=2 → 确保激活（Group_Dial 预激活）
+                    if !INTERACTION.is_solo_active() {
+                        info!("[OSC] Mode Solo activate (from Group_Dial)");
+                        INTERACTION.toggle_solo_mode();
+                    } else {
+                        info!("[OSC] Mode Solo already active, no action");
+                    }
+                }
+                _ => {
+                    warn!("[OSC] Mode Solo unknown value: {}", value);
+                }
+            }
 
             // 回传模式按钮状态给硬件
             let is_active = INTERACTION.is_solo_active();
@@ -580,8 +600,27 @@ impl OscManager {
 
     fn handle_mode_mute(value: f32) {
         if value > 0.5 {
-            info!("[OSC] Mode Mute pressed");
-            INTERACTION.toggle_mute_mode();
+            let state = value.round() as u8;
+
+            match state {
+                1 => {
+                    // value=1 → toggle（Mode 按钮点击）
+                    info!("[OSC] Mode Mute toggle");
+                    INTERACTION.toggle_mute_mode();
+                }
+                2 => {
+                    // value=2 → 确保激活（Group_Dial 预激活）
+                    if !INTERACTION.is_mute_active() {
+                        info!("[OSC] Mode Mute activate (from Group_Dial)");
+                        INTERACTION.toggle_mute_mode();
+                    } else {
+                        info!("[OSC] Mode Mute already active, no action");
+                    }
+                }
+                _ => {
+                    warn!("[OSC] Mode Mute unknown value: {}", value);
+                }
+            }
 
             // 回传模式按钮状态给硬件
             let is_active = INTERACTION.is_mute_active();
@@ -601,20 +640,49 @@ impl OscManager {
             }
         };
 
+        // 检查通道是否在当前布局范围内
+        let channel_count = CURRENT_CHANNEL_COUNT.load(Ordering::Relaxed);
+        if ch_idx >= channel_count {
+            info!("[OSC] Channel {} (idx {}) out of range (max {}), ignored",
+                  channel_name, ch_idx, channel_count);
+            return;
+        }
+
         // 根据 value 区分语义
         let state = value.round() as u8;
 
-        if state == 1 {
-            // value ≈ 1.0 → 点击事件（toggle）
-            info!("[OSC] Channel {} click (toggle)", channel_name);
-            INTERACTION.handle_click(ch_idx);
-        } else {
-            // value ≈ 0.0 或 2.0 → 目标状态（直接设置）
-            info!("[OSC] Channel {} set state → {}", channel_name, state);
-            INTERACTION.set_channel_state(ch_idx, state);
+        match state {
+            1 => {
+                // value=1 → 点击事件（toggle）
+                info!("[OSC] Channel {} click (toggle)", channel_name);
+                INTERACTION.handle_click(ch_idx);
+            }
+            0 | 2 => {
+                // value=0/2 → 目标状态（用于单通道精确控制）
+                info!("[OSC] Channel {} set state → {}", channel_name, state);
+                INTERACTION.set_channel_state(ch_idx, state);
+            }
+            10 => {
+                // value=10 → 有声音（Group_Dial 右转）
+                info!("[OSC] Channel {} set sound → HAS SOUND", channel_name);
+                INTERACTION.set_channel_sound(ch_idx, true);
+            }
+            11 => {
+                // value=11 → 没声音（Group_Dial 左转）
+                info!("[OSC] Channel {} set sound → NO SOUND", channel_name);
+                INTERACTION.set_channel_sound(ch_idx, false);
+            }
+            _ => {
+                warn!("[OSC] Channel {} unknown state value: {}", channel_name, state);
+            }
         }
 
+        // 广播通道状态
         Self::broadcast_channel_states();
+
+        // 广播模式状态（确保模式自动退出时 LED 正确更新）
+        OSC_SENDER.send_mode_solo(INTERACTION.is_solo_active());
+        OSC_SENDER.send_mode_mute(INTERACTION.is_mute_active());
     }
 
     fn handle_solo_channel(channel_name: &str, value: f32) {
@@ -764,20 +832,19 @@ impl OscManager {
         }
     }
 
-    /// 通道索引 → 名称映射 (匹配旧版 C++ 实现)
+    /// 通道索引 → 名称映射 (输出带空格格式，匹配 C# 端)
     pub fn channel_index_to_name(idx: usize) -> String {
-        let names = ["L", "R", "C", "LFE", "LR", "RR", "LSS", "RSS",
-                     "LRS", "RRS", "LTF", "RTF", "LTB", "RTB",
-                     "SUB_F", "SUB_B", "SUB_L", "SUB_R"];
-        names.get(idx).unwrap_or(&"UNKNOWN").to_string()
+        STANDARD_CHANNEL_ORDER_DISPLAY
+            .get(idx)
+            .unwrap_or(&"UNKNOWN")
+            .to_string()
     }
 
-    /// 通道名称 → 索引映射
+    /// 通道名称 → 索引映射 (支持空格和下划线两种格式)
     fn channel_name_to_index(name: &str) -> Option<usize> {
-        let names = ["L", "R", "C", "LFE", "LR", "RR", "LSS", "RSS",
-                     "LRS", "RRS", "LTF", "RTF", "LTB", "RTB",
-                     "SUB_F", "SUB_B", "SUB_L", "SUB_R"];
-        names.iter().position(|&n| n == name)
+        // 标准化：将空格替换为下划线
+        let normalized = name.replace(" ", "_");
+        STANDARD_CHANNEL_ORDER.iter().position(|&n| n == normalized)
     }
 }
 
