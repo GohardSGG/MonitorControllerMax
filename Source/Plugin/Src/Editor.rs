@@ -77,18 +77,19 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         .cloned().unwrap_or_else(|| "?".to_string());
 
                     let prev_total = CONFIG.get_layout(&prev_speaker_name, &prev_sub_name).total_channels;
-                    let curr_total = CONFIG.get_layout(&curr_speaker_name, &curr_sub_name).total_channels;
+                    let curr_layout = CONFIG.get_layout(&curr_speaker_name, &curr_sub_name);
+                    let curr_total = curr_layout.total_channels;
 
                     mcm_info!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
                         prev_speaker_name, prev_sub_name, curr_speaker_name, curr_sub_name,
                         prev_total, curr_total);
 
-                    // 更新 OSC 通道数（布局变化后立即更新）
-                    OscManager::update_channel_count(curr_total);
+                    // 更新 OSC 通道信息（KISS 方案：动态从布局获取通道名称）
+                    OscManager::update_layout_channels(&curr_layout);
 
                     sync_all_channel_params(params, setter, interaction);
 
-                    // 布局变化后广播完整状态给硬件
+                    // 布局变化后广播完整状态给硬件（KISS：自动清空已删除的通道）
                     OscManager::broadcast_channel_states();
                 }
             }
@@ -287,20 +288,20 @@ fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, in
             .chain(layout.sub_channels.iter())
             .find(|ch| ch.channel_index == i);
 
-        let is_sub = channel_info.map(|ch| ch.name.contains("SUB")).unwrap_or(false);
+        if let Some(ch_info) = channel_info {
+            // 获取通道显示状态（基于通道名称）
+            let display = interaction.get_channel_display(&ch_info.name);
 
-        // 获取通道显示状态
-        let display = interaction.get_channel_display(i, is_sub);
+            // 记录到位掩码
+            if display.has_sound {
+                on_mask |= 1 << i;
+            }
 
-        // 记录到位掩码
-        if display.has_sound {
-            on_mask |= 1 << i;
+            // 同步到 VST3 参数
+            setter.begin_set_parameter(&params.channels[i].enable);
+            setter.set_parameter(&params.channels[i].enable, display.has_sound);
+            setter.end_set_parameter(&params.channels[i].enable);
         }
-
-        // 同步到 VST3 参数
-        setter.begin_set_parameter(&params.channels[i].enable);
-        setter.set_parameter(&params.channels[i].enable, display.has_sound);
-        setter.end_set_parameter(&params.channels[i].enable);
     }
 
     // 输出同步摘要日志
@@ -1078,9 +1079,8 @@ fn render_sub_row_dynamic(
                     .enabled(enable)
                     .locked(true)
             } else {
-                // 手动模式：使用 InteractionManager 状态
-                // 注意：get_channel_display(is_sub=true) 期望 SUB 相对索引 (0-3)
-                let display = interaction.get_channel_display(sub_relative_idx, true);
+                // 手动模式：使用 InteractionManager 状态（基于通道名称）
+                let display = interaction.get_channel_display(&ch.name);
                 Components::SubButton::new(&ch.name, scale)
                     .diameter(sub_diameter)
                     .solo(display.marker == Some(ChannelMarker::Solo))
@@ -1095,13 +1095,13 @@ fn render_sub_row_dynamic(
                 let click_type = interaction.detect_sub_click(sub_relative_idx);
                 match click_type {
                     SubClickType::SingleClick => {
-                        // on_channel_click(is_sub=true) 期望 SUB 相对索引 (0-3)
-                        interaction.on_channel_click(sub_relative_idx, true);
+                        // on_channel_click 使用通道名称
+                        interaction.on_channel_click(&ch.name);
                         mcm_info!("[Editor] SUB {} ({}) single click", sub_relative_idx, ch.name);
                     }
                     SubClickType::DoubleClick => {
-                        // on_sub_double_click 期望 SUB 相对索引 (0-3)
-                        interaction.on_sub_double_click(sub_relative_idx);
+                        // on_sub_double_click 使用通道名称
+                        interaction.on_sub_double_click(&ch.name);
                         mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", sub_relative_idx, ch.name);
                     }
                 }
@@ -1115,8 +1115,8 @@ fn render_sub_row_dynamic(
 
             // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式）
             if response.secondary_clicked() && !is_automation {
-                // on_sub_double_click 期望 SUB 相对索引 (0-3)
-                interaction.on_sub_double_click(sub_relative_idx);
+                // on_sub_double_click 使用通道名称
+                interaction.on_sub_double_click(&ch.name);
                 mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", sub_relative_idx, ch.name);
 
                 // 全通道同步（SUB Mute 操作可能影响整体状态）
@@ -1182,7 +1182,7 @@ fn render_main_grid_dynamic(
                                         .with_label(&channel_label)
                                 } else {
                                     // 手动模式：使用 InteractionManager 状态
-                                    let display = interaction.get_channel_display(ch_idx, is_sub);
+                                    let display = interaction.get_channel_display(&ch.name);
                                     let blink_show = interaction.should_blink_show();
                                     let (show_solo, show_mute) = if display.is_blinking && !blink_show {
                                         (false, false)
@@ -1202,7 +1202,7 @@ fn render_main_grid_dynamic(
 
                                 // 点击处理（仅手动模式）
                                 if response.clicked() && !is_automation {
-                                    interaction.on_channel_click(ch_idx, is_sub);
+                                    interaction.on_channel_click(&ch.name);
                                     mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
 
                                     // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use std::collections::HashSet;
 use crossbeam::channel::{unbounded, Sender, Receiver};
 use rosc::{OscPacket, OscMessage, OscType, encoder};
 use log::{info, warn, error};
@@ -13,7 +14,7 @@ use lazy_static::lazy_static;
 
 use crate::Interaction::INTERACTION;
 use crate::config_file::APP_CONFIG;
-use crate::config_manager::{STANDARD_CHANNEL_ORDER, STANDARD_CHANNEL_ORDER_DISPLAY};
+use crate::config_manager::{STANDARD_CHANNEL_ORDER, STANDARD_CHANNEL_ORDER_DISPLAY, Layout};
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;
@@ -23,6 +24,14 @@ const MAX_QUEUE_SIZE: usize = 1000;
 
 /// 当前音频布局的通道数（用于广播）
 static CURRENT_CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+lazy_static! {
+    /// 当前布局的通道名称列表（按索引顺序）- 动态从 Layout 获取
+    static ref CURRENT_CHANNEL_NAMES: RwLock<Vec<String>> = RwLock::new(Vec::new());
+
+    /// 之前布局的通道名称列表（用于清空已删除的通道）
+    static ref PREV_CHANNEL_NAMES: RwLock<Vec<String>> = RwLock::new(Vec::new());
+}
 
 /// 通道 LED 状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,10 +103,15 @@ impl OscSender {
         self.send(OscOutMessage::ModeMute { on });
     }
 
-    /// 发送通道 LED 状态（合并版）
+    /// 发送通道 LED 状态（合并版，通过索引）
     pub fn send_channel_led(&self, ch_idx: usize, state: ChannelLedState) {
         let ch_name = OscManager::channel_index_to_name(ch_idx);
         self.send(OscOutMessage::ChannelLed { channel: ch_name, state });
+    }
+
+    /// 发送通道 LED 状态（直接通过通道名称）
+    pub fn send_channel_led_by_name(&self, ch_name: &str, state: ChannelLedState) {
+        self.send(OscOutMessage::ChannelLed { channel: ch_name.to_string(), state });
     }
 
     /// 发送主音量（0.0 ~ 1.0 线性值）
@@ -323,6 +337,31 @@ impl OscManager {
         info!("[OSC] Channel count updated to: {}", new_count);
     }
 
+    /// 更新布局通道信息（从 Layout 动态获取，KISS 方案）
+    pub fn update_layout_channels(layout: &Layout) {
+        let mut prev = PREV_CHANNEL_NAMES.write();
+        let mut curr = CURRENT_CHANNEL_NAMES.write();
+
+        // 保存旧列表
+        *prev = curr.clone();
+
+        // 从 layout 构建新列表（Main + SUB）
+        let mut names = Vec::new();
+        for ch in &layout.main_channels {
+            names.push(ch.name.clone());
+        }
+        for ch in &layout.sub_channels {
+            names.push(ch.name.clone());
+        }
+
+        info!("[OSC] Layout channels updated: {} → {} channels", prev.len(), names.len());
+
+        *curr = names;
+
+        // 同步更新通道数（保持向后兼容）
+        CURRENT_CHANNEL_COUNT.store(layout.total_channels, Ordering::Relaxed);
+    }
+
     // ==================== 线程实现 ====================
 
     /// 发送线程 - 处理 UDP 发送
@@ -439,8 +478,7 @@ impl OscManager {
                 let blinking_channels = INTERACTION.get_blinking_channels();
 
                 // 发送闪烁更新
-                for ch_idx in blinking_channels {
-                    let ch_name = Self::channel_index_to_name(ch_idx);
+                for ch_name in blinking_channels {
 
                     // 闪烁时交替亮/灭
                     let state = if new_phase {
@@ -632,21 +670,13 @@ impl OscManager {
     }
 
     fn handle_channel_click(channel_name: &str, value: f32) {
-        let ch_idx = match Self::channel_name_to_index(channel_name) {
-            Some(idx) => idx,
-            None => {
-                warn!("[OSC] Unknown channel name: {}", channel_name);
-                return;
-            }
-        };
-
-        // 检查通道是否在当前布局范围内
-        let channel_count = CURRENT_CHANNEL_COUNT.load(Ordering::Relaxed);
-        if ch_idx >= channel_count {
-            info!("[OSC] Channel {} (idx {}) out of range (max {}), ignored",
-                  channel_name, ch_idx, channel_count);
+        // 检查通道是否在当前布局中
+        let channel_names = CURRENT_CHANNEL_NAMES.read();
+        if !channel_names.contains(&channel_name.to_string()) {
+            info!("[OSC] Channel {} not in current layout, ignored", channel_name);
             return;
         }
+        drop(channel_names);
 
         // 根据 value 区分语义
         let state = value.round() as u8;
@@ -655,22 +685,22 @@ impl OscManager {
             1 => {
                 // value=1 → 点击事件（toggle）
                 info!("[OSC] Channel {} click (toggle)", channel_name);
-                INTERACTION.handle_click(ch_idx);
+                INTERACTION.handle_click(channel_name);
             }
             0 | 2 => {
                 // value=0/2 → 目标状态（用于单通道精确控制）
                 info!("[OSC] Channel {} set state → {}", channel_name, state);
-                INTERACTION.set_channel_state(ch_idx, state);
+                INTERACTION.set_channel_state(channel_name, state);
             }
             10 => {
                 // value=10 → 有声音（Group_Dial 右转）
                 info!("[OSC] Channel {} set sound → HAS SOUND", channel_name);
-                INTERACTION.set_channel_sound(ch_idx, true);
+                INTERACTION.set_channel_sound(channel_name, true);
             }
             11 => {
                 // value=11 → 没声音（Group_Dial 左转）
                 info!("[OSC] Channel {} set sound → NO SOUND", channel_name);
-                INTERACTION.set_channel_sound(ch_idx, false);
+                INTERACTION.set_channel_sound(channel_name, false);
             }
             _ => {
                 warn!("[OSC] Channel {} unknown state value: {}", channel_name, state);
@@ -686,33 +716,33 @@ impl OscManager {
     }
 
     fn handle_solo_channel(channel_name: &str, value: f32) {
-        let ch_idx = match Self::channel_name_to_index(channel_name) {
-            Some(idx) => idx,
-            None => {
-                warn!("[OSC] Unknown channel name: {}", channel_name);
-                return;
-            }
-        };
+        // 验证通道是否在当前布局中
+        let channel_names = CURRENT_CHANNEL_NAMES.read();
+        if !channel_names.contains(&channel_name.to_string()) {
+            warn!("[OSC] Unknown channel name: {}", channel_name);
+            return;
+        }
+        drop(channel_names);
 
         if value > 0.5 {
-            info!("[OSC] Solo channel pressed: {} (index {})", channel_name, ch_idx);
-            INTERACTION.handle_click(ch_idx);
+            info!("[OSC] Solo channel pressed: {}", channel_name);
+            INTERACTION.handle_click(channel_name);
             Self::broadcast_channel_states();
         }
     }
 
     fn handle_mute_channel(channel_name: &str, value: f32) {
-        let ch_idx = match Self::channel_name_to_index(channel_name) {
-            Some(idx) => idx,
-            None => {
-                warn!("[OSC] Unknown channel name: {}", channel_name);
-                return;
-            }
-        };
+        // 验证通道是否在当前布局中
+        let channel_names = CURRENT_CHANNEL_NAMES.read();
+        if !channel_names.contains(&channel_name.to_string()) {
+            warn!("[OSC] Unknown channel name: {}", channel_name);
+            return;
+        }
+        drop(channel_names);
 
         if value > 0.5 {
-            info!("[OSC] Mute channel pressed: {} (index {})", channel_name, ch_idx);
-            INTERACTION.handle_click(ch_idx);
+            info!("[OSC] Mute channel pressed: {}", channel_name);
+            INTERACTION.handle_click(channel_name);
             Self::broadcast_channel_states();
         }
     }
@@ -764,13 +794,12 @@ impl OscManager {
         info!("[OSC] Broadcasting all states for {} channels...", channel_count);
 
         // 1. 所有通道的 LED 状态（三态：0=off, 1=mute, 2=solo）
-        for idx in 0..channel_count {
-            let ch_name = Self::channel_index_to_name(idx);
-
+        let channel_names = CURRENT_CHANNEL_NAMES.read();
+        for ch_name in channel_names.iter() {
             // 确定通道状态
-            let state = if INTERACTION.is_channel_solo(idx) {
+            let state = if INTERACTION.is_channel_solo(ch_name) {
                 ChannelLedState::Solo  // 2 = 绿色
-            } else if INTERACTION.is_channel_muted(idx) {
+            } else if INTERACTION.is_channel_muted(ch_name) {
                 ChannelLedState::Mute  // 1 = 红色
             } else {
                 ChannelLedState::Off   // 0 = 不亮
@@ -781,6 +810,7 @@ impl OscManager {
                 state as u8 as f32
             );
         }
+        drop(channel_names);
 
         // 2. 模式按钮状态
         Self::send_osc_float(socket, target, "/Monitor/Mode/Solo",
@@ -806,45 +836,66 @@ impl OscManager {
         info!("[OSC] Broadcast complete");
     }
 
-    /// 广播所有通道的 LED 状态（三态：0=off, 1=mute, 2=solo）
+    /// 广播所有通道的 LED 状态（KISS 版：动态+智能清空）
     /// 用于通道点击后同步所有受影响的通道状态
     pub fn broadcast_channel_states() {
-        let channel_count = CURRENT_CHANNEL_COUNT.load(Ordering::Relaxed);
-        if channel_count == 0 {
-            warn!("[OSC] Channel count not initialized, skipping broadcast");
+        let curr = CURRENT_CHANNEL_NAMES.read();
+        let prev = PREV_CHANNEL_NAMES.read();
+
+        if curr.is_empty() {
+            warn!("[OSC] Channel names not initialized, skipping broadcast");
             return;
         }
 
-        info!("[OSC] Broadcasting all channel LED states for {} channels...", channel_count);
+        info!("[OSC] Broadcasting LED states for {} channels...", curr.len());
 
-        for ch_idx in 0..channel_count {
-            let state = if INTERACTION.is_channel_solo(ch_idx) {
+        // 1. 广播当前布局的所有通道状态
+        for name in curr.iter() {
+            let state = if INTERACTION.is_channel_solo(name) {
                 ChannelLedState::Solo  // 2 = 绿色
-            } else if INTERACTION.is_channel_muted(ch_idx) {
+            } else if INTERACTION.is_channel_muted(name) {
                 ChannelLedState::Mute  // 1 = 红色
             } else {
                 ChannelLedState::Off   // 0 = 不亮
             };
 
-            let ch_name = Self::channel_index_to_name(ch_idx);
-            info!("[OSC] Channel {} → {:?}", ch_name, state);
-            OSC_SENDER.send_channel_led(ch_idx, state);
+            OSC_SENDER.send_channel_led_by_name(name, state);
         }
+
+        // 2. 清空「之前存在但现在不存在」的通道（KISS 智能清空）
+        let curr_set: HashSet<_> = curr.iter().collect();
+        for name in prev.iter() {
+            if !curr_set.contains(name) {
+                info!("[OSC] Clearing removed channel: {}", name);
+                OSC_SENDER.send_channel_led_by_name(name, ChannelLedState::Off);
+            }
+        }
+
+        info!("[OSC] Broadcast complete (cleared {} removed channels)",
+              prev.iter().filter(|n| !curr_set.contains(n)).count());
     }
 
-    /// 通道索引 → 名称映射 (输出带空格格式，匹配 C# 端)
+    /// 通道索引 → 名称映射（动态，从当前布局获取）
     pub fn channel_index_to_name(idx: usize) -> String {
-        STANDARD_CHANNEL_ORDER_DISPLAY
+        CURRENT_CHANNEL_NAMES
+            .read()
             .get(idx)
-            .unwrap_or(&"UNKNOWN")
-            .to_string()
+            .cloned()
+            .unwrap_or_else(|| "UNKNOWN".to_string())
     }
 
-    /// 通道名称 → 索引映射 (支持空格和下划线两种格式)
+    /// 通道名称 → 索引映射（动态，从当前布局查找，支持空格和下划线）
     fn channel_name_to_index(name: &str) -> Option<usize> {
-        // 标准化：将空格替换为下划线
+        let names = CURRENT_CHANNEL_NAMES.read();
+
+        // 先尝试直接匹配
+        if let Some(idx) = names.iter().position(|n| n == name) {
+            return Some(idx);
+        }
+
+        // 再尝试空格/下划线互换匹配（兼容性）
         let normalized = name.replace(" ", "_");
-        STANDARD_CHANNEL_ORDER.iter().position(|&n| n == normalized)
+        names.iter().position(|n| n.replace(" ", "_") == normalized)
     }
 }
 

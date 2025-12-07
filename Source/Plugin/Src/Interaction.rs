@@ -5,6 +5,7 @@
 //! - 比较模式: 在主模式基础上叠加另一个模式 (闪烁)
 //! - 通道操作: 始终操作当前激活的 Context (闪烁的那个优先)
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
@@ -44,99 +45,64 @@ impl Default for CompareMode {
     }
 }
 
-/// 通道集合 - 使用位图存储
-#[derive(Debug, Clone, Copy, Default)]
+/// 通道集合 - 使用通道名称存储（基于 HashSet）
+#[derive(Debug, Clone, Default)]
 pub struct ChannelSet {
-    /// 主声道位图 (bit i = 1 表示通道 i 在集合中)
-    pub main: u32,
-    /// SUB 声道位图
-    pub sub: u32,
+    /// 通道名称集合（存储通道名如 "L", "R", "LBF", "SUB_F" 等）
+    channels: std::collections::HashSet<String>,
 }
 
 impl ChannelSet {
     pub fn new() -> Self {
-        Self { main: 0, sub: 0 }
+        Self {
+            channels: std::collections::HashSet::new(),
+        }
     }
 
     pub fn clear(&mut self) {
-        self.main = 0;
-        self.sub = 0;
+        self.channels.clear();
     }
 
     pub fn is_empty(&self) -> bool {
-        self.main == 0 && self.sub == 0
+        self.channels.is_empty()
     }
 
-    /// 切换主声道
-    pub fn toggle_main(&mut self, ch: usize) {
-        if ch < 32 {
-            self.main ^= 1 << ch;
-        }
-    }
-
-    /// 设置主声道状态（true=加入集合，false=移除）
-    pub fn set_main(&mut self, ch: usize, on: bool) {
-        if ch < 32 {
-            if on {
-                self.main |= 1 << ch;   // 设置位
-            } else {
-                self.main &= !(1 << ch); // 清除位
-            }
-        }
-    }
-
-    /// 检查主声道是否在集合中
-    pub fn contains_main(&self, ch: usize) -> bool {
-        if ch < 32 {
-            (self.main >> ch) & 1 == 1
+    /// 切换通道状态
+    pub fn toggle(&mut self, ch_name: &str) {
+        if self.channels.contains(ch_name) {
+            self.channels.remove(ch_name);
         } else {
-            false
+            self.channels.insert(ch_name.to_string());
         }
     }
 
-    /// 切换 SUB 声道
-    pub fn toggle_sub(&mut self, ch: usize) {
-        if ch < 32 {
-            self.sub ^= 1 << ch;
-        }
-    }
-
-    /// 设置 SUB 声道状态（true=加入集合，false=移除）
-    pub fn set_sub(&mut self, ch: usize, on: bool) {
-        if ch < 32 {
-            if on {
-                self.sub |= 1 << ch;   // 设置位
-            } else {
-                self.sub &= !(1 << ch); // 清除位
-            }
-        }
-    }
-
-    /// 检查 SUB 是否在集合中
-    pub fn contains_sub(&self, ch: usize) -> bool {
-        if ch < 32 {
-            (self.sub >> ch) & 1 == 1
+    /// 设置通道状态（true=加入集合，false=移除）
+    pub fn set(&mut self, ch_name: &str, on: bool) {
+        if on {
+            self.channels.insert(ch_name.to_string());
         } else {
-            false
+            self.channels.remove(ch_name);
         }
     }
 
     /// 检查通道是否在集合中
-    pub fn contains(&self, ch: usize, is_sub: bool) -> bool {
-        if is_sub {
-            self.contains_sub(ch)
-        } else {
-            self.contains_main(ch)
-        }
+    pub fn contains(&self, ch_name: &str) -> bool {
+        self.channels.contains(ch_name)
     }
 
-    /// 切换通道
-    pub fn toggle(&mut self, ch: usize, is_sub: bool) {
-        if is_sub {
-            self.toggle_sub(ch);
-        } else {
-            self.toggle_main(ch);
-        }
+    /// 获取所有通道名称的迭代器
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        self.channels.iter()
+    }
+
+    /// 检查集合中是否有任何 SUB 通道
+    pub fn has_any_sub(&self) -> bool {
+        self.channels.iter().any(|name| name.starts_with("SUB"))
+    }
+
+    /// 检查集合中是否有任何 Main 通道（非 SUB）
+    pub fn has_any_main(&self) -> bool {
+        self.channels.iter().any(|name| !name.starts_with("SUB"))
     }
 }
 
@@ -194,8 +160,8 @@ pub struct InteractionManager {
     /// Mute 上下文是否有用户记忆
     mute_has_memory: RwLock<bool>,
 
-    /// User Mute SUB (SUB 双击/长按强制静音)
-    user_mute_sub: RwLock<u32>,
+    /// User Mute SUB (SUB 双击/长按强制静音) - 存储被静音的 SUB 通道名称
+    user_mute_sub: RwLock<std::collections::HashSet<String>>,
 
     /// 双击检测器
     double_click: RwLock<DoubleClickDetector>,
@@ -216,7 +182,7 @@ impl InteractionManager {
             mute_set: RwLock::new(ChannelSet::new()),
             solo_has_memory: RwLock::new(false),
             mute_has_memory: RwLock::new(false),
-            user_mute_sub: RwLock::new(0),
+            user_mute_sub: RwLock::new(std::collections::HashSet::new()),
             double_click: RwLock::new(DoubleClickDetector::new()),
             blink_counter: AtomicU32::new(0),
             automation_mode: RwLock::new(false),
@@ -259,22 +225,22 @@ impl InteractionManager {
 
     /// 获取 Solo 集合
     pub fn get_solo_set(&self) -> ChannelSet {
-        *self.solo_set.read()
+        self.solo_set.read().clone()
     }
 
     /// 获取 Mute 集合
     pub fn get_mute_set(&self) -> ChannelSet {
-        *self.mute_set.read()
+        self.mute_set.read().clone()
     }
 
     /// 检查通道是否在 Solo 集合中
-    pub fn is_in_solo_set(&self, ch: usize, is_sub: bool) -> bool {
-        self.solo_set.read().contains(ch, is_sub)
+    pub fn is_in_solo_set(&self, ch_name: &str) -> bool {
+        self.solo_set.read().contains(ch_name)
     }
 
     /// 检查通道是否在 Mute 集合中
-    pub fn is_in_mute_set(&self, ch: usize, is_sub: bool) -> bool {
-        self.mute_set.read().contains(ch, is_sub)
+    pub fn is_in_mute_set(&self, ch_name: &str) -> bool {
+        self.mute_set.read().contains(ch_name)
     }
 
     // ========== 自动化模式管理 ==========
@@ -292,7 +258,7 @@ impl InteractionManager {
         *self.compare.write() = CompareMode::None;
         *self.solo_has_memory.write() = false;
         *self.mute_has_memory.write() = false;
-        *self.user_mute_sub.write() = 0;
+        self.user_mute_sub.write().clear();
         *self.automation_mode.write() = true;
     }
 
@@ -307,11 +273,13 @@ impl InteractionManager {
     /// 拷贝集合到比较模式 (只拷贝 Main 通道，SUB 不参与)
     /// 逻辑：被 Solo 的通道 -> 变成被 Mute 的通道（相同的通道集合）
     fn copy_set(&self, source: &ChannelSet) -> ChannelSet {
-        // 注意：这里只拷贝 main，sub 保持为 0 (SUB 不参与自动反转)
-        ChannelSet {
-            main: source.main,   // 拷贝，不是位反转
-            sub: 0,              // SUB 不参与反转，保持空
-        }
+        // 只拷贝 Main 通道（过滤掉 SUB）
+        let channels: HashSet<String> = source.channels.iter()
+            .filter(|name| !name.starts_with("SUB"))
+            .cloned()
+            .collect();
+
+        ChannelSet { channels }
     }
 
     // ========== 全局按钮操作 ==========
@@ -354,7 +322,7 @@ impl InteractionManager {
                 self.mute_set.write().clear();
                 *self.solo_has_memory.write() = false;
                 *self.mute_has_memory.write() = false;
-                *self.user_mute_sub.write() = 0;
+                self.user_mute_sub.write().clear();
             }
             Action::EnterSoloCompare => {
                 // 从 Mute Active 进入 Solo Compare
@@ -363,7 +331,7 @@ impl InteractionManager {
 
                 if !has_memory {
                     // 如果 Solo 没有记忆，执行自动反转（拷贝）
-                    let mute_set = *self.mute_set.read();
+                    let mute_set = self.mute_set.read().clone();
                     let copied = self.copy_set(&mute_set);
                     *self.solo_set.write() = copied;
                 }
@@ -384,7 +352,7 @@ impl InteractionManager {
                 self.mute_set.write().clear();
                 *self.solo_has_memory.write() = false;
                 *self.mute_has_memory.write() = false;
-                *self.user_mute_sub.write() = 0;
+                self.user_mute_sub.write().clear();
             }
             Action::None => {}
         }
@@ -392,10 +360,10 @@ impl InteractionManager {
         // 记录状态变化（在所有操作完成后）
         let new_primary = *self.primary.read();
         let new_compare = *self.compare.read();
-        let solo_mask = self.solo_set.read().main;
-        let mute_mask = self.mute_set.read().main;
-        mcm_info!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo=0x{:x} mute=0x{:x}",
-            current_primary, current_compare, new_primary, new_compare, solo_mask, mute_mask);
+        let solo_count = self.solo_set.read().channels.len();
+        let mute_count = self.mute_set.read().channels.len();
+        mcm_info!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
+            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count);
     }
 
     /// MUTE 按钮点击
@@ -436,7 +404,7 @@ impl InteractionManager {
                 self.mute_set.write().clear();
                 *self.solo_has_memory.write() = false;
                 *self.mute_has_memory.write() = false;
-                *self.user_mute_sub.write() = 0;
+                self.user_mute_sub.write().clear();
             }
             Action::EnterMuteCompare => {
                 // 从 Solo Active 进入 Mute Compare
@@ -445,7 +413,7 @@ impl InteractionManager {
 
                 if !has_memory {
                     // 如果 Mute 没有记忆，执行自动反转（拷贝）
-                    let solo_set = *self.solo_set.read();
+                    let solo_set = self.solo_set.read().clone();
                     let copied = self.copy_set(&solo_set);
                     *self.mute_set.write() = copied;
                 }
@@ -466,7 +434,7 @@ impl InteractionManager {
                 self.mute_set.write().clear();
                 *self.solo_has_memory.write() = false;
                 *self.mute_has_memory.write() = false;
-                *self.user_mute_sub.write() = 0;
+                self.user_mute_sub.write().clear();
             }
             Action::None => {}
         }
@@ -474,10 +442,10 @@ impl InteractionManager {
         // 记录状态变化（在所有操作完成后）
         let new_primary = *self.primary.read();
         let new_compare = *self.compare.read();
-        let solo_mask = self.solo_set.read().main;
-        let mute_mask = self.mute_set.read().main;
-        mcm_info!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo=0x{:x} mute=0x{:x}",
-            current_primary, current_compare, new_primary, new_compare, solo_mask, mute_mask);
+        let solo_count = self.solo_set.read().channels.len();
+        let mute_count = self.mute_set.read().channels.len();
+        mcm_info!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
+            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count);
     }
 
     // ========== 通道操作 ==========
@@ -505,7 +473,7 @@ impl InteractionManager {
     }
 
     /// 通道点击
-    pub fn on_channel_click(&self, ch: usize, is_sub: bool) -> bool {
+    pub fn on_channel_click(&self, ch_name: &str) -> bool {
         let primary = *self.primary.read();
         let compare = *self.compare.read();
         let ctx = self.get_active_context();
@@ -517,7 +485,7 @@ impl InteractionManager {
             }
             Some(ActiveContext::Solo) => {
                 // 修改 Solo 集合
-                self.solo_set.write().toggle(ch, is_sub);
+                self.solo_set.write().toggle(ch_name);
 
                 // 记忆标记逻辑
                 match (primary, compare) {
@@ -536,7 +504,7 @@ impl InteractionManager {
             }
             Some(ActiveContext::Mute) => {
                 // 修改 Mute 集合
-                self.mute_set.write().toggle(ch, is_sub);
+                self.mute_set.write().toggle(ch_name);
 
                 // 记忆标记逻辑
                 match (primary, compare) {
@@ -557,11 +525,10 @@ impl InteractionManager {
 
         // 记录通道点击日志
         if result {
-            let solo_mask = self.solo_set.read().main;
-            let mute_mask = self.mute_set.read().main;
-            let ch_type = if is_sub { "SUB" } else { "Main" };
-            mcm_info!("[CH] {}{} click: solo=0x{:x} mute=0x{:x}",
-                ch_type, ch, solo_mask, mute_mask);
+            let solo_count = self.solo_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
+            let mute_count = self.mute_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
+            mcm_info!("[CH] {} click: solo_count={} mute_count={}",
+                ch_name, solo_count, mute_count);
         }
 
         result
@@ -573,12 +540,8 @@ impl InteractionManager {
     /// 通道索引映射：
     /// - 0-11: Main 通道 (L, R, C, LFE, LSS, RSS, LRS, RRS, LTF, RTF, LTB, RTB)
     /// - 12-15: SUB 通道 (SUB_F, SUB_B, SUB_L, SUB_R) → 内部索引 0-3
-    pub fn set_channel_state(&self, ch: usize, state: u8) {
+    pub fn set_channel_state(&self, ch_name: &str, state: u8) {
         let ctx = self.get_active_context();
-
-        // 判断是否为 SUB 通道（索引 12-15 对应 SUB 内部索引 0-3）
-        let is_sub = ch >= 12;
-        let actual_ch = if is_sub { ch - 12 } else { ch };
 
         match ctx {
             None => {
@@ -589,19 +552,11 @@ impl InteractionManager {
                 match state {
                     0 => {
                         // Off = 移除 Solo
-                        if is_sub {
-                            solo_set.set_sub(actual_ch, false);
-                        } else {
-                            solo_set.set_main(actual_ch, false);
-                        }
+                        solo_set.set(ch_name, false);
                     }
                     2 => {
                         // Solo = 加入 Solo
-                        if is_sub {
-                            solo_set.set_sub(actual_ch, true);
-                        } else {
-                            solo_set.set_main(actual_ch, true);
-                        }
+                        solo_set.set(ch_name, true);
                     }
                     _ => {}
                 }
@@ -611,19 +566,11 @@ impl InteractionManager {
                 match state {
                     0 => {
                         // Off = 移除 Mute
-                        if is_sub {
-                            mute_set.set_sub(actual_ch, false);
-                        } else {
-                            mute_set.set_main(actual_ch, false);
-                        }
+                        mute_set.set(ch_name, false);
                     }
                     1 => {
                         // Mute = 加入 Mute
-                        if is_sub {
-                            mute_set.set_sub(actual_ch, true);
-                        } else {
-                            mute_set.set_main(actual_ch, true);
-                        }
+                        mute_set.set(ch_name, true);
                     }
                     _ => {}
                 }
@@ -634,33 +581,17 @@ impl InteractionManager {
     /// 设置通道声音状态（语义层，用于 Group_Dial）
     /// has_sound: true = 有声音, false = 没声音
     /// 根据当前 ActiveContext 正确解释语义
-    ///
-    /// 通道索引映射：
-    /// - 0-11: Main 通道 (L, R, C, LFE, LSS, RSS, LRS, RRS, LTF, RTF, LTB, RTB)
-    /// - 12-15: SUB 通道 (SUB_F, SUB_B, SUB_L, SUB_R) → 内部索引 0-3
-    pub fn set_channel_sound(&self, ch: usize, has_sound: bool) {
+    pub fn set_channel_sound(&self, ch_name: &str, has_sound: bool) {
         let ctx = self.get_active_context();
-
-        // 判断是否为 SUB 通道（索引 12-15 对应 SUB 内部索引 0-3）
-        let is_sub = ch >= 12;
-        let actual_ch = if is_sub { ch - 12 } else { ch };
 
         match ctx {
             Some(ActiveContext::Solo) => {
                 // Solo 上下文：有声音 = 加入 Solo，没声音 = 移除 Solo
-                if is_sub {
-                    self.solo_set.write().set_sub(actual_ch, has_sound);
-                } else {
-                    self.solo_set.write().set_main(actual_ch, has_sound);
-                }
+                self.solo_set.write().set(ch_name, has_sound);
             }
             Some(ActiveContext::Mute) => {
                 // Mute 上下文：有声音 = 移除 Mute，没声音 = 加入 Mute
-                if is_sub {
-                    self.mute_set.write().set_sub(actual_ch, !has_sound);
-                } else {
-                    self.mute_set.write().set_main(actual_ch, !has_sound);
-                }
+                self.mute_set.write().set(ch_name, !has_sound);
             }
             None => {
                 // Idle 状态，忽略（C# 应该先发送模式激活）
@@ -691,13 +622,18 @@ impl InteractionManager {
     }
 
     /// SUB 双击 - User Mute (强制静音，优先级最高)
-    pub fn on_sub_double_click(&self, ch: usize) -> bool {
-        if ch < 32 {
-            let old_mask = *self.user_mute_sub.read();
+    pub fn on_sub_double_click(&self, ch_name: &str) -> bool {
+        if ch_name.starts_with("SUB") {
             let mut user_mute = self.user_mute_sub.write();
-            *user_mute ^= 1 << ch;  // 切换位
-            let new_mask = *user_mute;
-            mcm_info!("[CH] SUB{} dblclick: user_mute 0x{:x}->0x{:x}", ch, old_mask, new_mask);
+            let was_muted = user_mute.contains(ch_name);
+
+            if was_muted {
+                user_mute.remove(ch_name);
+                mcm_info!("[CH] {} dblclick: user_mute removed", ch_name);
+            } else {
+                user_mute.insert(ch_name.to_string());
+                mcm_info!("[CH] {} dblclick: user_mute added", ch_name);
+            }
             true
         } else {
             false
@@ -721,9 +657,10 @@ impl InteractionManager {
     /// - Main 通道：使用当前激活的上下文（比较模式优先）
     /// - SUB 通道：**永远使用 Primary 模式的集合**（不参与自动反转）
     /// - 闪烁：Compare 模式下激活的通道需要闪烁
-    pub fn get_channel_display(&self, ch: usize, is_sub: bool) -> ChannelDisplay {
+    pub fn get_channel_display(&self, ch_name: &str) -> ChannelDisplay {
         let primary = *self.primary.read();
         let compare = *self.compare.read();
+        let is_sub = ch_name.starts_with("SUB");
 
         // Idle 状态：全部灰色（UI），但音频全通（has_sound = true）
         if primary == PrimaryMode::None {
@@ -738,8 +675,8 @@ impl InteractionManager {
         // SUB 永远不参与自动反转，始终使用 Primary 模式的集合
         if is_sub {
             // 检查 User Mute（优先级最高）
-            let user_mute = *self.user_mute_sub.read();
-            if (user_mute >> ch) & 1 == 1 {
+            let user_mute = self.user_mute_sub.read();
+            if user_mute.contains(ch_name) {
                 return ChannelDisplay {
                     has_sound: false,
                     marker: Some(ChannelMarker::Mute),
@@ -748,21 +685,19 @@ impl InteractionManager {
             }
 
             // SUB 使用 Primary 模式的集合（不管是否在 Compare 模式）
-            let (sub_context_type, sub_set, main_set) = match primary {
+            let (sub_context_type, active_set) = match primary {
                 PrimaryMode::Solo => {
-                    let solo = self.solo_set.read();
-                    (ContextType::Solo, solo.sub, solo.main)
+                    (ContextType::Solo, self.solo_set.read())
                 }
                 PrimaryMode::Mute => {
-                    let mute = self.mute_set.read();
-                    (ContextType::Mute, mute.sub, mute.main)
+                    (ContextType::Mute, self.mute_set.read())
                 }
                 PrimaryMode::None => unreachable!(),
             };
 
-            let is_in_sub_set = (sub_set >> ch) & 1 == 1;
-            let sub_set_has_any = sub_set != 0;
-            let main_set_has_any = main_set != 0;
+            let is_in_sub_set = active_set.contains(ch_name);
+            let sub_set_has_any = active_set.has_any_sub();
+            let main_set_has_any = active_set.has_any_main();
 
             // 关键逻辑：
             // 1. 如果 Main 和 SUB 组都没有状态 → SUB 灰色
@@ -827,8 +762,8 @@ impl InteractionManager {
             }
         };
 
-        let is_in_main_set = active_set.contains_main(ch);
-        let main_set_has_any = active_set.main != 0;
+        let is_in_main_set = active_set.contains(ch_name);
+        let main_set_has_any = active_set.has_any_main();
 
         let marker = match context_type {
             ContextType::Solo => {
@@ -890,12 +825,8 @@ impl InteractionManager {
     }
 
     /// 处理通道点击 (用于 OSC 通道消息)
-    /// 通道索引映射：0-11 = Main, 12-15 = SUB
-    pub fn handle_click(&self, ch: usize) {
-        // 判断是否为 SUB 通道（索引 12-15 对应 SUB 内部索引 0-3）
-        let is_sub = ch >= 12;
-        let actual_ch = if is_sub { ch - 12 } else { ch };
-        self.on_channel_click(actual_ch, is_sub);
+    pub fn handle_click(&self, ch_name: &str) {
+        self.on_channel_click(ch_name);
     }
 
     /// 检查 Solo 是否激活 (Primary 或 Compare)
@@ -908,23 +839,25 @@ impl InteractionManager {
         *self.primary.read() == PrimaryMode::Mute || *self.compare.read() == CompareMode::Mute
     }
 
-    /// 获取需要闪烁的通道索引列表 (用于 OSC 闪烁定时器)
-    pub fn get_blinking_channels(&self) -> Vec<usize> {
+    /// 获取需要闪烁的通道名称列表 (用于 OSC 闪烁定时器)
+    pub fn get_blinking_channels(&self) -> Vec<String> {
         let compare = *self.compare.read();
 
         match compare {
             CompareMode::Solo => {
-                // Solo Compare 模式: 返回 solo_set 中的所有通道
+                // Solo Compare 模式: 返回 solo_set 中的所有Main通道（SUB不闪烁）
                 let solo_set = self.solo_set.read();
-                (0..32)
-                    .filter(|&ch| (solo_set.main >> ch) & 1 == 1)
+                solo_set.iter()
+                    .filter(|name| !name.starts_with("SUB"))
+                    .cloned()
                     .collect()
             }
             CompareMode::Mute => {
-                // Mute Compare 模式: 返回 mute_set 中的所有通道
+                // Mute Compare 模式: 返回 mute_set 中的所有Main通道（SUB不闪烁）
                 let mute_set = self.mute_set.read();
-                (0..32)
-                    .filter(|&ch| (mute_set.main >> ch) & 1 == 1)
+                mute_set.iter()
+                    .filter(|name| !name.starts_with("SUB"))
+                    .cloned()
                     .collect()
             }
             CompareMode::None => {
@@ -936,25 +869,14 @@ impl InteractionManager {
 
     /// 检查通道是否应该显示 Solo LED (用于 OSC 反馈)
     ///
-    /// 通道索引映射：
-    /// - 0-11: Main 通道
-    /// - 12-15: SUB 通道 → 内部索引 0-3
-    pub fn is_channel_solo(&self, ch: usize) -> bool {
-        let is_sub = ch >= 12;
-        let actual_ch = if is_sub { ch - 12 } else { ch };
-        let display = self.get_channel_display(actual_ch, is_sub);
+    pub fn is_channel_solo(&self, ch_name: &str) -> bool {
+        let display = self.get_channel_display(ch_name);
         display.marker == Some(ChannelMarker::Solo)
     }
 
     /// 检查通道是否应该显示 Mute LED (用于 OSC 反馈)
-    ///
-    /// 通道索引映射：
-    /// - 0-11: Main 通道
-    /// - 12-15: SUB 通道 → 内部索引 0-3
-    pub fn is_channel_muted(&self, ch: usize) -> bool {
-        let is_sub = ch >= 12;
-        let actual_ch = if is_sub { ch - 12 } else { ch };
-        let display = self.get_channel_display(actual_ch, is_sub);
+    pub fn is_channel_muted(&self, ch_name: &str) -> bool {
+        let display = self.get_channel_display(ch_name);
         display.marker == Some(ChannelMarker::Mute)
     }
 }

@@ -7,7 +7,11 @@
       "Bash(cargo build:*)",
       "Bash(Select-Object -Last 100)",
       "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 100\")",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 50\")"
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 50\")",
+      "Bash(Select-Object -Last 50)",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-String ''error\\['' | Select-Object -Last 5\")",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-String ''HashSet'' -Context 2 | Select-Object -First 10\")",
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 15\")"
     ],
     "deny": [],
     "ask": []
