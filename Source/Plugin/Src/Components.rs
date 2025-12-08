@@ -660,7 +660,7 @@ impl<'a> Widget for SubButton<'a> {
         // 绘制文字（缩写，例如 "S1", "SL", "SR"）
         // 从名称中提取缩写
         let abbrev = if self.name.len() > 4 {
-            // "SUB L" -> "L", "SUB R" -> "R", "SUB F" -> "F", etc.
+            // "SUB_L" -> "L", "SUB_R" -> "R", "SUB_F" -> "F", etc.
             self.name.chars().last().unwrap_or('S').to_string()
         } else if self.name == "SUB" {
             "S".to_string()

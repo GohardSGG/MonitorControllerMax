@@ -52,6 +52,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
             let prev_sub = PREV_SUB_LAYOUT.load(Ordering::Relaxed);
 
             // 检测变化：prev != -1（已初始化）且值不同
+            let first_load = prev_layout == -1;
             let layout_changed = (prev_layout != -1 && prev_layout != current_layout) ||
                                  (prev_sub != -1 && prev_sub != current_sub_layout);
 
@@ -59,8 +60,8 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
             PREV_LAYOUT.store(current_layout, Ordering::Relaxed);
             PREV_SUB_LAYOUT.store(current_sub_layout, Ordering::Relaxed);
 
-            // 如果布局发生变化且处于手动模式，同步所有通道参数
-            if layout_changed {
+            // 如果首次加载或布局发生变化且处于手动模式，同步所有通道参数
+            if first_load || layout_changed {
                 let interaction = get_interaction_manager();
                 if !interaction.is_automation_mode() {
                     // 获取布局名称和通道数

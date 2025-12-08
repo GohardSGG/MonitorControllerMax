@@ -304,8 +304,8 @@ impl InteractionManager {
             (PrimaryMode::None, CompareMode::None) => Action::SetSoloActive,
             (PrimaryMode::Solo, CompareMode::None) => Action::ExitToIdle,
             (PrimaryMode::Mute, CompareMode::None) => Action::EnterSoloCompare,
-            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitSoloCompare,
-            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitAll,
+            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitSoloCompare,  // 点击 Compare 按钮，只退出 Compare
+            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitAll,  // 点击 Primary 按钮，完全退出
             _ => Action::None,
         };
 
@@ -386,8 +386,8 @@ impl InteractionManager {
             (PrimaryMode::None, CompareMode::None) => Action::SetMuteActive,
             (PrimaryMode::Mute, CompareMode::None) => Action::ExitToIdle,
             (PrimaryMode::Solo, CompareMode::None) => Action::EnterMuteCompare,
-            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitMuteCompare,
-            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitAll,
+            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitMuteCompare,  // 点击 Compare 按钮，只退出 Compare
+            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitAll,  // 点击 Primary 按钮，完全退出
             _ => Action::None,
         };
 

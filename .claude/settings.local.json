@@ -11,7 +11,9 @@
       "Bash(Select-Object -Last 50)",
       "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-String ''error\\['' | Select-Object -Last 5\")",
       "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-String ''HashSet'' -Context 2 | Select-Object -First 10\")",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 15\")"
+      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 15\")",
+      "Bash(powershell \"Get-Content ''c:\\Code\\MonitorControllerMax\\Library\\Old\\MonitorControllerMax\\Source\\Config\\Speaker_Config.json'' | Select-String ''SUB'' -Context 2\")",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": []

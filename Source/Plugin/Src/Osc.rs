@@ -14,7 +14,7 @@ use lazy_static::lazy_static;
 
 use crate::Interaction::INTERACTION;
 use crate::config_file::APP_CONFIG;
-use crate::config_manager::{STANDARD_CHANNEL_ORDER, STANDARD_CHANNEL_ORDER_DISPLAY, Layout};
+use crate::config_manager::{STANDARD_CHANNEL_ORDER, Layout};
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;
@@ -32,6 +32,10 @@ lazy_static! {
     /// 之前布局的通道名称列表（用于清空已删除的通道）
     static ref PREV_CHANNEL_NAMES: RwLock<Vec<String>> = RwLock::new(Vec::new());
 }
+
+/// 待激活的模式标志（用于延迟激活）
+static PENDING_SOLO: AtomicBool = AtomicBool::new(false);
+static PENDING_MUTE: AtomicBool = AtomicBool::new(false);
 
 /// 通道 LED 状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -612,27 +616,24 @@ impl OscManager {
                     // value=1 → toggle（Mode 按钮点击）
                     info!("[OSC] Mode Solo toggle");
                     INTERACTION.toggle_solo_mode();
+                    // 立即发送LED状态
+                    OSC_SENDER.send_mode_solo(INTERACTION.is_solo_active());
+                    OSC_SENDER.send_mode_mute(INTERACTION.is_mute_active());
+                    Self::broadcast_channel_states();
                 }
                 2 => {
-                    // value=2 → 确保激活（Group_Dial 预激活）
+                    // value=2 → Group_Dial 预激活，延迟到通道消息处理
                     if !INTERACTION.is_solo_active() {
-                        info!("[OSC] Mode Solo activate (from Group_Dial)");
-                        INTERACTION.toggle_solo_mode();
-                    } else {
-                        info!("[OSC] Mode Solo already active, no action");
+                        PENDING_SOLO.store(true, Ordering::Relaxed);
+                        info!("[OSC] Mode Solo pending activation");
                     }
+                    // 不发送LED，等待通道消息
+                    return;
                 }
                 _ => {
                     warn!("[OSC] Mode Solo unknown value: {}", value);
                 }
             }
-
-            // 回传模式按钮状态给硬件
-            let is_active = INTERACTION.is_solo_active();
-            OSC_SENDER.send_mode_solo(is_active);
-
-            // 广播所有通道 LED 状态
-            Self::broadcast_channel_states();
         }
     }
 
@@ -645,42 +646,60 @@ impl OscManager {
                     // value=1 → toggle（Mode 按钮点击）
                     info!("[OSC] Mode Mute toggle");
                     INTERACTION.toggle_mute_mode();
+                    // 立即发送LED状态
+                    OSC_SENDER.send_mode_solo(INTERACTION.is_solo_active());
+                    OSC_SENDER.send_mode_mute(INTERACTION.is_mute_active());
+                    Self::broadcast_channel_states();
                 }
                 2 => {
-                    // value=2 → 确保激活（Group_Dial 预激活）
+                    // value=2 → Group_Dial 预激活，延迟到通道消息处理
                     if !INTERACTION.is_mute_active() {
-                        info!("[OSC] Mode Mute activate (from Group_Dial)");
-                        INTERACTION.toggle_mute_mode();
-                    } else {
-                        info!("[OSC] Mode Mute already active, no action");
+                        PENDING_MUTE.store(true, Ordering::Relaxed);
+                        info!("[OSC] Mode Mute pending activation");
                     }
+                    // 不发送LED，等待通道消息
+                    return;
                 }
                 _ => {
                     warn!("[OSC] Mode Mute unknown value: {}", value);
                 }
             }
-
-            // 回传模式按钮状态给硬件
-            let is_active = INTERACTION.is_mute_active();
-            OSC_SENDER.send_mode_mute(is_active);
-
-            // 广播所有通道 LED 状态
-            Self::broadcast_channel_states();
         }
     }
 
     fn handle_channel_click(channel_name: &str, value: f32) {
         // 检查通道是否在当前布局中
-        let channel_names = CURRENT_CHANNEL_NAMES.read();
-        if !channel_names.contains(&channel_name.to_string()) {
+        let channel_exists = CURRENT_CHANNEL_NAMES.read().contains(&channel_name.to_string());
+        let state = value.round() as u8;
+
+        // 处理 Group_Dial 消息 (value=10/11)
+        if state == 10 || state == 11 {
+            let pending_solo = PENDING_SOLO.swap(false, Ordering::Relaxed);
+            let pending_mute = PENDING_MUTE.swap(false, Ordering::Relaxed);
+
+            if !channel_exists {
+                // 通道无效，清除待激活状态，什么都不做
+                info!("[OSC] Channel {} not in layout, pending mode cancelled", channel_name);
+                return;
+            }
+
+            // 通道有效，先激活待激活的模式
+            if pending_solo && !INTERACTION.is_solo_active() {
+                INTERACTION.toggle_solo_mode();
+                info!("[OSC] Mode Solo activated (deferred)");
+            }
+            if pending_mute && !INTERACTION.is_mute_active() {
+                INTERACTION.toggle_mute_mode();
+                info!("[OSC] Mode Mute activated (deferred)");
+            }
+        }
+
+        if !channel_exists {
             info!("[OSC] Channel {} not in current layout, ignored", channel_name);
             return;
         }
-        drop(channel_names);
 
         // 根据 value 区分语义
-        let state = value.round() as u8;
-
         match state {
             1 => {
                 // value=1 → 点击事件（toggle）

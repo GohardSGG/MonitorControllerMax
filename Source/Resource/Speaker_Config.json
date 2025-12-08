@@ -108,14 +108,14 @@
             "SUB":3
         },
         "2":{
-            "SUB L":1,
-            "SUB R":3
+            "SUB_L":1,
+            "SUB_R":3
         },
         "4":{
-            "SUB F":1,
-            "SUB B":4,
-            "SUB L":3,
-            "SUB R":6
+            "SUB_F":1,
+            "SUB_B":4,
+            "SUB_L":3,
+            "SUB_R":6
         }
     }
 }
