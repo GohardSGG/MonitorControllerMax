@@ -1,12 +1,38 @@
 #![allow(non_snake_case)]
 
 use nih_plug::prelude::*;
-// Removed unused Arc and AtomicCell imports
-use crate::Params::{MonitorParams, PluginRole};
+use std::sync::atomic::{AtomicU32, Ordering};
+use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::channel_logic::{ChannelLogic, RenderState};
 use crate::network::NetworkManager;
 use crate::network_protocol::NetworkRenderState;
 use crate::config_manager::CONFIG;
+
+// ==================== 增益平滑状态 ====================
+// 使用 AtomicU32 存储 f32 的位表示，实现无锁线程安全
+
+/// 每通道当前增益状态（用于平滑过渡）
+static CURRENT_GAINS: [AtomicU32; MAX_CHANNELS] = {
+    const INIT: AtomicU32 = AtomicU32::new(0x3F800000); // 1.0f32 的位表示
+    [INIT; MAX_CHANNELS]
+};
+
+/// 平滑系数：α = 0.1
+/// 在 48kHz 下，约 50 采样（~1ms）达到 99% 目标值
+/// 足够快以保持监听控制器的响应性，又足够慢以避免咔哒声
+const SMOOTHING_ALPHA: f32 = 0.1;
+
+/// 读取当前增益
+#[inline]
+fn load_gain(ch: usize) -> f32 {
+    f32::from_bits(CURRENT_GAINS[ch].load(Ordering::Relaxed))
+}
+
+/// 存储当前增益
+#[inline]
+fn store_gain(ch: usize, value: f32) {
+    CURRENT_GAINS[ch].store(value.to_bits(), Ordering::Relaxed);
+}
 
 // Global Network Manager (Lazy initialized in Lib.rs or manually managed)
 // For simplicity, we can use a lazy_static here or put it in the plugin struct.
@@ -81,39 +107,35 @@ pub fn process_audio(
         }
     };
 
-    // 2. Apply Audio Processing (Gain/Mute)
-    let _num_samples = buffer.samples();
-    let _num_channels = buffer.channels();
+    // 2. 应用音频处理 (增益/静音) - 带平滑过渡
+    // 遍历每个采样帧，对每个通道应用平滑增益
+    for channel_samples in buffer.iter_samples() {
+        for (ch_idx, sample) in channel_samples.into_iter().enumerate() {
+            if ch_idx >= MAX_CHANNELS {
+                break;
+            }
 
-    for (channel_idx, channel_data) in buffer.iter_samples().enumerate() {
-        if channel_idx >= crate::Params::MAX_CHANNELS {
-            break;
-        }
+            // 检查该通道是否被静音
+            let is_muted = (render_state.channel_mute_mask >> ch_idx) & 1 == 1;
 
-        // Check Mute Mask
-        let is_muted = (render_state.channel_mute_mask >> channel_idx) & 1 == 1;
-        
-        // Get Channel Gain (includes Trim)
-        let ch_gain = render_state.channel_gains[channel_idx];
-        
-        // Final Gain = Master * Channel * (Mute ? 0 : 1)
-        // Note: Master Gain is already applied in Logic? 
-        // No, Logic computed `global_gain` into `state.master_gain`.
-        // Slave logic needs to apply it.
-        
-        let target_gain = if is_muted {
-            0.0
-        } else {
-            render_state.master_gain * ch_gain
-        };
+            // 获取该通道的目标增益
+            let ch_gain = render_state.channel_gains[ch_idx];
 
-        // Apply to all samples (No smoothing for now, add smoothing later)
-        // In nih_plug, params have smoothers, but here we calculated gain manually.
-        // For production, we need a smoothed gain follower.
-        // For prototype, direct multiply.
-        
-        for sample in channel_data {
-            *sample *= target_gain;
+            // 计算最终目标增益 = 主增益 × 通道增益 × (静音 ? 0 : 1)
+            let target_gain = if is_muted {
+                0.0
+            } else {
+                render_state.master_gain * ch_gain
+            };
+
+            // 指数平滑：current = current + (target - current) * α
+            // α = 0.1，在 48kHz 下约 1ms 达到 99% 目标值
+            let current_gain = load_gain(ch_idx);
+            let smoothed_gain = current_gain + (target_gain - current_gain) * SMOOTHING_ALPHA;
+            store_gain(ch_idx, smoothed_gain);
+
+            // 应用平滑后的增益到采样点
+            *sample *= smoothed_gain;
         }
     }
 }

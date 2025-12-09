@@ -580,8 +580,9 @@ impl InteractionManager {
 
     /// 设置通道声音状态（语义层，用于 Group_Dial）
     /// has_sound: true = 有声音, false = 没声音
+    /// can_exit_if_empty: true = 集合变空时自动退出模式, false = 仅增量操作
     /// 根据当前 ActiveContext 正确解释语义
-    pub fn set_channel_sound(&self, ch_name: &str, has_sound: bool) {
+    pub fn set_channel_sound(&self, ch_name: &str, has_sound: bool, can_exit_if_empty: bool) {
         let ctx = self.get_active_context();
 
         match ctx {
@@ -599,8 +600,11 @@ impl InteractionManager {
             }
         }
 
-        // 检查集合是否变空，自动退出模式
-        self.check_and_exit_empty_mode();
+        // 仅当 can_exit_if_empty=true 时检查并退出空模式
+        // 这允许增量操作（value=11）不会意外退出模式
+        if can_exit_if_empty {
+            self.check_and_exit_empty_mode();
+        }
     }
 
     /// 检查集合是否变空，自动退出对应模式
@@ -707,7 +711,7 @@ impl InteractionManager {
 
             if !main_set_has_any && !sub_set_has_any {
                 return ChannelDisplay {
-                    has_sound: false,
+                    has_sound: true,  // 空集合 = 全通（不处理）
                     marker: None,
                     is_blinking: false,
                 };
@@ -793,7 +797,7 @@ impl InteractionManager {
         let is_blinking = is_compare_mode && is_in_main_set;
 
         ChannelDisplay {
-            has_sound: marker == Some(ChannelMarker::Solo),
+            has_sound: marker != Some(ChannelMarker::Mute),
             marker,
             is_blinking,
         }

@@ -112,10 +112,12 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                 setter.set_parameter(&params.cut, cut);
                 setter.end_set_parameter(&params.cut);
 
+                // 同步 Cut 状态（用于 toggle 支持）
+                OscManager::sync_cut_state(cut);
+
                 mcm_info!("[OSC Recv] Applied changes: volume={:.3}, dim={}, cut={}", volume, dim, cut);
 
-                // 立即回显 OSC 状态（告诉硬件控制器参数已更新）
-                OSC_SENDER.send_master_volume(volume);
+                // 回显 OSC 状态（Volume 不回显，避免与硬件控制器竞争）
                 OSC_SENDER.send_dim(dim);
                 OSC_SENDER.send_cut(cut);
             }
@@ -472,21 +474,6 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             label_with_offset(ui, "Map");
             ui.add_space(scale.s(12.0));
 
-            // 齿轮设置按钮
-            {
-                let gear_btn = ui.add(egui::Button::new(RichText::new("⚙")
-                    .font(scale.font(18.0))
-                    .color(COLOR_TEXT_MEDIUM))
-                    .frame(false));
-
-                if gear_btn.clicked() {
-                    let dialog_id = egui::Id::new("settings_dialog");
-                    ui.ctx().memory_mut(|m| m.data.insert_temp(dialog_id, true));
-                }
-            }
-
-            ui.add_space(scale.s(12.0));
-
             // 3. Role dropdown (Plugin Role)
             {
                 let box_size = Vec2::new(scale.s(100.0), scale.s(40.0));
@@ -539,6 +526,21 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Role");
 
+            ui.add_space(scale.s(12.0));
+
+            // 齿轮设置按钮 (移到 Role 左边)
+            {
+                let gear_btn = ui.add(egui::Button::new(RichText::new("⚙")
+                    .font(scale.font(18.0))
+                    .color(COLOR_TEXT_MEDIUM))
+                    .frame(false));
+
+                if gear_btn.clicked() {
+                    let dialog_id = egui::Id::new("settings_dialog");
+                    ui.ctx().memory_mut(|m| m.data.insert_temp(dialog_id, true));
+                }
+            }
+
         });
     });
 
@@ -554,7 +556,7 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
 fn custom_button(ui: &mut egui::Ui, primary: &str, secondary: &str, active: bool, width: f32, scale: &ScaleContext) -> egui::Response {
     // --- 🟢 关键微调变量 (MANUAL TWEAK VARS) 🟢 ---
     // 修改这里来控制这些新按钮的高度
-    let height = scale.s(46.0); // 原来是 56.0
+    let height = scale.s(46.0); // 双行按钮高度
     // ----------------------------------------------
 
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), egui::Sense::click());
@@ -735,6 +737,7 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 let dim_active = params.dim.value();
                 let dim_btn = BrutalistButton::new("DIM", scale)
                     .width(button_width)
+                    .warning(true)
                     .active(dim_active);
                 if ui.add(dim_btn).clicked() {
                     let new_value = !dim_active;
@@ -762,6 +765,9 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                     setter.set_parameter(&params.cut, new_value);
                     setter.end_set_parameter(&params.cut);
 
+                    // 同步 Cut 状态（用于 toggle 支持）
+                    OscManager::sync_cut_state(new_value);
+
                     // 发送 OSC
                     OSC_SENDER.send_cut(new_value);
                 }
@@ -775,22 +781,22 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
             
             // --- NEW: Low/High Boost Group ---
             ui.horizontal(|ui| {
-                // Using custom_button for Low Boost
-                // Need state management? Just placeholders for now or use memory
-                let lb_id = ui.id().with("low_boost");
-                let mut lb_active = ui.memory(|m| m.data.get_temp::<bool>(lb_id).unwrap_or(false));
+                // Low Boost - 与硬件同步
+                let lb_active = OSC_RECEIVER.get_low_boost();
                 if custom_button(ui, "Low", "Boost", lb_active, button_width, scale).clicked() {
-                     lb_active = !lb_active;
-                     ui.memory_mut(|m| m.data.insert_temp(lb_id, lb_active));
+                    let new_value = !lb_active;
+                    OSC_RECEIVER.set_low_boost(new_value);
+                    OSC_SENDER.send_low_boost(new_value);
                 }
 
                 ui.add_space(scale.s(8.0));
 
-                let hb_id = ui.id().with("high_boost");
-                let mut hb_active = ui.memory(|m| m.data.get_temp::<bool>(hb_id).unwrap_or(false));
+                // High Boost - 与硬件同步
+                let hb_active = OSC_RECEIVER.get_high_boost();
                 if custom_button(ui, "High", "Boost", hb_active, button_width, scale).clicked() {
-                     hb_active = !hb_active;
-                     ui.memory_mut(|m| m.data.insert_temp(hb_id, hb_active));
+                    let new_value = !hb_active;
+                    OSC_RECEIVER.set_high_boost(new_value);
+                    OSC_SENDER.send_high_boost(new_value);
                 }
             });
 
@@ -798,28 +804,26 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
 
             // --- NEW: MONO / +10dB LFE Group ---
             ui.horizontal(|ui| {
-                // MONO Button (Standard Brutalist?)
-                let mono_id = ui.id().with("mono_btn");
-                let mut mono_active = ui.memory(|m| m.data.get_temp::<bool>(mono_id).unwrap_or(false));
-                // Use BrutalistButton but with same width logic
-                // Or custom_button with empty secondary?
-                // User said: "MONO 和 +10dB LFE"
-                // Assuming MONO is standard style but split width
-                let mut btn = BrutalistButton::new("MONO", scale).width(button_width); // Removed .large()
-                btn = btn.active(mono_active);
+                // MONO Button - 与硬件同步
+                let mono_active = OSC_RECEIVER.get_mono();
+                let mut btn = BrutalistButton::new("MONO", scale)
+                    .width(button_width)
+                    .height(scale.s(46.0));  // 与 custom_button 高度一致
+                btn = btn.danger(true).active(mono_active);  // 红色样式与硬件一致
                 if ui.add(btn).clicked() {
-                    mono_active = !mono_active;
-                    ui.memory_mut(|m| m.data.insert_temp(mono_id, mono_active));
+                    let new_value = !mono_active;
+                    OSC_RECEIVER.set_mono(new_value);
+                    OSC_SENDER.send_mono(new_value);
                 }
 
                 ui.add_space(scale.s(8.0));
 
-                // +10dB LFE (Custom Button)
-                let lfe_id = ui.id().with("lfe_boost");
-                let mut lfe_active = ui.memory(|m| m.data.get_temp::<bool>(lfe_id).unwrap_or(false));
+                // +10dB LFE - 与硬件同步
+                let lfe_active = OSC_RECEIVER.get_lfe_add_10db();
                 if custom_button(ui, "+10dB", "LFE", lfe_active, button_width, scale).clicked() {
-                     lfe_active = !lfe_active;
-                     ui.memory_mut(|m| m.data.insert_temp(lfe_id, lfe_active));
+                    let new_value = !lfe_active;
+                    OSC_RECEIVER.set_lfe_add_10db(new_value);
+                    OSC_SENDER.send_lfe_add_10db(new_value);
                 }
             });
 

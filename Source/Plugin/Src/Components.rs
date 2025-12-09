@@ -40,6 +40,7 @@ pub struct BrutalistButton<'a> {
     active: bool,
     danger: bool,    // 红色 (MUTE)
     success: bool,   // 绿色 (SOLO)
+    warning: bool,   // 黄色 (DIM)
     width_mode: ButtonWidth, // <-- UPDATED: Replaced bool with an enum
     height: f32,
     scale: &'a ScaleContext,
@@ -59,6 +60,7 @@ impl<'a> BrutalistButton<'a> {
             active: false,
             danger: false,
             success: false,
+            warning: false,
             width_mode: ButtonWidth::Default, // <-- Default behavior
             height: scale.s(40.0),
             scale,
@@ -80,6 +82,11 @@ impl<'a> BrutalistButton<'a> {
         self
     }
 
+    pub fn warning(mut self, warning: bool) -> Self {
+        self.warning = warning;
+        self
+    }
+
     // --- UPDATED ---
     pub fn full_width(mut self, full: bool) -> Self {
         if full {
@@ -96,6 +103,12 @@ impl<'a> BrutalistButton<'a> {
 
     pub fn large(mut self) -> Self {
         self.height = self.scale.s(56.0);
+        self
+    }
+
+    /// 设置自定义高度
+    pub fn height(mut self, height_px: f32) -> Self {
+        self.height = height_px;
         self
     }
 }
@@ -125,6 +138,9 @@ impl<'a> Widget for BrutalistButton<'a> {
             } else if self.success {
                 // SOLO 按钮激活：绿色
                 (COLOR_ACTIVE_GREEN_BG, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+            } else if self.warning {
+                // DIM 按钮激活：淡黄色 (与 +10dB LFE 一致)
+                (COLOR_ACTIVE_YELLOW_BG, COLOR_TEXT_DARK, Color32::from_rgb(202, 138, 4))
             } else {
                 // 其他按钮激活：深灰色
                 (COLOR_ACTIVE_SLATE_BG, Color32::WHITE, Color32::from_rgb(100, 116, 139))

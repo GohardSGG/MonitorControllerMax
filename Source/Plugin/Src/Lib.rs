@@ -26,7 +26,7 @@ mod Audio_Layouts {
 
 use Params::MonitorParams;
 use network::NetworkManager;
-use osc::OscManager;
+use osc::{OscManager, CURRENT_CHANNEL_COUNT};
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
@@ -129,6 +129,22 @@ impl Plugin for MonitorControllerMax {
         }
 
         true
+    }
+
+    fn reset(&mut self) {
+        mcm_info!("Plugin reset() called - broadcasting current parameter state");
+
+        // 在 reset() 中广播当前参数状态
+        // 此时 DAW 已经恢复了保存的参数值
+        let role = self.params.role.value();
+        if role != Params::PluginRole::Slave {
+            let channel_count = CURRENT_CHANNEL_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+            let master_volume = self.params.master_gain.value();
+            let dim = self.params.dim.value();
+            let cut = self.params.cut.value();
+            mcm_info!("[Reset] Broadcasting state: vol={:.4}, dim={}, cut={}", master_volume, dim, cut);
+            self.osc.broadcast_state(channel_count, master_volume, dim, cut);
+        }
     }
 
     fn process(

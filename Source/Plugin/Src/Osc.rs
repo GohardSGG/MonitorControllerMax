@@ -23,7 +23,7 @@ const BLINK_INTERVAL_MS: u64 = 500;
 const MAX_QUEUE_SIZE: usize = 1000;
 
 /// 当前音频布局的通道数（用于广播）
-static CURRENT_CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static CURRENT_CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 lazy_static! {
     /// 当前布局的通道名称列表（按索引顺序）- 动态从 Layout 获取
@@ -36,6 +36,9 @@ lazy_static! {
 /// 待激活的模式标志（用于延迟激活）
 static PENDING_SOLO: AtomicBool = AtomicBool::new(false);
 static PENDING_MUTE: AtomicBool = AtomicBool::new(false);
+
+/// 当前 Cut 状态（用于 toggle 支持）
+static CURRENT_CUT: AtomicBool = AtomicBool::new(false);
 
 /// 通道 LED 状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +68,18 @@ pub enum OscOutMessage {
 
     /// Cut 状态: on (1.0 = active, 0.0 = off)
     Cut { on: bool },
+
+    /// Mono 状态: on (1.0 = active, 0.0 = off)
+    Mono { on: bool },
+
+    /// LFE +10dB 状态: on (1.0 = active, 0.0 = off)
+    LfeAdd10dB { on: bool },
+
+    /// Low Boost 状态: on (1.0 = active, 0.0 = off)
+    LowBoost { on: bool },
+
+    /// High Boost 状态: on (1.0 = active, 0.0 = off)
+    HighBoost { on: bool },
 
     /// 广播所有状态 (初始化时使用)
     BroadcastAll {
@@ -133,6 +148,26 @@ impl OscSender {
         self.send(OscOutMessage::Cut { on });
     }
 
+    /// 发送 Mono 状态
+    pub fn send_mono(&self, on: bool) {
+        self.send(OscOutMessage::Mono { on });
+    }
+
+    /// 发送 LFE +10dB 状态
+    pub fn send_lfe_add_10db(&self, on: bool) {
+        self.send(OscOutMessage::LfeAdd10dB { on });
+    }
+
+    /// 发送 Low Boost 状态
+    pub fn send_low_boost(&self, on: bool) {
+        self.send(OscOutMessage::LowBoost { on });
+    }
+
+    /// 发送 High Boost 状态
+    pub fn send_high_boost(&self, on: bool) {
+        self.send(OscOutMessage::HighBoost { on });
+    }
+
     /// 内部发送方法
     fn send(&self, msg: OscOutMessage) {
         if let Some(tx) = self.tx.read().as_ref() {
@@ -154,6 +189,14 @@ pub struct OscReceiver {
     dim: AtomicBool,
     /// Cut 状态
     cut: AtomicBool,
+    /// Mono 状态
+    mono: AtomicBool,
+    /// LFE +10dB 状态
+    lfe_add_10db: AtomicBool,
+    /// Low Boost 状态
+    low_boost: AtomicBool,
+    /// High Boost 状态
+    high_boost: AtomicBool,
     /// 是否有待处理的变化
     has_pending: AtomicBool,
 }
@@ -164,6 +207,10 @@ impl OscReceiver {
             master_volume: AtomicU32::new(0),  // 0.0 的位表示
             dim: AtomicBool::new(false),
             cut: AtomicBool::new(false),
+            mono: AtomicBool::new(false),
+            lfe_add_10db: AtomicBool::new(false),
+            low_boost: AtomicBool::new(false),
+            high_boost: AtomicBool::new(false),
             has_pending: AtomicBool::new(false),
         }
     }
@@ -184,6 +231,46 @@ impl OscReceiver {
     pub fn set_cut(&self, on: bool) {
         self.cut.store(on, Ordering::Relaxed);
         self.has_pending.store(true, Ordering::Relaxed);
+    }
+
+    /// 设置 Mono (从 OSC 接收)
+    pub fn set_mono(&self, on: bool) {
+        self.mono.store(on, Ordering::Relaxed);
+    }
+
+    /// 获取 Mono 状态
+    pub fn get_mono(&self) -> bool {
+        self.mono.load(Ordering::Relaxed)
+    }
+
+    /// 设置 LFE +10dB (从 OSC 接收)
+    pub fn set_lfe_add_10db(&self, on: bool) {
+        self.lfe_add_10db.store(on, Ordering::Relaxed);
+    }
+
+    /// 获取 LFE +10dB 状态
+    pub fn get_lfe_add_10db(&self) -> bool {
+        self.lfe_add_10db.load(Ordering::Relaxed)
+    }
+
+    /// 设置 Low Boost (从 OSC 接收)
+    pub fn set_low_boost(&self, on: bool) {
+        self.low_boost.store(on, Ordering::Relaxed);
+    }
+
+    /// 获取 Low Boost 状态
+    pub fn get_low_boost(&self) -> bool {
+        self.low_boost.load(Ordering::Relaxed)
+    }
+
+    /// 设置 High Boost (从 OSC 接收)
+    pub fn set_high_boost(&self, on: bool) {
+        self.high_boost.store(on, Ordering::Relaxed);
+    }
+
+    /// 获取 High Boost 状态
+    pub fn get_high_boost(&self) -> bool {
+        self.high_boost.load(Ordering::Relaxed)
     }
 
     /// 获取并清除待处理的变化
@@ -252,6 +339,8 @@ impl OscManager {
         self.channel_count = channel_count;
         // 存储通道数供静态方法使用
         CURRENT_CHANNEL_COUNT.store(channel_count, Ordering::Relaxed);
+        // 同步初始 Cut 状态
+        CURRENT_CUT.store(cut, Ordering::Relaxed);
 
         // 创建消息队列
         let (send_tx, send_rx) = unbounded::<OscOutMessage>();
@@ -281,14 +370,20 @@ impl OscManager {
         OSC_SENDER.register(send_tx.clone());
 
         info!("[OSC] All threads started successfully");
+        // 注意: 不再在这里广播初始状态，改为在 reset() 中调用 broadcast_state()
+    }
 
-        // 广播初始状态
-        let _ = send_tx.try_send(OscOutMessage::BroadcastAll {
-            channel_count,
-            master_volume,
-            dim,
-            cut,
-        });
+    /// 广播当前状态到硬件 (在 DAW 恢复参数后调用)
+    pub fn broadcast_state(&self, channel_count: usize, master_volume: f32, dim: bool, cut: bool) {
+        if let Some(ref tx) = self.send_tx {
+            info!("[OSC] Broadcasting state: vol={:.2}, dim={}, cut={}", master_volume, dim, cut);
+            let _ = tx.try_send(OscOutMessage::BroadcastAll {
+                channel_count,
+                master_volume,
+                dim,
+                cut,
+            });
+        }
     }
 
     /// 关闭 OSC 系统
@@ -339,6 +434,11 @@ impl OscManager {
     pub fn update_channel_count(new_count: usize) {
         CURRENT_CHANNEL_COUNT.store(new_count, Ordering::Relaxed);
         info!("[OSC] Channel count updated to: {}", new_count);
+    }
+
+    /// 同步 Cut 状态（当 params.cut 改变时调用，保持 toggle 状态同步）
+    pub fn sync_cut_state(cut: bool) {
+        CURRENT_CUT.store(cut, Ordering::Relaxed);
     }
 
     /// 更新布局通道信息（从 Layout 动态获取，KISS 方案）
@@ -538,6 +638,18 @@ impl OscManager {
             OscOutMessage::Cut { on } => {
                 Self::send_osc_float(socket, target, "/Monitor/Master/Cut", if on { 1.0 } else { 0.0 });
             }
+            OscOutMessage::Mono { on } => {
+                Self::send_osc_float(socket, target, "/Monitor/Master/Effect/Mono", if on { 1.0 } else { 0.0 });
+            }
+            OscOutMessage::LfeAdd10dB { on } => {
+                Self::send_osc_float(socket, target, "/Monitor/LFE/Add_10dB", if on { 1.0 } else { 0.0 });
+            }
+            OscOutMessage::LowBoost { on } => {
+                Self::send_osc_float(socket, target, "/Monitor/Master/Effect/Low_Boost", if on { 1.0 } else { 0.0 });
+            }
+            OscOutMessage::HighBoost { on } => {
+                Self::send_osc_float(socket, target, "/Monitor/Master/Effect/High_Boost", if on { 1.0 } else { 0.0 });
+            }
             OscOutMessage::BroadcastAll { channel_count, master_volume, dim, cut } => {
                 Self::broadcast_all_states(socket, target, channel_count, master_volume, dim, cut);
             }
@@ -591,6 +703,14 @@ impl OscManager {
             Self::handle_dim(value);
         } else if addr == "/Monitor/Master/Cut" {
             Self::handle_cut(value);
+        } else if addr == "/Monitor/Master/Effect/Mono" {
+            Self::handle_mono(value);
+        } else if addr == "/Monitor/LFE/Add_10dB" {
+            Self::handle_lfe_add_10db(value);
+        } else if addr == "/Monitor/Master/Effect/Low_Boost" {
+            Self::handle_low_boost(value);
+        } else if addr == "/Monitor/Master/Effect/High_Boost" {
+            Self::handle_high_boost(value);
         } else if addr.starts_with("/Monitor/Channel/") {
             let ch_name = &addr[17..]; // 跳过 "/Monitor/Channel/"
             Self::handle_channel_click(ch_name, value);
@@ -672,8 +792,8 @@ impl OscManager {
         let channel_exists = CURRENT_CHANNEL_NAMES.read().contains(&channel_name.to_string());
         let state = value.round() as u8;
 
-        // 处理 Group_Dial 消息 (value=10/11)
-        if state == 10 || state == 11 {
+        // 处理 Group_Dial 消息 (value=10/11/12)
+        if state == 10 || state == 11 || state == 12 {
             let pending_solo = PENDING_SOLO.swap(false, Ordering::Relaxed);
             let pending_mute = PENDING_MUTE.swap(false, Ordering::Relaxed);
 
@@ -712,14 +832,21 @@ impl OscManager {
                 INTERACTION.set_channel_state(channel_name, state);
             }
             10 => {
-                // value=10 → 有声音（Group_Dial 右转）
+                // value=10 → 有声音（Group_Dial 右转）- 加入通道，可退出空模式
                 info!("[OSC] Channel {} set sound → HAS SOUND", channel_name);
-                INTERACTION.set_channel_sound(channel_name, true);
+                INTERACTION.set_channel_sound(channel_name, true, true);
             }
             11 => {
-                // value=11 → 没声音（Group_Dial 左转）
-                info!("[OSC] Channel {} set sound → NO SOUND", channel_name);
-                INTERACTION.set_channel_sound(channel_name, false);
+                // value=11 → 没声音，增量移除（不退出模式即使变空）
+                // 用于非激活者的旋钮移除操作
+                info!("[OSC] Channel {} set sound → NO SOUND (incremental)", channel_name);
+                INTERACTION.set_channel_sound(channel_name, false, false);
+            }
+            12 => {
+                // value=12 → 没声音，可退出空模式（激活者的旋钮反向操作）
+                // 用于激活此模式的旋钮进行"撤销"操作
+                info!("[OSC] Channel {} set sound → NO SOUND (can exit)", channel_name);
+                INTERACTION.set_channel_sound(channel_name, false, true);
             }
             _ => {
                 warn!("[OSC] Channel {} unknown state value: {}", channel_name, state);
@@ -780,9 +907,62 @@ impl OscManager {
     }
 
     fn handle_cut(value: f32) {
+        let state = value.round() as u8;
+
+        let new_cut = match state {
+            1 => {
+                // value=1 → toggle（旋钮按下）
+                let current = CURRENT_CUT.load(Ordering::Relaxed);
+                let toggled = !current;
+                info!("[OSC] Cut toggle: {} -> {}", current, toggled);
+                toggled
+            }
+            0 => {
+                // value=0 → 关闭
+                info!("[OSC] Cut set: false");
+                false
+            }
+            _ => {
+                // value>=2 → 开启
+                info!("[OSC] Cut set: true");
+                true
+            }
+        };
+
+        CURRENT_CUT.store(new_cut, Ordering::Relaxed);
+        OSC_RECEIVER.set_cut(new_cut);
+    }
+
+    fn handle_mono(value: f32) {
         let on = value > 0.5;
-        info!("[OSC] Cut received: {}", on);
-        OSC_RECEIVER.set_cut(on);
+        info!("[OSC] ===== Mono received: {} =====", on);
+        OSC_RECEIVER.set_mono(on);
+        // 发送反馈回 C#
+        OSC_SENDER.send_mono(on);
+    }
+
+    fn handle_lfe_add_10db(value: f32) {
+        let on = value > 0.5;
+        info!("[OSC] ===== LFE +10dB received: {} =====", on);
+        OSC_RECEIVER.set_lfe_add_10db(on);
+        // 发送反馈回 C#
+        OSC_SENDER.send_lfe_add_10db(on);
+    }
+
+    fn handle_low_boost(value: f32) {
+        let on = value > 0.5;
+        info!("[OSC] ===== Low Boost received: {} =====", on);
+        OSC_RECEIVER.set_low_boost(on);
+        // 发送反馈回 C#
+        OSC_SENDER.send_low_boost(on);
+    }
+
+    fn handle_high_boost(value: f32) {
+        let on = value > 0.5;
+        info!("[OSC] ===== High Boost received: {} =====", on);
+        OSC_RECEIVER.set_high_boost(on);
+        // 发送反馈回 C#
+        OSC_SENDER.send_high_boost(on);
     }
 
     // ==================== 工具函数 ====================
