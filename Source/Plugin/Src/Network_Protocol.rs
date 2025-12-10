@@ -22,6 +22,12 @@ pub struct NetworkInteractionState {
     pub mute_mask: u32,
     /// SUB User Mute 集合（位掩码，bit 0-3 对应 SUB_F/B/L/R）
     pub user_mute_sub_mask: u8,
+    /// 主音量 (0.0-1.0)
+    pub master_gain: f32,
+    /// Dim 开关
+    pub dim: bool,
+    /// Cut 开关
+    pub cut: bool,
     /// 时间戳（毫秒）
     pub timestamp: u64,
     /// 魔数校验

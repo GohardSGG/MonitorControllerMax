@@ -137,6 +137,31 @@ pub fn create_editor(
                 osc_state_clone.send_cut(cut);
             }
 
+            // === Slave 网络同步：检查是否有从 Master 接收的参数变化 ===
+            let role = params.role.value();
+            if role == PluginRole::Slave {
+                // 检查并应用网络接收的 master_gain
+                if let Some(gain) = interaction_clone.take_network_master_gain() {
+                    setter.begin_set_parameter(&params.master_gain);
+                    setter.set_parameter(&params.master_gain, gain);
+                    setter.end_set_parameter(&params.master_gain);
+                }
+
+                // 检查并应用网络接收的 dim
+                if let Some(dim) = interaction_clone.take_network_dim() {
+                    setter.begin_set_parameter(&params.dim);
+                    setter.set_parameter(&params.dim, dim);
+                    setter.end_set_parameter(&params.dim);
+                }
+
+                // 检查并应用网络接收的 cut
+                if let Some(cut) = interaction_clone.take_network_cut() {
+                    setter.begin_set_parameter(&params.cut);
+                    setter.set_parameter(&params.cut, cut);
+                    setter.end_set_parameter(&params.cut);
+                }
+            }
+
             // 1. 从 EguiState 获取物理像素尺寸（关键！不能用 ctx.screen_rect()）
             let (physical_width, _) = egui_state_clone.size();
             let scale = ScaleContext::from_physical_size(physical_width, BASE_WIDTH);

@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 use crate::network_protocol::NetworkInteractionState;
 use crate::Interaction::InteractionManager;
 use crate::logger::InstanceLogger;
+use crate::Params::MonitorParams;
 
 pub struct NetworkManager {
     // 运行状态标志（线程退出控制）
@@ -36,7 +37,8 @@ impl NetworkManager {
 
     /// 初始化 Master 模式
     /// 网络线程直接从 InteractionManager 读取状态，定期发送
-    pub fn init_master(&mut self, port: u16, interaction: Arc<InteractionManager>, logger: Arc<InstanceLogger>) {
+    /// params 用于读取 master_gain/dim/cut
+    pub fn init_master(&mut self, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>) {
         // 如果已经运行，先关闭
         if self.is_running.load(Ordering::Relaxed) {
             self.shutdown();
@@ -61,8 +63,13 @@ impl NetworkManager {
                 let mut send_count: u64 = 0;
 
                 while is_running.load(Ordering::Relaxed) {
-                    // 从 InteractionManager 读取当前状态
-                    let state = interaction.to_network_state();
+                    // 从 params 读取 master_gain/dim/cut
+                    let master_gain = params.master_gain.value();
+                    let dim = params.dim.value();
+                    let cut = params.cut.value();
+
+                    // 从 InteractionManager 读取当前状态（包含 params 值）
+                    let state = interaction.to_network_state(master_gain, dim, cut);
 
                     // 序列化并发送
                     if let Ok(bytes) = bincode::serialize(&state) {

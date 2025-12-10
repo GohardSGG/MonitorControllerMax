@@ -209,7 +209,7 @@ impl MonitorControllerMax {
         // 根据 role 初始化网络
         match role {
             Params::PluginRole::Master => {
-                self.network.init_master(9123, self.interaction.clone(), Arc::clone(&self.logger));
+                self.network.init_master(9123, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
                 let master_volume = self.params.master_gain.value();
                 let dim = self.params.dim.value();
                 let cut = self.params.cut.value();

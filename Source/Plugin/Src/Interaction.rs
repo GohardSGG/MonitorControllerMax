@@ -177,6 +177,14 @@ pub struct InteractionManager {
 
     /// 实例级日志器
     logger: Arc<InstanceLogger>,
+
+    // ========== 网络同步状态 (Slave 接收 Master 数据用) ==========
+    /// 网络接收的主音量
+    network_master_gain: RwLock<Option<f32>>,
+    /// 网络接收的 Dim 状态
+    network_dim: RwLock<Option<bool>>,
+    /// 网络接收的 Cut 状态
+    network_cut: RwLock<Option<bool>>,
 }
 
 impl InteractionManager {
@@ -193,6 +201,10 @@ impl InteractionManager {
             blink_counter: AtomicU32::new(0),
             automation_mode: RwLock::new(false),
             logger,
+            // 网络同步状态初始化
+            network_master_gain: RwLock::new(None),
+            network_dim: RwLock::new(None),
+            network_cut: RwLock::new(None),
         }
     }
 
@@ -939,7 +951,8 @@ impl InteractionManager {
     // ========== 网络同步方法 (Master-Slave) ==========
 
     /// 导出当前状态到网络格式 (Master 调用)
-    pub fn to_network_state(&self) -> NetworkInteractionState {
+    /// 需要传入 master_gain/dim/cut 参数（从 params 读取）
+    pub fn to_network_state(&self, master_gain: f32, dim: bool, cut: bool) -> NetworkInteractionState {
         let primary = match *self.primary.read() {
             PrimaryMode::None => 0,
             PrimaryMode::Solo => 1,
@@ -962,6 +975,9 @@ impl InteractionManager {
             solo_mask: NetworkInteractionState::channel_set_to_mask(&solo_set.channels),
             mute_mask: NetworkInteractionState::channel_set_to_mask(&mute_set.channels),
             user_mute_sub_mask: NetworkInteractionState::sub_set_to_mask(&user_mute_sub),
+            master_gain,
+            dim,
+            cut,
             timestamp: 0,
             magic: 0,
         }.with_timestamp()
@@ -1004,5 +1020,25 @@ impl InteractionManager {
             let mut user_mute = self.user_mute_sub.write();
             *user_mute = NetworkInteractionState::mask_to_sub_set(state.user_mute_sub_mask);
         }
+
+        // 更新全局状态（供 Editor 读取并应用到 params）
+        *self.network_master_gain.write() = Some(state.master_gain);
+        *self.network_dim.write() = Some(state.dim);
+        *self.network_cut.write() = Some(state.cut);
+    }
+
+    /// 获取并清除网络接收的主音量（Slave Editor 调用）
+    pub fn take_network_master_gain(&self) -> Option<f32> {
+        self.network_master_gain.write().take()
+    }
+
+    /// 获取并清除网络接收的 Dim 状态（Slave Editor 调用）
+    pub fn take_network_dim(&self) -> Option<bool> {
+        self.network_dim.write().take()
+    }
+
+    /// 获取并清除网络接收的 Cut 状态（Slave Editor 调用）
+    pub fn take_network_cut(&self) -> Option<bool> {
+        self.network_cut.write().take()
     }
 }
