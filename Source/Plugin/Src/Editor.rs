@@ -8,19 +8,15 @@ use nih_plug_egui::egui::{
     Stroke, LayerId, Frame, TopBottomPanel, SidePanel, CentralPanel, Grid, StrokeKind
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Components::{self, *};
 use crate::scale::ScaleContext;
-use crate::config_manager::CONFIG;
-use crate::config_file::APP_CONFIG;
-use crate::mcm_info;
-use crate::Interaction::{get_interaction_manager, SubClickType, ChannelMarker, InteractionManager};
-use crate::osc::{OSC_SENDER, OSC_RECEIVER, OscManager};
-
-// 用于跨帧追踪布局变化的静态变量
-static PREV_LAYOUT: AtomicI32 = AtomicI32::new(-1);  // -1 表示未初始化
-static PREV_SUB_LAYOUT: AtomicI32 = AtomicI32::new(-1);
+use crate::config_manager::ConfigManager;
+use crate::config_file::AppConfig;
+use crate::logger::InstanceLogger;
+use crate::Interaction::{SubClickType, ChannelMarker, InteractionManager};
+use crate::osc::OscSharedState;
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -30,11 +26,31 @@ const ASPECT_RATIO: f32 = 1.0;
 // --- 颜色常量 ---
 const COLOR_BORDER_MAIN: Color32 = Color32::from_rgb(30, 41, 59);  // 主边框颜色（深灰蓝）
 
-pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
+pub fn create_editor(
+    params: Arc<MonitorParams>,
+    interaction: Arc<InteractionManager>,
+    osc_state: Arc<OscSharedState>,
+    network_connected: Arc<AtomicBool>,
+    logger: Arc<InstanceLogger>,
+    app_config: AppConfig,
+    layout_config: Arc<ConfigManager>,
+) -> Option<Box<dyn Editor>> {
     let egui_state = EguiState::from_size(BASE_WIDTH as u32, BASE_HEIGHT as u32);
     let egui_state_clone = egui_state.clone();
 
     let params_clone = params.clone();
+    let interaction_clone = interaction.clone();
+    let osc_state_clone = osc_state.clone();
+    let network_connected_clone = network_connected.clone();
+    let logger_clone = logger.clone();
+    let app_config_clone = app_config.clone();
+    let layout_config_clone = layout_config.clone();
+
+    // 实例级布局追踪变量（替代全局静态变量）
+    let prev_layout = Arc::new(AtomicI32::new(-1));  // -1 表示未初始化
+    let prev_sub_layout = Arc::new(AtomicI32::new(-1));
+    let prev_layout_clone = prev_layout.clone();
+    let prev_sub_clone = prev_sub_layout.clone();
 
     create_egui_editor(
         egui_state,
@@ -44,59 +60,58 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
             // 获取 params 的引用供渲染函数使用
             let params = &params_clone;
 
-            // === 布局变化检测（使用 AtomicI32 跨帧持久化）===
+            // === 布局变化检测（使用实例级 Arc<AtomicI32>）===
             let current_layout = params.layout.value();
             let current_sub_layout = params.sub_layout.value();
 
-            let prev_layout = PREV_LAYOUT.load(Ordering::Relaxed);
-            let prev_sub = PREV_SUB_LAYOUT.load(Ordering::Relaxed);
+            let prev_layout_val = prev_layout_clone.load(Ordering::Relaxed);
+            let prev_sub_val = prev_sub_clone.load(Ordering::Relaxed);
 
             // 检测变化：prev != -1（已初始化）且值不同
-            let first_load = prev_layout == -1;
-            let layout_changed = (prev_layout != -1 && prev_layout != current_layout) ||
-                                 (prev_sub != -1 && prev_sub != current_sub_layout);
+            let first_load = prev_layout_val == -1;
+            let layout_changed = (prev_layout_val != -1 && prev_layout_val != current_layout) ||
+                                 (prev_sub_val != -1 && prev_sub_val != current_sub_layout);
 
             // 更新存储的值
-            PREV_LAYOUT.store(current_layout, Ordering::Relaxed);
-            PREV_SUB_LAYOUT.store(current_sub_layout, Ordering::Relaxed);
+            prev_layout_clone.store(current_layout, Ordering::Relaxed);
+            prev_sub_clone.store(current_sub_layout, Ordering::Relaxed);
 
             // 如果首次加载或布局发生变化且处于手动模式，同步所有通道参数
             if first_load || layout_changed {
-                let interaction = get_interaction_manager();
-                if !interaction.is_automation_mode() {
+                if !interaction_clone.is_automation_mode() {
                     // 获取布局名称和通道数
-                    let speaker_layouts = CONFIG.get_speaker_layouts();
-                    let sub_layouts = CONFIG.get_sub_layouts();
+                    let speaker_layouts = layout_config_clone.get_speaker_layouts();
+                    let sub_layouts = layout_config_clone.get_sub_layouts();
 
-                    let prev_speaker_name = speaker_layouts.get(prev_layout as usize)
+                    let prev_speaker_name = speaker_layouts.get(prev_layout_val as usize)
                         .cloned().unwrap_or_else(|| "?".to_string());
                     let curr_speaker_name = speaker_layouts.get(current_layout as usize)
                         .cloned().unwrap_or_else(|| "?".to_string());
-                    let prev_sub_name = sub_layouts.get(prev_sub as usize)
+                    let prev_sub_name = sub_layouts.get(prev_sub_val as usize)
                         .cloned().unwrap_or_else(|| "?".to_string());
                     let curr_sub_name = sub_layouts.get(current_sub_layout as usize)
                         .cloned().unwrap_or_else(|| "?".to_string());
 
-                    let prev_total = CONFIG.get_layout(&prev_speaker_name, &prev_sub_name).total_channels;
-                    let curr_layout = CONFIG.get_layout(&curr_speaker_name, &curr_sub_name);
+                    let prev_total = layout_config_clone.get_layout(&prev_speaker_name, &prev_sub_name).total_channels;
+                    let curr_layout = layout_config_clone.get_layout(&curr_speaker_name, &curr_sub_name);
                     let curr_total = curr_layout.total_channels;
 
-                    mcm_info!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
+                    logger_clone.info("editor", &format!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
                         prev_speaker_name, prev_sub_name, curr_speaker_name, curr_sub_name,
-                        prev_total, curr_total);
+                        prev_total, curr_total));
 
                     // 更新 OSC 通道信息（KISS 方案：动态从布局获取通道名称）
-                    OscManager::update_layout_channels(&curr_layout);
+                    osc_state_clone.update_layout_channels(&curr_layout);
 
-                    sync_all_channel_params(params, setter, interaction);
+                    sync_all_channel_params(params, setter, &interaction_clone, &layout_config_clone, &logger_clone);
 
                     // 布局变化后广播完整状态给硬件（KISS：自动清空已删除的通道）
-                    OscManager::broadcast_channel_states();
+                    osc_state_clone.broadcast_channel_states(&interaction_clone);
                 }
             }
 
             // === OSC 接收处理：检查是否有从外部接收的参数变化 ===
-            if let Some((volume, dim, cut)) = OSC_RECEIVER.get_pending_changes() {
+            if let Some((volume, dim, cut)) = osc_state_clone.get_pending_changes() {
                 // 更新 Master Volume
                 setter.begin_set_parameter(&params.master_gain);
                 setter.set_parameter(&params.master_gain, volume);
@@ -113,13 +128,13 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                 setter.end_set_parameter(&params.cut);
 
                 // 同步 Cut 状态（用于 toggle 支持）
-                OscManager::sync_cut_state(cut);
+                osc_state_clone.sync_cut_state(cut);
 
-                mcm_info!("[OSC Recv] Applied changes: volume={:.3}, dim={}, cut={}", volume, dim, cut);
+                logger_clone.info("editor", &format!("[OSC Recv] Applied changes: volume={:.3}, dim={}, cut={}", volume, dim, cut));
 
                 // 回显 OSC 状态（Volume 不回显，避免与硬件控制器竞争）
-                OSC_SENDER.send_dim(dim);
-                OSC_SENDER.send_cut(cut);
+                osc_state_clone.send_dim(dim);
+                osc_state_clone.send_cut(cut);
             }
 
             // 1. 从 EguiState 获取物理像素尺寸（关键！不能用 ctx.screen_rect()）
@@ -170,7 +185,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         .min_height(scale.s(40.0)) // <-- CHANGED to min_height for flexibility
                         .frame(Frame::new().fill(Color32::WHITE))
                         .show(ctx, |ui| {
-                            render_header(ui, &scale, params, setter);
+                            render_header(ui, &scale, params, setter, &interaction_clone, &layout_config_clone, &logger_clone);
                         });
 
                     // 左侧控制面板
@@ -179,7 +194,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                         .resizable(false)
                         .frame(panel_frame) // <-- Apply clean frame
                         .show(ctx, |ui| {
-                            render_sidebar(ui, &scale, params, setter);
+                            render_sidebar(ui, &scale, params, setter, &interaction_clone, &osc_state_clone, &layout_config_clone, &logger_clone);
                         });
 
                     // 中央内容区域（音箱矩阵 + 日志面板）
@@ -209,13 +224,13 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                                 .exact_height(log_height)
                                 .frame(Frame::new())
                                 .show_inside(ui, |ui| {
-                                    render_log_panel(ui, &scale, log_collapsed_id);
+                                    render_log_panel(ui, &scale, log_collapsed_id, &logger_clone);
                                 });
 
                             CentralPanel::default()
                                 .frame(Frame::new())
                                 .show_inside(ui, |ui| {
-                                    render_speaker_matrix(ui, &scale, params, setter);
+                                    render_speaker_matrix(ui, &scale, params, setter, &interaction_clone, &osc_state_clone, &network_connected_clone, &layout_config_clone, &logger_clone);
                                 });
                         });
 
@@ -229,7 +244,7 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                             .resizable(false)
                             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                             .show(ctx, |ui| {
-                                render_settings_content(ui, &scale, dialog_id, params, setter);
+                                render_settings_content(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone);
                             });
 
                         // 自动化确认对话框（从设置窗口触发）
@@ -246,9 +261,8 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
                                     ui.add_space(scale.s(12.0));
                                     ui.horizontal(|ui| {
                                         if ui.button("确定").clicked() {
-                                            let interaction = get_interaction_manager();
-                                            interaction.enter_automation_mode();
-                                            mcm_info!("[AUTO] Enter: cleared all state, params unchanged (controlled by DAW)");
+                                            interaction_clone.enter_automation_mode();
+                                            logger_clone.info("editor", "[AUTO] Enter: cleared all state, params unchanged (controlled by DAW)");
                                             ui.memory_mut(|m| m.data.remove::<bool>(confirm_id));
                                         }
                                         if ui.button("取消").clicked() {
@@ -264,13 +278,13 @@ pub fn create_editor(params: Arc<MonitorParams>) -> Option<Box<dyn Editor>> {
 }
 
 /// 同步所有通道的 enable 参数到 VST3（手动模式下使用）
-fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, interaction: &InteractionManager) {
+fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, interaction: &InteractionManager, layout_config: &ConfigManager, logger: &InstanceLogger) {
     // 获取当前布局信息
     let layout_idx = params.layout.value() as usize;
     let sub_idx = params.sub_layout.value() as usize;
 
-    let speaker_layouts = CONFIG.get_speaker_layouts();
-    let sub_layouts = CONFIG.get_sub_layouts();
+    let speaker_layouts = layout_config.get_speaker_layouts();
+    let sub_layouts = layout_config.get_sub_layouts();
 
     let speaker_name = speaker_layouts.get(layout_idx)
         .cloned()
@@ -279,7 +293,7 @@ fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, in
         .cloned()
         .unwrap_or_else(|| "None".to_string());
 
-    let layout = CONFIG.get_layout(&speaker_name, &sub_name);
+    let layout = layout_config.get_layout(&speaker_name, &sub_name);
 
     // 同步所有通道并生成摘要
     let mut on_mask: u32 = 0;
@@ -310,12 +324,12 @@ fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, in
     // 输出同步摘要日志
     let on_count = on_mask.count_ones();
     let off_count = layout.total_channels as u32 - on_count;
-    mcm_info!("[SYNC] {}ch: {}on/{}off mask=0x{:x}",
-        layout.total_channels, on_count, off_count, on_mask);
+    logger.info("editor", &format!("[SYNC] {}ch: {}on/{}off mask=0x{:x}",
+        layout.total_channels, on_count, off_count, on_mask));
 }
 
 /// 渲染顶部标题栏 - 参数绑定版
-fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
+fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter, interaction: &InteractionManager, layout_config: &ConfigManager, logger: &InstanceLogger) {
     let _header_height = scale.s(40.0);
     
     // --- 🟢 关键微调变量 (MANUAL TWEAK VARS) 🟢 ---
@@ -381,8 +395,8 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             };
 
             // === 从配置系统获取布局选项 ===
-            let speaker_layouts = CONFIG.get_speaker_layouts();
-            let sub_layouts = CONFIG.get_sub_layouts();
+            let speaker_layouts = layout_config.get_speaker_layouts();
+            let sub_layouts = layout_config.get_sub_layouts();
 
             // === 从参数系统读取当前值 ===
             let current_role = params.role.value();
@@ -390,7 +404,6 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             let current_sub_idx = params.sub_layout.value() as usize;
 
             // === 检查是否允许布局切换 ===
-            let interaction = get_interaction_manager();
             let is_automation = interaction.is_automation_mode();
             let can_change_layout = !is_automation; // 自动化模式下禁止切换布局
 
@@ -421,7 +434,7 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                             .show_ui(ui, |ui| {
                                 for (i, name) in sub_layouts.iter().enumerate() {
                                     if ui.selectable_label(current_sub_idx == i, RichText::new(name).font(combo_font_local.clone())).clicked() {
-                                        mcm_info!("[Editor] Sub layout changed: {} -> {}", current_sub_name, name);
+                                        logger.info("editor", &format!("[Editor] Sub layout changed: {} -> {}", current_sub_name, name));
                                         setter.begin_set_parameter(&params.sub_layout);
                                         setter.set_parameter(&params.sub_layout, i as i32);
                                         setter.end_set_parameter(&params.sub_layout);
@@ -459,7 +472,7 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                             .show_ui(ui, |ui| {
                                 for (i, name) in speaker_layouts.iter().enumerate() {
                                     if ui.selectable_label(current_layout_idx == i, RichText::new(name).font(combo_font_local.clone())).clicked() {
-                                        mcm_info!("[Editor] Speaker layout changed: {} -> {}", current_layout_name, name);
+                                        logger.info("editor", &format!("[Editor] Speaker layout changed: {} -> {}", current_layout_name, name));
                                         setter.begin_set_parameter(&params.layout);
                                         setter.set_parameter(&params.layout, i as i32);
                                         setter.end_set_parameter(&params.layout);
@@ -502,14 +515,13 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                                             2 => PluginRole::Slave,
                                             _ => PluginRole::Standalone,
                                         };
-                                        mcm_info!("[Editor] Role changed: {:?} -> {:?}", current_role, new_role);
+                                        logger.info("editor", &format!("[Editor] Role changed: {:?} -> {:?}", current_role, new_role));
 
                                         // 如果切换到 Master/Slave，自动退出自动化模式
                                         if new_role != PluginRole::Standalone {
-                                            let interaction = get_interaction_manager();
                                             if interaction.is_automation_mode() {
                                                 interaction.exit_automation_mode();
-                                                mcm_info!("[Editor] Auto-exited automation mode (switched to {:?})", new_role);
+                                                logger.info("editor", &format!("[Editor] Auto-exited automation mode (switched to {:?})", new_role));
                                             }
                                         }
 
@@ -599,7 +611,7 @@ fn custom_button(ui: &mut egui::Ui, primary: &str, secondary: &str, active: bool
 }
 
 /// 渲染左侧控制面板 - 参数绑定版
-fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter) {
+fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter, interaction: &InteractionManager, osc_state: &Arc<OscSharedState>, layout_config: &ConfigManager, logger: &InstanceLogger) {
     
     ui.add_space(scale.s(24.0));
 
@@ -610,9 +622,6 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
 
         ui.vertical(|ui| {
             ui.set_max_width(sidebar_content_width);
-
-            // 获取交互管理器
-            let interaction = get_interaction_manager();
 
             // 更新闪烁动画计数器
             interaction.tick_blink();
@@ -638,21 +647,21 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 let primary_before = interaction.get_primary();
                 let compare_before = interaction.get_compare();
                 interaction.on_solo_button_click();
-                mcm_info!("[Editor] SOLO clicked: ({:?}, {:?}) -> ({:?}, {:?})",
+                logger.info("editor", &format!("[Editor] SOLO clicked: ({:?}, {:?}) -> ({:?}, {:?})",
                     primary_before, compare_before,
-                    interaction.get_primary(), interaction.get_compare());
+                    interaction.get_primary(), interaction.get_compare()));
 
                 // 同步所有通道的 enable 参数
-                sync_all_channel_params(params, setter, &interaction);
+                sync_all_channel_params(params, setter, &interaction, layout_config, logger);
 
                 // 发送 OSC 模式状态
-                OSC_SENDER.send_mode_solo(interaction.is_solo_active());
+                osc_state.send_mode_solo(interaction.is_solo_active());
                 if !interaction.is_mute_active() {
-                    OSC_SENDER.send_mode_mute(false);
+                    osc_state.send_mode_mute(false);
                 }
 
                 // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
-                OscManager::broadcast_channel_states();
+                osc_state.broadcast_channel_states(interaction);
             }
 
             ui.add_space(scale.s(12.0));
@@ -676,21 +685,21 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 let primary_before = interaction.get_primary();
                 let compare_before = interaction.get_compare();
                 interaction.on_mute_button_click();
-                mcm_info!("[Editor] MUTE clicked: ({:?}, {:?}) -> ({:?}, {:?})",
+                logger.info("editor", &format!("[Editor] MUTE clicked: ({:?}, {:?}) -> ({:?}, {:?})",
                     primary_before, compare_before,
-                    interaction.get_primary(), interaction.get_compare());
+                    interaction.get_primary(), interaction.get_compare()));
 
                 // 同步所有通道的 enable 参数
-                sync_all_channel_params(params, setter, &interaction);
+                sync_all_channel_params(params, setter, &interaction, layout_config, logger);
 
                 // 发送 OSC 模式状态
-                OSC_SENDER.send_mode_mute(interaction.is_mute_active());
+                osc_state.send_mode_mute(interaction.is_mute_active());
                 if !interaction.is_solo_active() {
-                    OSC_SENDER.send_mode_solo(false);
+                    osc_state.send_mode_solo(false);
                 }
 
                 // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
-                OscManager::broadcast_channel_states();
+                osc_state.broadcast_channel_states(interaction);
             }
 
             ui.add_space(scale.s(24.0));
@@ -714,12 +723,12 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                     setter.end_set_parameter(&params.master_gain);
 
                     // 发送 OSC（使用 0-1 线性值）
-                    OSC_SENDER.send_master_volume(new_gain);
+                    osc_state.send_master_volume(new_gain);
                 }
 
                 // 只在拖动结束时记录日志
                 if response.drag_stopped() {
-                    mcm_info!("[Editor] Master volume set to: {:.1}%", volume_percent);
+                    logger.info("editor", &format!("[Editor] Master volume set to: {:.1}%", volume_percent));
                 }
             });
 
@@ -741,13 +750,13 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                     .active(dim_active);
                 if ui.add(dim_btn).clicked() {
                     let new_value = !dim_active;
-                    mcm_info!("[Editor] DIM toggled: {} -> {}", dim_active, new_value);
+                    logger.info("editor", &format!("[Editor] DIM toggled: {} -> {}", dim_active, new_value));
                     setter.begin_set_parameter(&params.dim);
                     setter.set_parameter(&params.dim, new_value);
                     setter.end_set_parameter(&params.dim);
 
                     // 发送 OSC
-                    OSC_SENDER.send_dim(new_value);
+                    osc_state.send_dim(new_value);
                 }
 
                 ui.add_space(scale.s(8.0));
@@ -760,16 +769,16 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                     .active(cut_active);
                 if ui.add(cut_btn).clicked() {
                     let new_value = !cut_active;
-                    mcm_info!("[Editor] CUT toggled: {} -> {}", cut_active, new_value);
+                    logger.info("editor", &format!("[Editor] CUT toggled: {} -> {}", cut_active, new_value));
                     setter.begin_set_parameter(&params.cut);
                     setter.set_parameter(&params.cut, new_value);
                     setter.end_set_parameter(&params.cut);
 
                     // 同步 Cut 状态（用于 toggle 支持）
-                    OscManager::sync_cut_state(new_value);
+                    osc_state.sync_cut_state(new_value);
 
                     // 发送 OSC
-                    OSC_SENDER.send_cut(new_value);
+                    osc_state.send_cut(new_value);
                 }
             });
 
@@ -782,21 +791,21 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
             // --- NEW: Low/High Boost Group ---
             ui.horizontal(|ui| {
                 // Low Boost - 与硬件同步
-                let lb_active = OSC_RECEIVER.get_low_boost();
+                let lb_active = osc_state.get_low_boost();
                 if custom_button(ui, "Low", "Boost", lb_active, button_width, scale).clicked() {
                     let new_value = !lb_active;
-                    OSC_RECEIVER.set_low_boost(new_value);
-                    OSC_SENDER.send_low_boost(new_value);
+                    osc_state.set_low_boost(new_value);
+                    osc_state.send_low_boost(new_value);
                 }
 
                 ui.add_space(scale.s(8.0));
 
                 // High Boost - 与硬件同步
-                let hb_active = OSC_RECEIVER.get_high_boost();
+                let hb_active = osc_state.get_high_boost();
                 if custom_button(ui, "High", "Boost", hb_active, button_width, scale).clicked() {
                     let new_value = !hb_active;
-                    OSC_RECEIVER.set_high_boost(new_value);
-                    OSC_SENDER.send_high_boost(new_value);
+                    osc_state.set_high_boost(new_value);
+                    osc_state.send_high_boost(new_value);
                 }
             });
 
@@ -805,25 +814,25 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
             // --- NEW: MONO / +10dB LFE Group ---
             ui.horizontal(|ui| {
                 // MONO Button - 与硬件同步
-                let mono_active = OSC_RECEIVER.get_mono();
+                let mono_active = osc_state.get_mono();
                 let mut btn = BrutalistButton::new("MONO", scale)
                     .width(button_width)
                     .height(scale.s(46.0));  // 与 custom_button 高度一致
                 btn = btn.danger(true).active(mono_active);  // 红色样式与硬件一致
                 if ui.add(btn).clicked() {
                     let new_value = !mono_active;
-                    OSC_RECEIVER.set_mono(new_value);
-                    OSC_SENDER.send_mono(new_value);
+                    osc_state.set_mono(new_value);
+                    osc_state.send_mono(new_value);
                 }
 
                 ui.add_space(scale.s(8.0));
 
                 // +10dB LFE - 与硬件同步
-                let lfe_active = OSC_RECEIVER.get_lfe_add_10db();
+                let lfe_active = osc_state.get_lfe_add_10db();
                 if custom_button(ui, "+10dB", "LFE", lfe_active, button_width, scale).clicked() {
                     let new_value = !lfe_active;
-                    OSC_RECEIVER.set_lfe_add_10db(new_value);
-                    OSC_SENDER.send_lfe_add_10db(new_value);
+                    osc_state.set_lfe_add_10db(new_value);
+                    osc_state.send_lfe_add_10db(new_value);
                 }
             });
 
@@ -845,9 +854,10 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
 }
 
 /// 渲染音箱矩阵（新版：SUB 在上下轨道，整体居中）
-fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, _setter: &ParamSetter) {
-    // 检查是否处于自动化模式
-    let interaction = get_interaction_manager();
+fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, _setter: &ParamSetter, interaction: &InteractionManager, osc_state: &Arc<OscSharedState>, network_connected: &Arc<AtomicBool>, layout_config: &ConfigManager, logger: &InstanceLogger) {
+    // 检查 Role 和模式状态
+    let role = params.role.value();
+    let is_slave = role == PluginRole::Slave;
     let is_automation = interaction.is_automation_mode();
 
     // 自动化模式全局提示
@@ -872,8 +882,8 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
     let layout_idx = params.layout.value() as usize;
     let sub_idx = params.sub_layout.value() as usize;
 
-    let speaker_layouts = CONFIG.get_speaker_layouts();
-    let sub_layouts = CONFIG.get_sub_layouts();
+    let speaker_layouts = layout_config.get_speaker_layouts();
+    let sub_layouts = layout_config.get_sub_layouts();
 
     let speaker_name = speaker_layouts.get(layout_idx)
         .cloned()
@@ -882,7 +892,7 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         .cloned()
         .unwrap_or_else(|| "None".to_string());
 
-    let layout = CONFIG.get_layout(&speaker_name, &sub_name);
+    let layout = layout_config.get_layout(&speaker_name, &sub_name);
 
     // === 动态计算尺寸 ===
     let grid_w = layout.width as f32;
@@ -934,13 +944,13 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         ui.horizontal(|ui| {
             let padding = (available_width - main_grid_width) / 2.0;
             ui.add_space(padding.max(0.0));
-            render_sub_row_dynamic(ui, scale, &layout, 1..=3, sub_diameter, main_grid_width, params, _setter);
+            render_sub_row_dynamic(ui, scale, &layout, 1..=3, sub_diameter, main_grid_width, params, _setter, interaction, osc_state, layout_config, logger);
         });
 
         ui.add_space(sub_spacing);
 
         // 主网格
-        render_main_grid_dynamic(ui, scale, &layout, box_size, grid_spacing, label_height, params, _setter);
+        render_main_grid_dynamic(ui, scale, &layout, box_size, grid_spacing, label_height, params, _setter, interaction, osc_state, layout_config, logger);
 
         ui.add_space(sub_spacing);
 
@@ -948,13 +958,55 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         ui.horizontal(|ui| {
             let padding = (available_width - main_grid_width) / 2.0;
             ui.add_space(padding.max(0.0));
-            render_sub_row_dynamic(ui, scale, &layout, 4..=6, sub_diameter, main_grid_width, params, _setter);
+            render_sub_row_dynamic(ui, scale, &layout, 4..=6, sub_diameter, main_grid_width, params, _setter, interaction, osc_state, layout_config, logger);
         });
     });
+
+    // === Slave 模式：在音箱矩阵上方绘制半透明灰色遮罩 ===
+    if is_slave {
+        let overlay_rect = rect;
+
+        // 半透明灰色遮罩
+        ui.painter().rect_filled(
+            overlay_rect,
+            0.0,
+            egui::Color32::from_rgba_unmultiplied(100, 116, 139, 180)
+        );
+
+        // 获取连接状态
+        let connected = network_connected.load(Ordering::Relaxed);
+        let status_text = if connected { "Connected" } else { "Connecting..." };
+        let status_color = if connected {
+            egui::Color32::from_rgb(34, 197, 94)   // 绿色
+        } else {
+            egui::Color32::from_rgb(251, 191, 36)  // 黄色
+        };
+
+        // 绘制居中状态文字
+        let galley = ui.painter().layout_no_wrap(
+            status_text.to_string(),
+            scale.font(28.0),
+            status_color
+        );
+        let text_pos = overlay_rect.center() - galley.rect.size() / 2.0;
+        ui.painter().galley(text_pos, galley, status_color);
+
+        // 绘制 Slave 模式标签
+        let label_galley = ui.painter().layout_no_wrap(
+            "Slave Mode".to_string(),
+            scale.font(14.0),
+            egui::Color32::from_rgb(226, 232, 240)  // 浅灰色
+        );
+        let label_pos = egui::pos2(
+            overlay_rect.center().x - label_galley.rect.width() / 2.0,
+            overlay_rect.center().y + scale.s(30.0)
+        );
+        ui.painter().galley(label_pos, label_galley, egui::Color32::from_rgb(226, 232, 240));
+    }
 }
 
 /// 渲染日志面板
-fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext, collapse_id: egui::Id) {
+fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext, collapse_id: egui::Id, logger: &Arc<InstanceLogger>) {
     let is_collapsed = ui.data(|d| d.get_temp::<bool>(collapse_id).unwrap_or(false));
     let rect = ui.max_rect();
 
@@ -965,7 +1017,7 @@ fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext, collapse_id: egui::
     );
 
     // 标题栏
-    let header_height = scale.s(28.0); // 稍微增加高度
+    let header_height = scale.s(28.0);
     ui.allocate_ui(Vec2::new(ui.available_width(), header_height), |ui| {
         let header_rect = ui.max_rect();
         ui.painter().rect_filled(header_rect, 0.0, COLOR_BG_SIDEBAR);
@@ -977,25 +1029,23 @@ fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext, collapse_id: egui::
 
         ui.horizontal(|ui| {
             ui.add_space(scale.s(12.0));
-            
-            // 标题: 稍微向上偏移以留出底部间隙
+
+            // 标题
             ui.vertical(|ui| {
-                ui.add_space(scale.s(4.0)); // Top padding
+                ui.add_space(scale.s(4.0));
                 ui.label(RichText::new("EVENT LOG").font(scale.mono_font(10.0)).color(COLOR_TEXT_MEDIUM));
-                ui.add_space(scale.s(0.0)); // Bottom padding request
             });
 
             // 右上角折叠/释放按钮
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(scale.s(8.0));
-                
-                let (btn_text, btn_hover) = if is_collapsed { 
-                    ("Show", "Expand Log") 
-                } else { 
-                    ("Hide", "Collapse Log") 
+
+                let (btn_text, btn_hover) = if is_collapsed {
+                    ("Show", "Expand Log")
+                } else {
+                    ("Hide", "Collapse Log")
                 };
 
-                // 使用小巧的文本按钮
                 if ui.add(egui::Button::new(
                     RichText::new(btn_text).font(scale.mono_font(10.0)).color(COLOR_TEXT_MEDIUM)
                 ).frame(false)).on_hover_text(btn_hover).clicked() {
@@ -1008,19 +1058,46 @@ fn render_log_panel(ui: &mut egui::Ui, scale: &ScaleContext, collapse_id: egui::
     // 仅在展开时绘制内容
     if !is_collapsed {
         // 日志内容区域
+        let content_rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(
-            ui.available_rect_before_wrap(),
+            content_rect,
             0.0,
-            Color32::from_rgb(230, 235, 240) // 更深的灰蓝色背景
+            Color32::from_rgb(230, 235, 240)
         );
 
-        ui.vertical(|ui| {
-            ui.add_space(scale.s(8.0));
-            ui.horizontal(|ui| {
-                ui.add_space(scale.s(12.0));
-                ui.label(RichText::new("-- No events logged --").font(scale.mono_font(10.0)).color(COLOR_TEXT_LIGHT));
+        // 获取最近的日志条目
+        let logs = logger.get_recent_logs();
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                ui.add_space(scale.s(4.0));
+
+                if logs.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(scale.s(12.0));
+                        ui.label(RichText::new("-- No events logged --")
+                            .font(scale.mono_font(10.0))
+                            .color(COLOR_TEXT_LIGHT));
+                    });
+                } else {
+                    // 只显示最后几条日志（根据可用空间）
+                    let max_display = 5;
+                    let start_idx = if logs.len() > max_display { logs.len() - max_display } else { 0 };
+
+                    for log_entry in logs.iter().skip(start_idx) {
+                        ui.horizontal(|ui| {
+                            ui.add_space(scale.s(8.0));
+                            ui.label(RichText::new(log_entry)
+                                .font(scale.mono_font(9.0))
+                                .color(COLOR_TEXT_MEDIUM));
+                        });
+                    }
+                }
+
+                ui.add_space(scale.s(4.0));
             });
-        });
     }
 }
 
@@ -1060,8 +1137,11 @@ fn render_sub_row_dynamic(
     container_width: f32,
     params: &Arc<MonitorParams>,
     setter: &ParamSetter,
+    interaction: &InteractionManager,
+    osc_state: &Arc<OscSharedState>,
+    layout_config: &ConfigManager,
+    logger: &InstanceLogger,
 ) {
-    let interaction = get_interaction_manager();
     let is_automation = interaction.is_automation_mode();
 
     // 计算 SUB 行内的间距，使 3 个按钮均匀分布在 container_width 内
@@ -1102,33 +1182,33 @@ fn render_sub_row_dynamic(
                     SubClickType::SingleClick => {
                         // on_channel_click 使用通道名称
                         interaction.on_channel_click(&ch.name);
-                        mcm_info!("[Editor] SUB {} ({}) single click", sub_relative_idx, ch.name);
+                        logger.info("editor", &format!("[Editor] SUB {} ({}) single click", sub_relative_idx, ch.name));
                     }
                     SubClickType::DoubleClick => {
                         // on_sub_double_click 使用通道名称
                         interaction.on_sub_double_click(&ch.name);
-                        mcm_info!("[Editor] SUB {} ({}) double click -> Mute toggle", sub_relative_idx, ch.name);
+                        logger.info("editor", &format!("[Editor] SUB {} ({}) double click -> Mute toggle", sub_relative_idx, ch.name));
                     }
                 }
 
                 // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
-                sync_all_channel_params(params, setter, interaction);
+                sync_all_channel_params(params, setter, interaction, layout_config, logger);
 
                 // 发送 OSC 所有通道 LED 状态（三态）
-                OscManager::broadcast_channel_states();
+                osc_state.broadcast_channel_states(interaction);
             }
 
             // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式）
             if response.secondary_clicked() && !is_automation {
                 // on_sub_double_click 使用通道名称
                 interaction.on_sub_double_click(&ch.name);
-                mcm_info!("[Editor] SUB {} ({}) right-click -> Mute toggle", sub_relative_idx, ch.name);
+                logger.info("editor", &format!("[Editor] SUB {} ({}) right-click -> Mute toggle", sub_relative_idx, ch.name));
 
                 // 全通道同步（SUB Mute 操作可能影响整体状态）
-                sync_all_channel_params(params, setter, interaction);
+                sync_all_channel_params(params, setter, interaction, layout_config, logger);
 
                 // 发送 OSC 所有通道 LED 状态（三态）
-                OscManager::broadcast_channel_states();
+                osc_state.broadcast_channel_states(interaction);
             }
         } else {
             // 空槽位占位（圆形直径）
@@ -1151,8 +1231,11 @@ fn render_main_grid_dynamic(
     label_height: f32,
     params: &Arc<MonitorParams>,
     setter: &ParamSetter,
+    interaction: &InteractionManager,
+    osc_state: &Arc<OscSharedState>,
+    layout_config: &ConfigManager,
+    logger: &InstanceLogger,
 ) {
-    let interaction = get_interaction_manager();
     let grid_w = layout.width as f32;
 
     // 居中
@@ -1208,13 +1291,13 @@ fn render_main_grid_dynamic(
                                 // 点击处理（仅手动模式）
                                 if response.clicked() && !is_automation {
                                     interaction.on_channel_click(&ch.name);
-                                    mcm_info!("[Editor] Main {} ({}) clicked", ch_idx, ch.name);
+                                    logger.info("editor", &format!("[Editor] Main {} ({}) clicked", ch_idx, ch.name));
 
                                     // 全通道同步（Solo/Mute 操作会影响所有通道的 has_sound 状态）
-                                    sync_all_channel_params(params, setter, interaction);
+                                    sync_all_channel_params(params, setter, interaction, layout_config, logger);
 
                                     // 发送 OSC 所有通道 LED 状态（三态）
-                                    OscManager::broadcast_channel_states();
+                                    osc_state.broadcast_channel_states(interaction);
                                 }
                             } else {
                                 // 空位：绘制占位符
@@ -1234,10 +1317,16 @@ fn render_settings_content(
     scale: &ScaleContext,
     dialog_id: egui::Id,
     params: &Arc<MonitorParams>,
-    setter: &ParamSetter
+    setter: &ParamSetter,
+    interaction: &InteractionManager,
+    layout_config: &ConfigManager,
+    logger: &InstanceLogger,
+    app_config: &AppConfig,
 ) {
-    let mut config = APP_CONFIG.get();
-    let mut changed = false;
+    // 注意：设置窗口目前显示的是只读的配置信息
+    // 因为 AppConfig 是实例级别的，修改不会影响其他实例
+    let config = app_config.clone();
+    let mut _changed = false;
 
     ui.add_space(scale.s(8.0));
 
@@ -1245,7 +1334,6 @@ fn render_settings_content(
     ui.heading(RichText::new("Automation Mode").font(scale.font(16.0)));
     ui.add_space(scale.s(12.0));
 
-    let interaction = get_interaction_manager();
     let role = params.role.value();
     let is_automation = interaction.is_automation_mode();
     let can_use_automation = role == crate::Params::PluginRole::Standalone;
@@ -1259,9 +1347,9 @@ fn render_settings_content(
         if ui.add(auto_btn).clicked() {
             if is_automation {
                 interaction.exit_automation_mode();
-                mcm_info!("[AUTO] Exit: idle state, will sync to all=On on next UI update");
+                logger.info("editor", "[AUTO] Exit: idle state, will sync to all=On on next UI update");
                 // 同步所有通道参数到全 On（退出自动化 = Idle）
-                sync_all_channel_params(params, setter, &interaction);
+                sync_all_channel_params(params, setter, &interaction, layout_config, logger);
             } else {
                 // 弹出确认对话框
                 let confirm_id = egui::Id::new("automation_confirm_from_settings");
@@ -1287,15 +1375,7 @@ fn render_settings_content(
     ui.horizontal(|ui| {
         ui.label(RichText::new("Send Port:").font(scale.font(14.0)));
         ui.add_space(scale.s(8.0));
-        let mut port_str = config.osc_send_port.to_string();
-        let text_edit = egui::TextEdit::singleline(&mut port_str)
-            .desired_width(scale.s(80.0));
-        if ui.add(text_edit).changed() {
-            if let Ok(port) = port_str.parse::<u16>() {
-                config.osc_send_port = port;
-                changed = true;
-            }
-        }
+        ui.label(RichText::new(config.osc_send_port.to_string()).font(scale.font(14.0)));
     });
 
     ui.add_space(scale.s(8.0));
@@ -1303,16 +1383,11 @@ fn render_settings_content(
     ui.horizontal(|ui| {
         ui.label(RichText::new("Receive Port:").font(scale.font(14.0)));
         ui.add_space(scale.s(8.0));
-        let mut port_str = config.osc_receive_port.to_string();
-        let text_edit = egui::TextEdit::singleline(&mut port_str)
-            .desired_width(scale.s(80.0));
-        if ui.add(text_edit).changed() {
-            if let Ok(port) = port_str.parse::<u16>() {
-                config.osc_receive_port = port;
-                changed = true;
-            }
-        }
+        ui.label(RichText::new(config.osc_receive_port.to_string()).font(scale.font(14.0)));
     });
+
+    ui.add_space(scale.s(8.0));
+    ui.label(RichText::new("(Edit Config/MonitorControllerMax.toml to change)").font(scale.font(10.0)).color(egui::Color32::from_rgb(156, 163, 175)));
 
     ui.add_space(scale.s(16.0));
     ui.separator();
@@ -1320,19 +1395,11 @@ fn render_settings_content(
 
     // 按钮
     ui.horizontal(|ui| {
-        if ui.button(RichText::new("Save").font(scale.font(14.0))).clicked() {
-            if let Err(e) = APP_CONFIG.apply_and_save(|c| *c = config.clone()) {
-                mcm_info!("[Settings] Failed to save config: {}", e);
-            } else {
-                mcm_info!("[Settings] Config saved: send_port={}, recv_port={}",
-                    config.osc_send_port, config.osc_receive_port);
-            }
-            ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
-        }
-
-        ui.add_space(scale.s(8.0));
-
-        if ui.button(RichText::new("Cancel").font(scale.font(14.0))).clicked() {
+        // 设置是只读的（实例级配置在启动时加载）
+        // 关闭按钮
+        if ui.button(RichText::new("Close").font(scale.font(14.0))).clicked() {
+            logger.info("editor", &format!("[Settings] Closed. Current config: send_port={}, recv_port={}",
+                config.osc_send_port, config.osc_receive_port));
             ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
         }
     });

@@ -6,10 +6,13 @@
 //! - 通道操作: 始终操作当前激活的 Context (闪烁的那个优先)
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
-use crate::mcm_info;
+
+use crate::logger::InstanceLogger;
+use crate::network_protocol::NetworkInteractionState;
 
 /// 主模式 - 先进入的模式，常亮
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,10 +174,13 @@ pub struct InteractionManager {
 
     /// 自动化模式 (是否处于自动化控制模式)
     automation_mode: RwLock<bool>,
+
+    /// 实例级日志器
+    logger: Arc<InstanceLogger>,
 }
 
 impl InteractionManager {
-    pub fn new() -> Self {
+    pub fn new(logger: Arc<InstanceLogger>) -> Self {
         Self {
             primary: RwLock::new(PrimaryMode::None),
             compare: RwLock::new(CompareMode::None),
@@ -186,6 +192,7 @@ impl InteractionManager {
             double_click: RwLock::new(DoubleClickDetector::new()),
             blink_counter: AtomicU32::new(0),
             automation_mode: RwLock::new(false),
+            logger,
         }
     }
 
@@ -362,8 +369,8 @@ impl InteractionManager {
         let new_compare = *self.compare.read();
         let solo_count = self.solo_set.read().channels.len();
         let mute_count = self.mute_set.read().channels.len();
-        mcm_info!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
-            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count);
+        self.logger.info("interaction", &format!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
+            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count));
     }
 
     /// MUTE 按钮点击
@@ -444,8 +451,8 @@ impl InteractionManager {
         let new_compare = *self.compare.read();
         let solo_count = self.solo_set.read().channels.len();
         let mute_count = self.mute_set.read().channels.len();
-        mcm_info!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
-            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count);
+        self.logger.info("interaction", &format!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
+            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count));
     }
 
     // ========== 通道操作 ==========
@@ -527,8 +534,8 @@ impl InteractionManager {
         if result {
             let solo_count = self.solo_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
             let mute_count = self.mute_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
-            mcm_info!("[CH] {} click: solo_count={} mute_count={}",
-                ch_name, solo_count, mute_count);
+            self.logger.info("interaction", &format!("[CH] {} click: solo_count={} mute_count={}",
+                ch_name, solo_count, mute_count));
         }
 
         result
@@ -615,13 +622,13 @@ impl InteractionManager {
         // 检查 Solo 模式
         if solo_empty && *self.primary.read() == PrimaryMode::Solo {
             *self.primary.write() = PrimaryMode::None;
-            mcm_info!("[Mode] Solo set empty, auto-exiting Solo mode");
+            self.logger.info("interaction", "[Mode] Solo set empty, auto-exiting Solo mode");
         }
 
         // 检查 Mute 模式
         if mute_empty && *self.primary.read() == PrimaryMode::Mute {
             *self.primary.write() = PrimaryMode::None;
-            mcm_info!("[Mode] Mute set empty, auto-exiting Mute mode");
+            self.logger.info("interaction", "[Mode] Mute set empty, auto-exiting Mute mode");
         }
     }
 
@@ -633,10 +640,10 @@ impl InteractionManager {
 
             if was_muted {
                 user_mute.remove(ch_name);
-                mcm_info!("[CH] {} dblclick: user_mute removed", ch_name);
+                self.logger.info("interaction", &format!("[CH] {} dblclick: user_mute removed", ch_name));
             } else {
                 user_mute.insert(ch_name.to_string());
-                mcm_info!("[CH] {} dblclick: user_mute added", ch_name);
+                self.logger.info("interaction", &format!("[CH] {} dblclick: user_mute added", ch_name));
             }
             true
         } else {
@@ -924,22 +931,78 @@ pub enum SubClickType {
     DoubleClick,
 }
 
-impl Default for InteractionManager {
-    fn default() -> Self {
-        Self::new()
+// ========== 实例级使用 ==========
+// InteractionManager 现在作为 MonitorControllerMax 的实例字段使用
+// 不再使用全局单例，确保多实例隔离
+
+impl InteractionManager {
+    // ========== 网络同步方法 (Master-Slave) ==========
+
+    /// 导出当前状态到网络格式 (Master 调用)
+    pub fn to_network_state(&self) -> NetworkInteractionState {
+        let primary = match *self.primary.read() {
+            PrimaryMode::None => 0,
+            PrimaryMode::Solo => 1,
+            PrimaryMode::Mute => 2,
+        };
+
+        let compare = match *self.compare.read() {
+            CompareMode::None => 0,
+            CompareMode::Solo => 1,
+            CompareMode::Mute => 2,
+        };
+
+        let solo_set = self.solo_set.read();
+        let mute_set = self.mute_set.read();
+        let user_mute_sub = self.user_mute_sub.read();
+
+        NetworkInteractionState {
+            primary,
+            compare,
+            solo_mask: NetworkInteractionState::channel_set_to_mask(&solo_set.channels),
+            mute_mask: NetworkInteractionState::channel_set_to_mask(&mute_set.channels),
+            user_mute_sub_mask: NetworkInteractionState::sub_set_to_mask(&user_mute_sub),
+            timestamp: 0,
+            magic: 0,
+        }.with_timestamp()
     }
-}
 
-// ========== 全局单例 ==========
-use lazy_static::lazy_static;
+    /// 从网络格式导入状态 (Slave 调用)
+    pub fn from_network_state(&self, state: &NetworkInteractionState) {
+        if !state.is_valid() {
+            return;
+        }
 
-lazy_static! {
-    /// 全局交互管理器 (线程安全)
-    pub static ref INTERACTION: InteractionManager = InteractionManager::new();
-}
+        // 更新主模式
+        *self.primary.write() = match state.primary {
+            1 => PrimaryMode::Solo,
+            2 => PrimaryMode::Mute,
+            _ => PrimaryMode::None,
+        };
 
-/// 获取全局交互管理器 (已弃用,使用 INTERACTION 替代)
-#[deprecated(note = "Use INTERACTION static instead")]
-pub fn get_interaction_manager() -> &'static InteractionManager {
-    &INTERACTION
+        // 更新比较模式
+        *self.compare.write() = match state.compare {
+            1 => CompareMode::Solo,
+            2 => CompareMode::Mute,
+            _ => CompareMode::None,
+        };
+
+        // 更新 Solo 集合
+        {
+            let mut solo_set = self.solo_set.write();
+            solo_set.channels = NetworkInteractionState::mask_to_channel_set(state.solo_mask);
+        }
+
+        // 更新 Mute 集合
+        {
+            let mut mute_set = self.mute_set.write();
+            mute_set.channels = NetworkInteractionState::mask_to_channel_set(state.mute_mask);
+        }
+
+        // 更新 SUB User Mute 集合
+        {
+            let mut user_mute = self.user_mute_sub.write();
+            *user_mute = NetworkInteractionState::mask_to_sub_set(state.user_mute_sub_mask);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::config_manager::Layout;
-use crate::Interaction::get_interaction_manager;
+use crate::Interaction::InteractionManager;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -27,7 +27,8 @@ pub struct ChannelLogic;
 impl ChannelLogic {
     /// Pure function to compute RenderState from Params and Layout
     /// `override_role`: If Some, use this role instead of params.role
-    pub fn compute(params: &MonitorParams, layout: &Layout, override_role: Option<PluginRole>) -> RenderState {
+    /// `interaction`: Reference to the InteractionManager for channel state
+    pub fn compute(params: &MonitorParams, layout: &Layout, override_role: Option<PluginRole>, interaction: &InteractionManager) -> RenderState {
         let _role = override_role.unwrap_or(params.role.value());
         let master_gain = params.master_gain.value();
         let dim_active = params.dim.value();
@@ -46,10 +47,7 @@ impl ChannelLogic {
 
         state.master_gain = global_gain;
 
-        // 2. 获取 InteractionManager
-        let interaction = get_interaction_manager();
-
-        // 3. 双路径音频处理
+        // 2. 双路径音频处理
         if interaction.is_automation_mode() {
             // ========== 自动化模式：直接读取 VST3 Enable 参数 ==========
             for i in 0..layout.total_channels {

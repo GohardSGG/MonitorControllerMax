@@ -3,7 +3,7 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::Arc;
-use crate::config_manager::CONFIG;
+use crate::config_manager::ConfigManager;
 
 // Define max channels constant. Must match array size.
 pub const MAX_CHANNELS: usize = 32;
@@ -81,8 +81,10 @@ pub struct MonitorParams {
 
 impl Default for MonitorParams {
     fn default() -> Self {
-        let speaker_layouts = CONFIG.get_speaker_layouts();
-        let sub_layouts = CONFIG.get_sub_layouts();
+        // 创建本地配置实例（每个插件实例独立）
+        let config = ConfigManager::new();
+        let speaker_layouts = config.get_speaker_layouts();
+        let sub_layouts = config.get_sub_layouts();
 
         Self {
             editor_state: EguiState::from_size(720, 720), 

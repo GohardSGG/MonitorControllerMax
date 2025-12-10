@@ -17,7 +17,14 @@
       "Bash(git log:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(findstr:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(cat:*)",
+      "Bash(for file in Audio.rs Interaction.rs Channel_Logic.rs logger.rs Params.rs Network_Protocol.rs)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(done)",
+      "Bash(for file in Interaction.rs Channel_Logic.rs logger.rs Params.rs Network_Protocol.rs)"
     ],
     "deny": [],
     "ask": []

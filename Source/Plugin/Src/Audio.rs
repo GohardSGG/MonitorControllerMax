@@ -1,114 +1,95 @@
 #![allow(non_snake_case)]
 
 use nih_plug::prelude::*;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
-use crate::channel_logic::{ChannelLogic, RenderState};
-use crate::network::NetworkManager;
-use crate::network_protocol::NetworkRenderState;
-use crate::config_manager::CONFIG;
+use crate::channel_logic::ChannelLogic;
+use crate::config_manager::ConfigManager;
+use crate::Interaction::InteractionManager;
 
-// ==================== 增益平滑状态 ====================
-// 使用 AtomicU32 存储 f32 的位表示，实现无锁线程安全
-
-/// 每通道当前增益状态（用于平滑过渡）
-static CURRENT_GAINS: [AtomicU32; MAX_CHANNELS] = {
-    const INIT: AtomicU32 = AtomicU32::new(0x3F800000); // 1.0f32 的位表示
-    [INIT; MAX_CHANNELS]
-};
+// ==================== 增益平滑状态（实例级）====================
 
 /// 平滑系数：α = 0.1
 /// 在 48kHz 下，约 50 采样（~1ms）达到 99% 目标值
-/// 足够快以保持监听控制器的响应性，又足够慢以避免咔哒声
 const SMOOTHING_ALPHA: f32 = 0.1;
 
-/// 读取当前增益
-#[inline]
-fn load_gain(ch: usize) -> f32 {
-    f32::from_bits(CURRENT_GAINS[ch].load(Ordering::Relaxed))
+/// 增益平滑状态结构体（每个插件实例拥有独立的状态）
+pub struct GainSmoothingState {
+    /// 每通道当前增益状态（用于平滑过渡）
+    /// 使用 AtomicU32 存储 f32 的位表示
+    current_gains: [AtomicU32; MAX_CHANNELS],
 }
 
-/// 存储当前增益
-#[inline]
-fn store_gain(ch: usize, value: f32) {
-    CURRENT_GAINS[ch].store(value.to_bits(), Ordering::Relaxed);
+impl GainSmoothingState {
+    /// 创建新的增益平滑状态（初始增益为 1.0）
+    pub fn new() -> Self {
+        const INIT: AtomicU32 = AtomicU32::new(0x3F800000); // 1.0f32 的位表示
+        Self {
+            current_gains: [INIT; MAX_CHANNELS],
+        }
+    }
+
+    /// 读取当前增益
+    #[inline]
+    pub fn load_gain(&self, ch: usize) -> f32 {
+        f32::from_bits(self.current_gains[ch].load(Ordering::Relaxed))
+    }
+
+    /// 存储当前增益
+    #[inline]
+    pub fn store_gain(&self, ch: usize, value: f32) {
+        self.current_gains[ch].store(value.to_bits(), Ordering::Relaxed);
+    }
 }
 
-// Global Network Manager (Lazy initialized in Lib.rs or manually managed)
-// For simplicity, we can use a lazy_static here or put it in the plugin struct.
-// Since nih_plug plugins are re-instantiated, putting it in plugin struct is better.
-// But we need to initialize it.
-// Let's assume Lib.rs initializes it. Or Audio.rs does.
-// Audio processor needs access to it.
-
-// For now, let's create a thread-local or static for simplicity in demo, 
-// BUT for production, this should be owned by the plugin instance.
-// In Lib.rs, we didn't add NetworkManager to struct MonitorControllerMax. We should.
+impl Default for GainSmoothingState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// 音频处理核心逻辑
+///
+/// 注意：此函数只做音频处理，不涉及任何网络操作。
+/// Master-Slave 同步由独立的网络线程处理（通过 InteractionManager）。
 pub fn process_audio(
-    buffer: &mut Buffer, 
-    params: &MonitorParams, 
-    network: &mut NetworkManager
+    buffer: &mut Buffer,
+    params: &MonitorParams,
+    gain_state: &GainSmoothingState,
+    interaction: &Arc<InteractionManager>,
+    layout_config: &ConfigManager,
 ) {
     let role = params.role.value();
-    
-    // 1. Determine RenderState
+
+    // 获取布局信息
+    let layout_idx = params.layout.value() as usize;
+    let sub_layout_idx = params.sub_layout.value() as usize;
+
+    let speaker_names = layout_config.get_speaker_layouts();
+    let sub_names = layout_config.get_sub_layouts();
+
+    let speaker_name = speaker_names.get(layout_idx).map(|s| s.as_str()).unwrap_or("7.1.4");
+    let sub_name = sub_names.get(sub_layout_idx).map(|s| s.as_str()).unwrap_or("None");
+
+    let layout = layout_config.get_layout(speaker_name, sub_name);
+
+    // 计算 RenderState
+    // - Master/Standalone: 从本地 InteractionManager 计算
+    // - Slave: 同样从 InteractionManager 计算（已被网络线程同步更新）
     let render_state = match role {
         PluginRole::Master | PluginRole::Standalone => {
-            // A. Compute Logic Locally
-            // Standalone behaves like Master but without network broadcasting
-            let layout_idx = params.layout.value() as usize;
-            let sub_layout_idx = params.sub_layout.value() as usize;
-
-            let speaker_names = CONFIG.get_speaker_layouts();
-            let sub_names = CONFIG.get_sub_layouts();
-
-            let speaker_name = speaker_names.get(layout_idx).map(|s| s.as_str()).unwrap_or("7.1.4");
-            let sub_name = sub_names.get(sub_layout_idx).map(|s| s.as_str()).unwrap_or("None");
-
-            let layout = CONFIG.get_layout(speaker_name, sub_name);
-
-            let state = ChannelLogic::compute(params, &layout, None);
-
-            // B. Broadcast to Network (only for Master, not Standalone)
-            if role == PluginRole::Master {
-                if let Some(sender) = &network.sender {
-                    let net_state = NetworkRenderState::from_render_state(&state);
-                    // Try send, don't block audio thread
-                    // unbounded channel is non-blocking
-                    let _ = sender.send(net_state);
-                }
-            }
-
-            state
+            // 本地计算
+            ChannelLogic::compute(params, &layout, None, interaction)
         },
         PluginRole::Slave => {
-            // A. Read from Network Cache (Fail-Safe)
-            // "State Retention": If no new data, use last known good state.
-            // AtomicCell load is lock-free.
-            if let Some(net_state) = network.latest_state.load() {
-                // Convert NetworkRenderState back to RenderState
-                RenderState {
-                    master_gain: net_state.master_gain,
-                    channel_gains: net_state.channel_gains,
-                    channel_mute_mask: net_state.channel_mute_mask,
-                }
-            } else {
-                // Initial state / Disconnected for too long?
-                // Default to mute or unity? Default trait is unity gain.
-                // Safest is maybe Mute? Or Unity?
-                // Let's use default (Unity, no mute) or Mute.
-                // If I am a slave and I haven't heard from Master, I should probably shut up.
-                let mut s = RenderState::default();
-                s.master_gain = 0.0; // Safety mute
-                s
-            }
+            // Slave 的 InteractionManager 已被网络线程同步更新
+            // 直接使用它计算状态
+            ChannelLogic::compute(params, &layout, None, interaction)
         }
     };
 
-    // 2. 应用音频处理 (增益/静音) - 带平滑过渡
-    // 遍历每个采样帧，对每个通道应用平滑增益
+    // 应用音频处理 (增益/静音) - 带平滑过渡
     for channel_samples in buffer.iter_samples() {
         for (ch_idx, sample) in channel_samples.into_iter().enumerate() {
             if ch_idx >= MAX_CHANNELS {
@@ -129,10 +110,9 @@ pub fn process_audio(
             };
 
             // 指数平滑：current = current + (target - current) * α
-            // α = 0.1，在 48kHz 下约 1ms 达到 99% 目标值
-            let current_gain = load_gain(ch_idx);
+            let current_gain = gain_state.load_gain(ch_idx);
             let smoothed_gain = current_gain + (target_gain - current_gain) * SMOOTHING_ALPHA;
-            store_gain(ch_idx, smoothed_gain);
+            gain_state.store_gain(ch_idx, smoothed_gain);
 
             // 应用平滑后的增益到采样点
             *sample *= smoothed_gain;

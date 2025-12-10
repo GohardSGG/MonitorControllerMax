@@ -1,7 +1,5 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
-use lazy_static::lazy_static;
 
 // Embed the default config
 const DEFAULT_CONFIG_JSON: &str = include_str!("../../Resource/Speaker_Config.json");
@@ -192,8 +190,3 @@ impl ConfigManager {
         }
     }
 }
-
-lazy_static! {
-    pub static ref CONFIG: Arc<ConfigManager> = Arc::new(ConfigManager::new());
-}
-

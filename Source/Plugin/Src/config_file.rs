@@ -2,8 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use parking_lot::RwLock;
-use lazy_static::lazy_static;
 
 /// 用户配置结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,42 +78,4 @@ impl AppConfig {
 
         Ok(())
     }
-}
-
-/// 全局配置单例
-pub struct ConfigStore {
-    config: RwLock<AppConfig>,
-}
-
-impl ConfigStore {
-    pub fn new() -> Self {
-        Self {
-            config: RwLock::new(AppConfig::load_from_disk()),
-        }
-    }
-
-    pub fn get(&self) -> AppConfig {
-        self.config.read().clone()
-    }
-
-    pub fn update<F>(&self, f: F) where F: FnOnce(&mut AppConfig) {
-        let mut config = self.config.write();
-        f(&mut config);
-    }
-
-    pub fn save(&self) -> Result<(), String> {
-        self.config.read().save_to_disk()
-    }
-
-    /// 更新并保存（原子操作）
-    pub fn apply_and_save<F>(&self, f: F) -> Result<(), String>
-    where F: FnOnce(&mut AppConfig)
-    {
-        self.update(f);
-        self.save()
-    }
-}
-
-lazy_static! {
-    pub static ref APP_CONFIG: ConfigStore = ConfigStore::new();
 }

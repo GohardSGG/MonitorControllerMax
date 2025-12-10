@@ -1,96 +1,194 @@
 use std::sync::Arc;
-use std::thread;
-use crossbeam::channel::{unbounded, Sender};
-use crossbeam::atomic::AtomicCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
 use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv};
 use bincode;
 use tokio::runtime::Runtime;
 
-use crate::network_protocol::NetworkRenderState;
-use crate::{mcm_info, mcm_error};
-// Removed unused import: RenderState
+use crate::network_protocol::NetworkInteractionState;
+use crate::Interaction::InteractionManager;
+use crate::logger::InstanceLogger;
 
 pub struct NetworkManager {
-    // For Master: Send RenderState to the network thread
-    pub sender: Option<Sender<NetworkRenderState>>,
-    
-    // For Slave: Read latest state from network thread
-    // We use NetworkRenderState here to match the protocol, convertible to RenderState
-    pub latest_state: Arc<AtomicCell<Option<NetworkRenderState>>>,
+    // 运行状态标志（线程退出控制）
+    is_running: Arc<AtomicBool>,
+
+    // Slave 连接状态（供 UI 显示）
+    pub is_connected: Arc<AtomicBool>,
+
+    // 线程句柄
+    thread_handle: Option<JoinHandle<()>>,
 }
 
 impl NetworkManager {
     pub fn new() -> Self {
         Self {
-            sender: None,
-            latest_state: Arc::new(AtomicCell::new(None)),
+            is_running: Arc::new(AtomicBool::new(false)),
+            is_connected: Arc::new(AtomicBool::new(false)),
+            thread_handle: None,
         }
     }
 
-    pub fn init_master(&mut self, port: u16) {
-        let (tx, rx) = unbounded::<NetworkRenderState>();
-        self.sender = Some(tx);
+    /// 获取 Slave 连接状态（供 Editor 使用）
+    pub fn get_connection_status(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.is_connected)
+    }
 
-        thread::spawn(move || {
+    /// 初始化 Master 模式
+    /// 网络线程直接从 InteractionManager 读取状态，定期发送
+    pub fn init_master(&mut self, port: u16, interaction: Arc<InteractionManager>, logger: Arc<InstanceLogger>) {
+        // 如果已经运行，先关闭
+        if self.is_running.load(Ordering::Relaxed) {
+            self.shutdown();
+        }
+
+        self.is_running.store(true, Ordering::Relaxed);
+
+        let is_running = Arc::clone(&self.is_running);
+
+        self.thread_handle = Some(thread::spawn(move || {
             let rt = Runtime::new().expect("Failed to create Tokio runtime");
             rt.block_on(async move {
                 let mut socket = PubSocket::new();
                 let endpoint = format!("tcp://0.0.0.0:{}", port);
-                
+
                 if let Err(e) = socket.bind(&endpoint).await {
-                    mcm_error!("ZMQ Bind Error: {}", e);
+                    logger.warn("network", &format!("ZMQ port {} unavailable: {}", port, e));
                     return;
                 }
-                mcm_info!("ZMQ Publisher bound to {}", endpoint);
+                logger.info("network", &format!("ZMQ Publisher bound to {}", endpoint));
 
-                while let Ok(state) = rx.recv() {
+                let mut send_count: u64 = 0;
+
+                while is_running.load(Ordering::Relaxed) {
+                    // 从 InteractionManager 读取当前状态
+                    let state = interaction.to_network_state();
+
+                    // 序列化并发送
                     if let Ok(bytes) = bincode::serialize(&state) {
-                        // Fire and forget
                         let _ = socket.send(bytes.into()).await;
+                        send_count += 1;
+
+                        // 每 500 次记录一次日志（约 10 秒一次，20ms 间隔）
+                        if send_count % 500 == 0 {
+                            logger.info("network", &format!(
+                                "ZMQ Master sent {} packets, primary={}, compare={}",
+                                send_count, state.primary, state.compare
+                            ));
+                        }
                     }
+
+                    // 发送间隔 20ms (50Hz)
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
+
+                logger.info("network", "ZMQ Publisher thread stopped");
             });
-        });
+        }));
     }
 
-    pub fn init_slave(&mut self, master_ip: &str, port: u16) {
-        let state_cell = self.latest_state.clone();
-        let endpoint = format!("tcp://{}:{}", master_ip, port);
+    /// 初始化 Slave 模式
+    /// 网络线程收到数据后直接更新 InteractionManager
+    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, logger: Arc<InstanceLogger>) {
+        // 如果已经运行，先关闭
+        if self.is_running.load(Ordering::Relaxed) {
+            self.shutdown();
+        }
 
-        thread::spawn(move || {
+        let endpoint = format!("tcp://{}:{}", master_ip, port);
+        self.is_running.store(true, Ordering::Relaxed);
+        self.is_connected.store(false, Ordering::Relaxed);
+
+        let is_running = Arc::clone(&self.is_running);
+        let is_connected = Arc::clone(&self.is_connected);
+
+        self.thread_handle = Some(thread::spawn(move || {
             let rt = Runtime::new().expect("Failed to create Tokio runtime");
             rt.block_on(async move {
                 let mut socket = SubSocket::new();
                 if let Err(e) = socket.connect(&endpoint).await {
-                    mcm_error!("ZMQ Connect Error: {}", e);
+                    logger.error("network", &format!("ZMQ Connect Error: {}", e));
                     return;
                 }
                 if let Err(e) = socket.subscribe("").await {
-                    mcm_error!("ZMQ Subscribe Error: {}", e);
+                    logger.error("network", &format!("ZMQ Subscribe Error: {}", e));
                     return;
                 }
-                mcm_info!("ZMQ Subscriber connected to {}", endpoint);
+                logger.info("network", &format!("ZMQ Subscriber connected to {}", endpoint));
 
-                loop {
-                    // This blocks (asynchronously) until data arrives
-                    match socket.recv().await {
-                        Ok(msg) => {
-                            // ZMQ message might be multipart, we expect single part payload
+                let mut recv_count: u64 = 0;
+
+                // 使用非阻塞接收循环
+                while is_running.load(Ordering::Relaxed) {
+                    let recv_future = socket.recv();
+                    let timeout_future = tokio::time::timeout(
+                        std::time::Duration::from_millis(100),
+                        recv_future
+                    );
+
+                    match timeout_future.await {
+                        Ok(Ok(msg)) => {
                             if let Some(bytes) = msg.get(0) {
-                                if let Ok(state) = bincode::deserialize::<NetworkRenderState>(bytes) {
-                                    state_cell.store(Some(state));
+                                if let Ok(state) = bincode::deserialize::<NetworkInteractionState>(bytes) {
+                                    if state.is_valid() {
+                                        // 直接更新 InteractionManager
+                                        interaction.from_network_state(&state);
+                                        recv_count += 1;
+
+                                        // 首次收到数据才标记为已连接
+                                        if recv_count == 1 {
+                                            is_connected.store(true, Ordering::Relaxed);
+                                            logger.info("network", "ZMQ Slave: First packet received, connected!");
+                                        }
+
+                                        // 每 500 次记录一次日志
+                                        if recv_count % 500 == 0 {
+                                            logger.info("network", &format!(
+                                                "ZMQ Slave received {} packets, primary={}, compare={}",
+                                                recv_count, state.primary, state.compare
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
-                        Err(e) => {
-                            mcm_error!("ZMQ Recv Error: {}", e);
-                            // Simple retry delay?
+                        Ok(Err(e)) => {
+                            logger.error("network", &format!("ZMQ Recv Error: {}", e));
+                            is_connected.store(false, Ordering::Relaxed);
                             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                        Err(_) => {
+                            // Timeout, continue
+                            continue;
                         }
                     }
                 }
+
+                is_connected.store(false, Ordering::Relaxed);
+                logger.info("network", "ZMQ Subscriber thread stopped");
             });
-        });
+        }));
+    }
+
+    /// 关闭网络管理器
+    pub fn shutdown(&mut self) {
+        if !self.is_running.load(Ordering::Relaxed) {
+            return;
+        }
+
+        // 停止线程
+        self.is_running.store(false, Ordering::Relaxed);
+        self.is_connected.store(false, Ordering::Relaxed);
+
+        // 等待线程结束
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
+impl Drop for NetworkManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
