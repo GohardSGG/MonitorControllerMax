@@ -9,9 +9,17 @@ pub const STANDARD_CHANNELS: &[&str] = &[
     "SUB_F", "SUB_B", "SUB_L", "SUB_R",
 ];
 
+/// M4: 协议版本号（Master/Slave 兼容性检查）
+/// 版本历史:
+/// - v1: 基础 Solo/Mute 同步
+/// - v2: 添加 layout/sub_layout/memory/automation 字段 (v2.5.0)
+pub const PROTOCOL_VERSION: u8 = 2;
+
 /// Master-Slave 同步的交互状态
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
 pub struct NetworkInteractionState {
+    /// M4: 协议版本号
+    pub protocol_version: u8,
     /// 主模式: 0=None, 1=Solo, 2=Mute
     pub primary: u8,
     /// 比较模式: 0=None, 1=Solo, 2=Mute
@@ -108,6 +116,7 @@ impl NetworkInteractionState {
     /// 创建带时间戳的新状态
     pub fn with_timestamp(mut self) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
+        self.protocol_version = PROTOCOL_VERSION;  // M4: 设置协议版本
         self.timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

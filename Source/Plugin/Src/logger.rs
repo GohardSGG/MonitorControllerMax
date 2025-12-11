@@ -18,7 +18,9 @@ pub enum Level {
     Error,
     Warn,
     Info,
+    #[allow(dead_code)]
     Debug,
+    #[allow(dead_code)]
     Trace,
 }
 
@@ -50,7 +52,9 @@ pub fn generate_instance_id() -> String {
 
 /// Instance-level logger - each VST instance owns one
 pub struct InstanceLogger {
-    file: Mutex<File>,
+    /// File handle - None if log file couldn't be created (graceful degradation)
+    file: Mutex<Option<File>>,
+    #[allow(dead_code)]
     pub instance_id: String,
     /// Recent log entries for UI display (thread-safe)
     recent_logs: RwLock<VecDeque<String>>,
@@ -58,14 +62,22 @@ pub struct InstanceLogger {
 
 impl InstanceLogger {
     /// Create a new logger for a specific instance
+    /// Gracefully degrades to memory-only logging if file creation fails
     pub fn new(instance_id: &str) -> Arc<Self> {
         let path = Self::get_log_path(instance_id);
 
-        let file = OpenOptions::new()
+        // Graceful degradation: if file can't be created, log only to memory
+        let file = match OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)
-            .expect("Failed to create log file");
+            .open(&path) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                // Use eprintln as fallback - won't crash DAW
+                eprintln!("[MCM] Failed to create log file {:?}: {}", path, e);
+                None
+            }
+        };
 
         let logger = Arc::new(Self {
             file: Mutex::new(file),
@@ -73,7 +85,7 @@ impl InstanceLogger {
             recent_logs: RwLock::new(VecDeque::with_capacity(MAX_RECENT_LOGS)),
         });
 
-        // Write initialization header
+        // Write initialization header (only if file exists)
         logger.write_header(&path);
 
         logger
@@ -94,21 +106,23 @@ impl InstanceLogger {
         log_dir.join(format!("MCM_{}_{}.log", instance_id, timestamp))
     }
 
-    /// Write initialization header to log file
+    /// Write initialization header to log file (skipped if file is None)
     fn write_header(&self, path: &PathBuf) {
-        if let Ok(mut f) = self.file.lock() {
-            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            let _ = writeln!(f, "");
-            let _ = writeln!(f, "==================================================================");
-            let _ = writeln!(f, "[{}] [INFO ] MonitorControllerMax Logger Initialized", timestamp);
-            let _ = writeln!(f, "[{}] [INFO ] Instance ID: {}", timestamp, self.instance_id);
-            let _ = writeln!(f, "[{}] [INFO ] Version: {} (Build: {})",
-                timestamp,
-                env!("CARGO_PKG_VERSION"),
-                env!("BUILD_TIMESTAMP"));
-            let _ = writeln!(f, "[{}] [INFO ] Log File: {:?}", timestamp, path);
-            let _ = writeln!(f, "==================================================================");
-            let _ = f.flush();
+        if let Ok(mut guard) = self.file.lock() {
+            if let Some(ref mut f) = *guard {
+                let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                let _ = writeln!(f, "");
+                let _ = writeln!(f, "==================================================================");
+                let _ = writeln!(f, "[{}] [INFO ] MonitorControllerMax Logger Initialized", timestamp);
+                let _ = writeln!(f, "[{}] [INFO ] Instance ID: {}", timestamp, self.instance_id);
+                let _ = writeln!(f, "[{}] [INFO ] Version: {} (Build: {})",
+                    timestamp,
+                    env!("CARGO_PKG_VERSION"),
+                    env!("BUILD_TIMESTAMP"));
+                let _ = writeln!(f, "[{}] [INFO ] Log File: {:?}", timestamp, path);
+                let _ = writeln!(f, "==================================================================");
+                let _ = f.flush();
+            }
         }
     }
 
@@ -117,14 +131,16 @@ impl InstanceLogger {
         let timestamp = Local::now().format("%H:%M:%S");
         let log_line = format!("[{}] [{}] {}", timestamp, module, message);
 
-        // Write to file
-        if let Ok(mut f) = self.file.lock() {
-            let full_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            let _ = writeln!(f, "[{}] [{}] [{}] {}", full_timestamp, level, module, message);
-            let _ = f.flush();
+        // Write to file (if available)
+        if let Ok(mut guard) = self.file.lock() {
+            if let Some(ref mut f) = *guard {
+                let full_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                let _ = writeln!(f, "[{}] [{}] [{}] {}", full_timestamp, level, module, message);
+                let _ = f.flush();
+            }
         }
 
-        // Add to recent logs buffer (for UI display)
+        // Add to recent logs buffer (for UI display) - always works even without file
         {
             let mut logs = self.recent_logs.write();
             if logs.len() >= MAX_RECENT_LOGS {
@@ -155,11 +171,13 @@ impl InstanceLogger {
     }
 
     /// Log at DEBUG level
+    #[allow(dead_code)]
     pub fn debug(&self, module: &str, message: &str) {
         self.log(Level::Debug, module, message);
     }
 
     /// Log at TRACE level
+    #[allow(dead_code)]
     pub fn trace(&self, module: &str, message: &str) {
         self.log(Level::Trace, module, message);
     }

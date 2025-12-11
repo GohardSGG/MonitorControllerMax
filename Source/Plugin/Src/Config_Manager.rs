@@ -27,6 +27,7 @@ pub struct ChannelInfo {
 
 #[derive(Debug, Clone)]
 pub struct Layout {
+    #[allow(dead_code)]
     pub name: String,
     pub width: u32,
     pub height: u32,
@@ -128,7 +129,7 @@ impl ConfigManager {
             }
 
             // Extract Channels
-            // We need a stable order for channel indices. 
+            // We need a stable order for channel indices.
             // The JSON object is unordered. The C++ implementation relied on order?
             // "恢复之前的逻辑：按顺序递增分配通道索引。注意：这个逻辑依赖于JSON中属性的顺序，可能不稳定。"
             // In Rust, serde_json::Map preserves order if "preserve_order" feature is enabled.
@@ -141,13 +142,13 @@ impl ConfigManager {
             // 5.1 is usually L, R, C, LFE, Ls, Rs.
             // If we iterate HashMap, L might come after R.
             // WE NEED TO FIX THIS. The config parsing must be deterministic and preferably standard-compliant.
-            
+
             // For now, let's collect and sort by Grid Position? No, Grid Position is for UI.
             // L (1) should be ch 0. R (5) should be ch 1? No, 5.1 standard is L, R, C, LFE...
             // Let's look at the JSON again.
-            // "L": 1, "R": 3 (in 2.0). 
+            // "L": 1, "R": 3 (in 2.0).
             // If we sort by keys, C comes before L.
-            
+
             // 使用公共常量作为唯一真实来源（Single Source of Truth）
             let standard_order = STANDARD_CHANNEL_ORDER;
 
@@ -201,6 +202,22 @@ impl ConfigManager {
         }
 
         let total_channels = main_channels.len() + sub_channels.len();
+
+        // H3: 空配置降级 - 如果没有任何通道，返回最小立体声配置
+        if total_channels == 0 {
+            eprintln!("[MCM] WARNING: Empty layout '{}+{}', falling back to stereo", speaker_name, sub_name);
+            return Layout {
+                name: "Fallback_Stereo".to_string(),
+                width: 3,
+                height: 1,
+                main_channels: vec![
+                    ChannelInfo { name: "L".to_string(), grid_pos: 1, channel_index: 0 },
+                    ChannelInfo { name: "R".to_string(), grid_pos: 3, channel_index: 1 },
+                ],
+                sub_channels: vec![],
+                total_channels: 2,
+            };
+        }
 
         Layout {
             name: format!("{}+{}", speaker_name, sub_name),

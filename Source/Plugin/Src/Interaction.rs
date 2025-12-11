@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 use crossbeam::atomic::AtomicCell;
@@ -330,6 +330,7 @@ impl InteractionManager {
 
     // ========== 状态查询 ==========
 
+    #[allow(dead_code)]
     pub fn is_idle(&self) -> bool {
         *self.primary.read() == PrimaryMode::None
     }
@@ -363,21 +364,25 @@ impl InteractionManager {
     }
 
     /// 获取 Solo 集合
+    #[allow(dead_code)]
     pub fn get_solo_set(&self) -> ChannelSet {
         self.solo_set.read().clone()
     }
 
     /// 获取 Mute 集合
+    #[allow(dead_code)]
     pub fn get_mute_set(&self) -> ChannelSet {
         self.mute_set.read().clone()
     }
 
     /// 检查通道是否在 Solo 集合中
+    #[allow(dead_code)]
     pub fn is_in_solo_set(&self, ch_name: &str) -> bool {
         self.solo_set.read().contains(ch_name)
     }
 
     /// 检查通道是否在 Mute 集合中
+    #[allow(dead_code)]
     pub fn is_in_mute_set(&self, ch_name: &str) -> bool {
         self.mute_set.read().contains(ch_name)
     }
@@ -391,17 +396,19 @@ impl InteractionManager {
     }
 
     /// 更新快照（UI/网络线程在状态变化后调用）
+    /// M1: 优化为快速读取所有锁，然后释放锁后再计算
     pub fn update_snapshot(&self) {
+        // Step 1: 快速读取所有状态（最小化锁持有时间）
         let primary = *self.primary.read();
         let compare = *self.compare.read();
-        let solo_set = self.solo_set.read();
-        let mute_set = self.mute_set.read();
-        let user_mute_sub = self.user_mute_sub.read();
+        let solo_channels = self.solo_set.read().channels.clone();
+        let mute_channels = self.mute_set.read().channels.clone();
+        let user_mute_sub = self.user_mute_sub.read().clone();
         let automation = *self.automation_mode.read();
 
-        // 转换为位掩码
-        let solo_mask = Self::channel_set_to_mask(&solo_set.channels);
-        let mute_mask = Self::channel_set_to_mask(&mute_set.channels);
+        // Step 2: 锁已释放，可以安全地进行计算
+        let solo_mask = Self::channel_set_to_mask(&solo_channels);
+        let mute_mask = Self::channel_set_to_mask(&mute_channels);
         let user_mute_sub_mask = Self::sub_set_to_mask(&user_mute_sub);
 
         let snapshot = RenderSnapshot {
@@ -422,6 +429,7 @@ impl InteractionManager {
             _padding: [0; 2],
         };
 
+        // Step 3: 原子写入快照
         self.render_snapshot.store(snapshot);
     }
 
@@ -475,6 +483,24 @@ impl InteractionManager {
     pub fn exit_automation_mode(&self) {
         *self.automation_mode.write() = false;
         // 不恢复任何状态，保持 Idle
+        self.update_snapshot();
+    }
+
+    /// H2: 布局变化时清理旧状态（防止旧通道状态污染新布局）
+    /// 在手动模式下，布局切换时调用
+    pub fn clear_on_layout_change(&self) {
+        // 清空 Solo/Mute 集合
+        self.solo_set.write().channels.clear();
+        self.mute_set.write().channels.clear();
+        self.user_mute_sub.write().clear();
+
+        // 重置模式状态为 Idle
+        *self.primary.write() = PrimaryMode::None;
+        *self.compare.write() = CompareMode::None;
+        *self.solo_has_memory.write() = false;
+        *self.mute_has_memory.write() = false;
+
+        // 更新快照
         self.update_snapshot();
     }
 
@@ -1180,6 +1206,7 @@ impl InteractionManager {
         let automation_mode = *self.automation_mode.read();
 
         NetworkInteractionState {
+            protocol_version: 0,  // M4: with_timestamp() 会设置正确的版本
             primary,
             compare,
             solo_mask: NetworkInteractionState::channel_set_to_mask(&solo_set.channels),
@@ -1199,58 +1226,45 @@ impl InteractionManager {
     }
 
     /// 从网络格式导入状态 (Slave 调用)
+    /// H1: 优化为先收集数据，再批量更新，减少中间状态暴露
     pub fn from_network_state(&self, state: &NetworkInteractionState) {
         if !state.is_valid() {
             return;
         }
 
-        // 更新主模式
-        *self.primary.write() = match state.primary {
+        // Step 1: 预先解析所有数据（不持有任何锁）
+        let new_primary = match state.primary {
             1 => PrimaryMode::Solo,
             2 => PrimaryMode::Mute,
             _ => PrimaryMode::None,
         };
-
-        // 更新比较模式
-        *self.compare.write() = match state.compare {
+        let new_compare = match state.compare {
             1 => CompareMode::Solo,
             2 => CompareMode::Mute,
             _ => CompareMode::None,
         };
+        let new_solo_channels = NetworkInteractionState::mask_to_channel_set(state.solo_mask);
+        let new_mute_channels = NetworkInteractionState::mask_to_channel_set(state.mute_mask);
+        let new_user_mute_sub = NetworkInteractionState::mask_to_sub_set(state.user_mute_sub_mask);
 
-        // 更新 Solo 集合
-        {
-            let mut solo_set = self.solo_set.write();
-            solo_set.channels = NetworkInteractionState::mask_to_channel_set(state.solo_mask);
-        }
-
-        // 更新 Mute 集合
-        {
-            let mut mute_set = self.mute_set.write();
-            mute_set.channels = NetworkInteractionState::mask_to_channel_set(state.mute_mask);
-        }
-
-        // 更新 SUB User Mute 集合
-        {
-            let mut user_mute = self.user_mute_sub.write();
-            *user_mute = NetworkInteractionState::mask_to_sub_set(state.user_mute_sub_mask);
-        }
-
-        // 更新记忆标志
+        // Step 2: 批量更新核心状态（快速获取-释放，最小化锁持有时间）
+        *self.primary.write() = new_primary;
+        *self.compare.write() = new_compare;
+        self.solo_set.write().channels = new_solo_channels;
+        self.mute_set.write().channels = new_mute_channels;
+        *self.user_mute_sub.write() = new_user_mute_sub;
         *self.solo_has_memory.write() = state.solo_has_memory;
         *self.mute_has_memory.write() = state.mute_has_memory;
-
-        // 更新自动化模式
         *self.automation_mode.write() = state.automation_mode;
 
-        // 更新全局状态（供 Editor 读取并应用到 params）
+        // Step 3: 更新网络接收值（供 Editor 读取并应用到 params）
         *self.network_master_gain.write() = Some(state.master_gain);
         *self.network_dim.write() = Some(state.dim);
         *self.network_cut.write() = Some(state.cut);
         *self.network_layout.write() = Some(state.layout);
         *self.network_sub_layout.write() = Some(state.sub_layout);
 
-        // 更新 Lock-Free 快照
+        // Step 4: 最后更新 Lock-Free 快照（音频线程读取的是一致的快照）
         self.update_snapshot();
     }
 

@@ -2,6 +2,7 @@
 
 use nih_plug::prelude::*;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod Components;
 mod Editor;
@@ -47,6 +48,7 @@ pub struct MonitorControllerMax {
     /// 上次的 Role（用于检测运行时切换）
     last_role: Option<Params::PluginRole>,
     /// 实例ID
+    #[allow(dead_code)]
     instance_id: String,
     /// 实例级日志器
     logger: Arc<InstanceLogger>,
@@ -54,6 +56,8 @@ pub struct MonitorControllerMax {
     app_config: AppConfig,
     /// 实例级布局配置
     layout_config: Arc<ConfigManager>,
+    /// C4: 初始化进行中标志（防止 reset() 重入）
+    init_in_progress: AtomicBool,
 }
 
 impl Default for MonitorControllerMax {
@@ -84,6 +88,7 @@ impl Default for MonitorControllerMax {
             logger,
             app_config,
             layout_config,
+            init_in_progress: AtomicBool::new(false),
         }
     }
 }
@@ -152,6 +157,14 @@ impl Plugin for MonitorControllerMax {
     fn reset(&mut self) {
         self.logger.info("monitor_controller_max", "Plugin reset() called");
 
+        // C4: 防止 reset() 重入
+        if self.init_in_progress.compare_exchange(
+            false, true, Ordering::Acquire, Ordering::Relaxed
+        ).is_err() {
+            self.logger.warn("monitor_controller_max", "[Reset] Already in progress, skipping");
+            return;
+        }
+
         // 检测 Role 变化（DAW 恢复参数后可能改变）
         let current_role = self.params.role.value();
         let role_changed = self.last_role.map(|r| r != current_role).unwrap_or(false);
@@ -162,7 +175,7 @@ impl Plugin for MonitorControllerMax {
                 self.last_role, current_role
             ));
 
-            // 关闭旧资源
+            // H4: 同步关闭旧资源（shutdown() 内部会等待线程结束）
             self.osc.shutdown();
             self.network.shutdown();
 
@@ -186,6 +199,9 @@ impl Plugin for MonitorControllerMax {
             self.logger.info("monitor_controller_max", &format!("[Reset] Broadcasting state: vol={:.4}, dim={}, cut={}", master_volume, dim, cut));
             self.osc.broadcast_state(channel_count, master_volume, dim, cut);
         }
+
+        // C4: 释放重入锁
+        self.init_in_progress.store(false, Ordering::Release);
     }
 
     fn process(
@@ -213,18 +229,18 @@ impl MonitorControllerMax {
                 let master_volume = self.params.master_gain.value();
                 let dim = self.params.dim.value();
                 let cut = self.params.cut.value();
-                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), Arc::clone(&self.logger), &self.app_config);
+                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config);
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Master mode");
             }
             Params::PluginRole::Slave => {
-                self.network.init_slave("127.0.0.1", 9123, self.interaction.clone(), Arc::clone(&self.logger));
+                self.network.init_slave("127.0.0.1", 9123, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC disabled for Slave mode");
             }
             Params::PluginRole::Standalone => {
                 let master_volume = self.params.master_gain.value();
                 let dim = self.params.dim.value();
                 let cut = self.params.cut.value();
-                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), Arc::clone(&self.logger), &self.app_config);
+                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config);
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Standalone mode");
             }
         }

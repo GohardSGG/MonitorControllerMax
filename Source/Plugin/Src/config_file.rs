@@ -61,6 +61,7 @@ impl AppConfig {
     }
 
     /// 保存配置到磁盘
+    #[allow(dead_code)]
     pub fn save_to_disk(&self) -> Result<(), String> {
         let path = Self::config_path();
 

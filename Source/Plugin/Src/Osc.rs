@@ -6,14 +6,15 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::collections::HashSet;
-use crossbeam::channel::{unbounded, Sender, Receiver};
+use crossbeam::channel::{bounded, Sender, Receiver};
 use rosc::{OscPacket, OscMessage, OscType, encoder};
 use parking_lot::RwLock;
 
 // InteractionManager 现在通过参数传递，不再使用全局单例
 use crate::Config_File::AppConfig;
-use crate::Config_Manager::{STANDARD_CHANNEL_ORDER, Layout};
+use crate::Config_Manager::Layout;
 use crate::Logger::InstanceLogger;
+use crate::Params::{MonitorParams, PluginRole};
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;
@@ -86,6 +87,7 @@ impl OscSharedState {
     }
 
     /// 设置日志器（由 OscManager::init 调用）
+    #[allow(dead_code)]
     pub fn set_logger(&mut self, logger: Arc<InstanceLogger>) {
         self.logger = Some(logger);
     }
@@ -413,10 +415,29 @@ impl OscManager {
     }
 
     /// 初始化 OSC (Master 或 Standalone 模式)
-    pub fn init(&mut self, channel_count: usize, master_volume: f32, dim: bool, cut: bool, interaction: Arc<crate::Interaction::InteractionManager>, logger: Arc<InstanceLogger>, app_config: &AppConfig) {
-        if self.is_running.load(Ordering::Relaxed) {
+    /// C5: 添加 params 参数用于线程内 Role 检测
+    /// D: 检测线程存活状态，死线程则允许重新初始化
+    pub fn init(&mut self, channel_count: usize, _master_volume: f32, _dim: bool, cut: bool, interaction: Arc<crate::Interaction::InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>, app_config: &AppConfig) {
+        // D: 检查是否有线程实际在运行（使用 is_finished() 检测）
+        let threads_alive = self.send_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+            || self.receive_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+            || self.blink_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
+
+        if self.is_running.load(Ordering::Relaxed) && threads_alive {
             logger.warn("osc", "[OSC] Already running, skipping initialization");
             return;
+        }
+
+        // D: 线程已死但标志未清（C5 线程主动退出导致），清理状态以允许重新初始化
+        if self.is_running.load(Ordering::Relaxed) && !threads_alive {
+            logger.info("osc", "[OSC] Previous threads exited, cleaning up for re-init...");
+            self.is_running.store(false, Ordering::Relaxed);
+            // 等待并清理线程句柄
+            if let Some(h) = self.send_thread.take() { let _ = h.join(); }
+            if let Some(h) = self.receive_thread.take() { let _ = h.join(); }
+            if let Some(h) = self.blink_thread.take() { let _ = h.join(); }
+            // 清理发送通道
+            *self.state.sender_tx.write() = None;
         }
 
         logger.info("osc", &format!("[OSC] Initializing OSC Manager with {} channels...", channel_count));
@@ -432,8 +453,8 @@ impl OscManager {
         self.state.channel_count.store(channel_count, Ordering::Relaxed);
         self.state.current_cut.store(cut, Ordering::Relaxed);
 
-        // 创建消息队列
-        let (send_tx, send_rx) = unbounded::<OscOutMessage>();
+        // M3: 创建有界消息队列（使用 MAX_QUEUE_SIZE 防止内存溢出）
+        let (send_tx, send_rx) = bounded::<OscOutMessage>(MAX_QUEUE_SIZE);
         *self.state.sender_tx.write() = Some(send_tx.clone());
 
         // 设置运行标志
@@ -443,20 +464,26 @@ impl OscManager {
         let send_port = app_config.osc_send_port;
         let recv_port = app_config.osc_receive_port;
 
+        // C5: 记录初始化时的 Role（用于线程内检测变化）
+        let init_role = params.role.value();
+
         // 启动三个线程
         let is_running_clone = Arc::clone(&self.is_running);
         let blink_phase_clone = Arc::clone(&self.blink_phase);
         let state_clone = Arc::clone(&self.state);
         let logger_clone = Arc::clone(&logger);
+        let params_clone = Arc::clone(&params);
 
         // 1. 发送线程 (UDP 7444)
-        self.send_thread = Some(Self::spawn_send_thread(send_rx, is_running_clone.clone(), Arc::clone(&logger_clone), send_port));
+        self.send_thread = Some(Self::spawn_send_thread(send_rx, is_running_clone.clone(), Arc::clone(&params_clone), init_role, Arc::clone(&logger_clone), send_port));
 
         // 2. 接收线程 (UDP 7445) - 传递 interaction 和 state
         self.receive_thread = Some(Self::spawn_receive_thread(
             is_running_clone.clone(),
             interaction.clone(),
             Arc::clone(&state_clone),
+            Arc::clone(&params_clone),
+            init_role,
             Arc::clone(&logger_clone),
             recv_port
         ));
@@ -468,6 +495,8 @@ impl OscManager {
             blink_phase_clone,
             interaction.clone(),
             Arc::clone(&state_clone),
+            Arc::clone(&params_clone),
+            init_role,
             Arc::clone(&logger_clone)
         ));
 
@@ -550,7 +579,8 @@ impl OscManager {
     // ==================== 线程实现 ====================
 
     /// 发送线程 - 处理 UDP 发送
-    fn spawn_send_thread(rx: Receiver<OscOutMessage>, is_running: Arc<AtomicBool>, logger: Arc<InstanceLogger>, send_port: u16) -> JoinHandle<()> {
+    /// C5: 添加 params 和 init_role 用于检测 Role 变化
+    fn spawn_send_thread(rx: Receiver<OscOutMessage>, is_running: Arc<AtomicBool>, params: Arc<MonitorParams>, _init_role: PluginRole, logger: Arc<InstanceLogger>, send_port: u16) -> JoinHandle<()> {
         thread::spawn(move || {
             logger.info("osc", &format!("[OSC Send] Thread started, binding to 0.0.0.0:0 → broadcast to 127.0.0.1:{}", send_port));
 
@@ -567,6 +597,12 @@ impl OscManager {
 
             // 主循环：使用阻塞接收 + 批量处理，消除轮询延迟
             while is_running.load(Ordering::Relaxed) {
+                // Slave 模式时暂停（不退出）
+                if params.role.value() == PluginRole::Slave {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
                 // 阻塞等待第一条消息（100ms 超时用于检查运行状态）
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(msg) => {
@@ -594,10 +630,13 @@ impl OscManager {
     }
 
     /// 接收线程 - 处理 UDP 接收
+    /// C5: 添加 params 和 init_role 用于检测 Role 变化
     fn spawn_receive_thread(
         is_running: Arc<AtomicBool>,
         interaction: Arc<crate::Interaction::InteractionManager>,
         state: Arc<OscSharedState>,
+        params: Arc<MonitorParams>,
+        _init_role: PluginRole,
         logger: Arc<InstanceLogger>,
         recv_port: u16
     ) -> JoinHandle<()> {
@@ -630,6 +669,12 @@ impl OscManager {
 
             // 主循环
             while is_running.load(Ordering::Relaxed) {
+                // Slave 模式时暂停（不退出）
+                if params.role.value() == PluginRole::Slave {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
                 match socket.recv_from(&mut buf) {
                     Ok((size, _src)) => {
                         Self::process_incoming_packet(&buf[..size], &interaction, &state, &logger);
@@ -651,18 +696,27 @@ impl OscManager {
     }
 
     /// 闪烁定时器线程 - 每 500ms 切换一次相位
+    /// C5: 添加 params 和 init_role 用于检测 Role 变化
     fn spawn_blink_thread(
         tx: Sender<OscOutMessage>,
         is_running: Arc<AtomicBool>,
         blink_phase: Arc<AtomicBool>,
         interaction: Arc<crate::Interaction::InteractionManager>,
         _state: Arc<OscSharedState>,  // 预留供将来使用
+        params: Arc<MonitorParams>,
+        _init_role: PluginRole,
         logger: Arc<InstanceLogger>
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             logger.info("osc", &format!("[OSC Blink] Thread started, interval = {}ms", BLINK_INTERVAL_MS));
 
             while is_running.load(Ordering::Relaxed) {
+                // Slave 模式时暂停（不退出）
+                if params.role.value() == PluginRole::Slave {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+
                 thread::sleep(Duration::from_millis(BLINK_INTERVAL_MS));
 
                 // 切换相位

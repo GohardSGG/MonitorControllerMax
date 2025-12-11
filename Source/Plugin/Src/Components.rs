@@ -267,7 +267,7 @@ impl<'a> Widget for TechVolumeKnob<'a> {
 
         // Draw Knob Handle (The big rotating box)
         let knob_size = s.s(64.0);
-        let knob_rect = Rect::from_center_size(center, Vec2::splat(knob_size));
+        let _knob_rect = Rect::from_center_size(center, Vec2::splat(knob_size));
         
         // Rotate the knob rect
         // We can't rotate a rect easily, but we can draw a rotated shape or use transform

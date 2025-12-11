@@ -67,6 +67,7 @@ fn main() {
 
     // Generate layout info for runtime use
     code.push_str("/// Layout information generated from Speaker_Config.json\n");
+    code.push_str("#[allow(dead_code)]\n");
     code.push_str("pub const GENERATED_LAYOUTS: &[(&str, usize)] = &[\n");
     for (name, count) in &layouts {
         code.push_str(&format!("    (\"{}\", {}),\n", name, count));

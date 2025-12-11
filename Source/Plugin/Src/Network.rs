@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 use crate::Network_Protocol::NetworkInteractionState;
 use crate::Interaction::InteractionManager;
 use crate::Logger::InstanceLogger;
-use crate::Params::MonitorParams;
+use crate::Params::{MonitorParams, PluginRole};
 
 pub struct NetworkManager {
     // 运行状态标志（线程退出控制）
@@ -42,10 +42,21 @@ impl NetworkManager {
     /// 初始化 Master 模式
     /// 网络线程直接从 InteractionManager 读取状态，定期发送
     /// params 用于读取 master_gain/dim/cut
+    /// D: 检测线程存活状态，死线程则允许重新初始化
     pub fn init_master(&mut self, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>) {
-        // 如果已经运行，先关闭
-        if self.is_running.load(Ordering::Relaxed) {
+        // D: 检查线程是否实际在运行（使用 is_finished() 检测）
+        let thread_alive = self.thread_handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
+
+        // 如果线程真正在运行，先关闭
+        if self.is_running.load(Ordering::Relaxed) && thread_alive {
             self.shutdown();
+        }
+
+        // D: 线程已死但标志未清（C5 线程主动退出导致），清理状态
+        if self.is_running.load(Ordering::Relaxed) && !thread_alive {
+            logger.info("network", "[Network Master] Previous thread exited, cleaning up for re-init...");
+            self.is_running.store(false, Ordering::Relaxed);
+            if let Some(h) = self.thread_handle.take() { let _ = h.join(); }
         }
 
         self.is_running.store(true, Ordering::Relaxed);
@@ -76,6 +87,12 @@ impl NetworkManager {
                 let mut send_error_count: u64 = 0;
 
                 while is_running.load(Ordering::Relaxed) {
+                    // Role != Master 时暂停（不退出）
+                    if params.role.value() != PluginRole::Master {
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+
                     // 从 params 读取 master_gain/dim/cut/layout/sub_layout
                     let master_gain = params.master_gain.value();
                     let dim = params.dim.value();
@@ -124,10 +141,22 @@ impl NetworkManager {
 
     /// 初始化 Slave 模式
     /// 网络线程收到数据后直接更新 InteractionManager
-    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, logger: Arc<InstanceLogger>) {
-        // 如果已经运行，先关闭
-        if self.is_running.load(Ordering::Relaxed) {
+    /// 支持指数退避重连机制 + Role 参数检测 + 心跳超时
+    /// D: 检测线程存活状态，死线程则允许重新初始化
+    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>) {
+        // D: 检查线程是否实际在运行（使用 is_finished() 检测）
+        let thread_alive = self.thread_handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
+
+        // 如果线程真正在运行，先关闭
+        if self.is_running.load(Ordering::Relaxed) && thread_alive {
             self.shutdown();
+        }
+
+        // D: 线程已死但标志未清（C5 线程主动退出导致），清理状态
+        if self.is_running.load(Ordering::Relaxed) && !thread_alive {
+            logger.info("network", "[Network Slave] Previous thread exited, cleaning up for re-init...");
+            self.is_running.store(false, Ordering::Relaxed);
+            if let Some(h) = self.thread_handle.take() { let _ = h.join(); }
         }
 
         let endpoint = format!("tcp://{}:{}", master_ip, port);
@@ -150,79 +179,149 @@ impl NetworkManager {
             };
 
             rt.block_on(async move {
-                let mut socket = SubSocket::new();
-                if let Err(e) = socket.connect(&endpoint).await {
-                    logger.error("network", &format!("ZMQ Connect Error: {}", e));
-                    return;
-                }
-                if let Err(e) = socket.subscribe("").await {
-                    logger.error("network", &format!("ZMQ Subscribe Error: {}", e));
-                    return;
-                }
-                logger.info("network", &format!("ZMQ Subscriber connected to {}", endpoint));
+                let mut reconnect_delay_ms: u64 = 500;  // 初始延迟 500ms
+                const MAX_RECONNECT_DELAY_MS: u64 = 5000;  // 最大延迟 5 秒
+                const HEARTBEAT_TIMEOUT_MS: u64 = 2000;  // C6: 心跳超时 2 秒
 
-                let mut recv_count: u64 = 0;
-                let mut out_of_order_count: u64 = 0;
+                // 外层重连循环
+                'reconnect_loop: while is_running.load(Ordering::Relaxed) {
+                    // Role != Slave 时暂停（不退出）
+                    if params.role.value() != PluginRole::Slave {
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue 'reconnect_loop;
+                    }
 
-                // 使用非阻塞接收循环
-                while is_running.load(Ordering::Relaxed) {
-                    let recv_future = socket.recv();
-                    let timeout_future = tokio::time::timeout(
-                        std::time::Duration::from_millis(100),
-                        recv_future
-                    );
+                    let mut socket = SubSocket::new();
 
-                    match timeout_future.await {
-                        Ok(Ok(msg)) => {
-                            if let Some(bytes) = msg.get(0) {
-                                if let Ok(state) = bincode::deserialize::<NetworkInteractionState>(bytes) {
-                                    if state.is_valid() {
-                                        // 时间戳检查：防止乱序包
-                                        let prev_ts = last_timestamp.load(Ordering::Relaxed);
-                                        if state.timestamp <= prev_ts && prev_ts != 0 {
-                                            out_of_order_count += 1;
-                                            // 只在前几次和每 100 次记录，避免日志爆炸
-                                            if out_of_order_count <= 3 || out_of_order_count % 100 == 0 {
+                    // 连接尝试
+                    match socket.connect(&endpoint).await {
+                        Ok(_) => {
+                            reconnect_delay_ms = 500;  // 成功后重置延迟
+                        }
+                        Err(e) => {
+                            logger.warn("network", &format!(
+                                "ZMQ Connect failed, retry in {}ms: {}",
+                                reconnect_delay_ms, e
+                            ));
+                            tokio::time::sleep(std::time::Duration::from_millis(reconnect_delay_ms)).await;
+                            reconnect_delay_ms = (reconnect_delay_ms * 2).min(MAX_RECONNECT_DELAY_MS);
+                            continue 'reconnect_loop;
+                        }
+                    }
+
+                    if let Err(e) = socket.subscribe("").await {
+                        logger.error("network", &format!("ZMQ Subscribe Error: {}", e));
+                        tokio::time::sleep(std::time::Duration::from_millis(reconnect_delay_ms)).await;
+                        reconnect_delay_ms = (reconnect_delay_ms * 2).min(MAX_RECONNECT_DELAY_MS);
+                        continue 'reconnect_loop;
+                    }
+
+                    logger.info("network", &format!("ZMQ Subscriber connected to {}", endpoint));
+
+                    let mut recv_count: u64 = 0;
+                    let mut out_of_order_count: u64 = 0;
+                    let mut consecutive_errors: u64 = 0;
+                    let mut last_packet_time = std::time::Instant::now();  // C6: 心跳计时
+
+                    // 内层接收循环
+                    while is_running.load(Ordering::Relaxed) {
+                        // Role != Slave 时暂停（不退出），断开当前连接
+                        if params.role.value() != PluginRole::Slave {
+                            is_connected.store(false, Ordering::Relaxed);
+                            break;  // 跳出内层循环，回到外层等待
+                        }
+
+                        let recv_future = socket.recv();
+                        let timeout_future = tokio::time::timeout(
+                            std::time::Duration::from_millis(100),
+                            recv_future
+                        );
+
+                        match timeout_future.await {
+                            Ok(Ok(msg)) => {
+                                consecutive_errors = 0;  // 重置连续错误计数
+                                last_packet_time = std::time::Instant::now();  // C6: 更新心跳时间
+                                if let Some(bytes) = msg.get(0) {
+                                    if let Ok(state) = bincode::deserialize::<NetworkInteractionState>(bytes) {
+                                        if state.is_valid() {
+                                            // 时间戳检查：防止乱序包
+                                            let prev_ts = last_timestamp.load(Ordering::Relaxed);
+
+                                            // M2: 时间戳跳跃检测（超过 1 小时视为异常，重置）
+                                            let time_diff = state.timestamp.saturating_sub(prev_ts);
+                                            if prev_ts != 0 && time_diff > 3600_000 {
                                                 logger.warn("network", &format!(
-                                                    "Out-of-order packet #{}: ts={} <= prev={}",
-                                                    out_of_order_count, state.timestamp, prev_ts
+                                                    "Timestamp jump detected: {} -> {} (diff={}ms), resetting",
+                                                    prev_ts, state.timestamp, time_diff
+                                                ));
+                                                last_timestamp.store(0, Ordering::Relaxed);
+                                            }
+
+                                            // 正常乱序检查
+                                            let current_prev = last_timestamp.load(Ordering::Relaxed);
+                                            if state.timestamp <= current_prev && current_prev != 0 {
+                                                out_of_order_count += 1;
+                                                if out_of_order_count <= 3 || out_of_order_count % 100 == 0 {
+                                                    logger.warn("network", &format!(
+                                                        "Out-of-order packet #{}: ts={} <= prev={}",
+                                                        out_of_order_count, state.timestamp, current_prev
+                                                    ));
+                                                }
+                                                continue;
+                                            }
+                                            last_timestamp.store(state.timestamp, Ordering::Relaxed);
+
+                                            // 直接更新 InteractionManager
+                                            interaction.from_network_state(&state);
+                                            recv_count += 1;
+
+                                            // 收到有效数据时标记为已连接（包括重连后）
+                                            if !is_connected.load(Ordering::Relaxed) {
+                                                is_connected.store(true, Ordering::Relaxed);
+                                                logger.info("network", &format!(
+                                                    "ZMQ Slave: {} connected!",
+                                                    if recv_count == 1 { "First packet received," } else { "Reconnected," }
                                                 ));
                                             }
-                                            continue; // 丢弃乱序包
-                                        }
-                                        last_timestamp.store(state.timestamp, Ordering::Relaxed);
 
-                                        // 直接更新 InteractionManager
-                                        interaction.from_network_state(&state);
-                                        recv_count += 1;
-
-                                        // 首次收到数据才标记为已连接
-                                        if recv_count == 1 {
-                                            is_connected.store(true, Ordering::Relaxed);
-                                            logger.info("network", "ZMQ Slave: First packet received, connected!");
-                                        }
-
-                                        // 每 500 次记录一次日志
-                                        if recv_count % 500 == 0 {
-                                            logger.info("network", &format!(
-                                                "ZMQ Slave received {} packets, primary={}, compare={}",
-                                                recv_count, state.primary, state.compare
-                                            ));
+                                            // 每 500 次记录一次日志
+                                            if recv_count % 500 == 0 {
+                                                logger.info("network", &format!(
+                                                    "ZMQ Slave received {} packets, primary={}, compare={}",
+                                                    recv_count, state.primary, state.compare
+                                                ));
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        Ok(Err(e)) => {
-                            logger.error("network", &format!("ZMQ Recv Error: {}", e));
-                            is_connected.store(false, Ordering::Relaxed);
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        }
-                        Err(_) => {
-                            // Timeout, continue
-                            continue;
+                            Ok(Err(e)) => {
+                                consecutive_errors += 1;
+                                logger.error("network", &format!("ZMQ Recv Error #{}: {}", consecutive_errors, e));
+                                is_connected.store(false, Ordering::Relaxed);
+
+                                // 连续 5 次错误后尝试重连
+                                if consecutive_errors >= 5 {
+                                    logger.warn("network", "Too many consecutive errors, reconnecting...");
+                                    break;  // 跳出内层循环，触发重连
+                                }
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            }
+                            Err(_) => {
+                                // Timeout - C6: 检查心跳超时
+                                if last_packet_time.elapsed().as_millis() as u64 > HEARTBEAT_TIMEOUT_MS {
+                                    if is_connected.load(Ordering::Relaxed) {
+                                        is_connected.store(false, Ordering::Relaxed);
+                                        logger.warn("network", "ZMQ Slave: Heartbeat timeout, marking disconnected");
+                                    }
+                                }
+                                continue;
+                            }
                         }
                     }
+
+                    // 内层循环退出，可能需要重连
+                    is_connected.store(false, Ordering::Relaxed);
                 }
 
                 is_connected.store(false, Ordering::Relaxed);

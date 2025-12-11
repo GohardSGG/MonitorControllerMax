@@ -100,6 +100,12 @@ pub fn create_editor(
                         prev_speaker_name, prev_sub_name, curr_speaker_name, curr_sub_name,
                         prev_total, curr_total));
 
+                    // H2: 布局变化时清理旧 Solo/Mute 状态（防止通道状态污染）
+                    if layout_changed {
+                        interaction_clone.clear_on_layout_change();
+                        logger_clone.info("editor", "[LAYOUT] Cleared old Solo/Mute state");
+                    }
+
                     // 更新 OSC 通道信息（KISS 方案：动态从布局获取通道名称）
                     osc_state_clone.update_layout_channels(&curr_layout);
 
@@ -1329,7 +1335,6 @@ fn render_main_grid_dynamic(
 
                             if let Some(ch) = layout.main_channels.iter().find(|c| c.grid_pos == grid_pos) {
                                 let ch_idx = ch.channel_index;
-                                let is_sub = false;
                                 let is_automation = interaction.is_automation_mode();
 
                                 let channel_label = format!("CH {}", ch_idx + 1);
