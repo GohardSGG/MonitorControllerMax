@@ -7,12 +7,120 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
+use crossbeam::atomic::AtomicCell;
 
 use crate::Logger::InstanceLogger;
 use crate::Network_Protocol::NetworkInteractionState;
+
+// ========== Lock-Free 音频线程快照 ==========
+
+/// 音频线程使用的 Lock-Free 快照
+/// 所有字段都是简单值类型，可以原子复制
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct RenderSnapshot {
+    /// 主模式: 0=None, 1=Solo, 2=Mute
+    pub primary: u8,
+    /// 比较模式: 0=None, 1=Solo, 2=Mute
+    pub compare: u8,
+    /// Solo 通道掩码（位图）
+    pub solo_mask: u32,
+    /// Mute 通道掩码（位图）
+    pub mute_mask: u32,
+    /// SUB User Mute 掩码（位图，bit 0-3）
+    pub user_mute_sub_mask: u8,
+    /// 是否自动化模式
+    pub automation_mode: bool,
+    /// 填充对齐
+    _padding: [u8; 2],
+}
+
+impl RenderSnapshot {
+    /// 根据通道名获取显示状态（纯函数，无锁）
+    /// 返回 (has_sound, is_solo_marker, is_mute_marker)
+    #[inline]
+    pub fn get_channel_state(&self, ch_name: &str, ch_idx: usize) -> bool {
+        // Idle 状态 = 全通
+        if self.primary == 0 {
+            return true;
+        }
+
+        let is_sub = ch_name.starts_with("SUB");
+
+        // SUB 通道逻辑
+        if is_sub {
+            // 检查 User Mute（优先级最高）
+            let sub_bit = match ch_name {
+                "SUB_F" => 0,
+                "SUB_B" => 1,
+                "SUB_L" => 2,
+                "SUB_R" => 3,
+                _ => return true,
+            };
+            if (self.user_mute_sub_mask >> sub_bit) & 1 == 1 {
+                return false; // User Muted
+            }
+
+            // SUB 使用 Primary 模式的集合
+            let (context_is_solo, active_mask) = if self.primary == 1 {
+                (true, self.solo_mask)
+            } else {
+                (false, self.mute_mask)
+            };
+
+            let is_in_set = (active_mask >> ch_idx) & 1 == 1;
+            let sub_mask = active_mask >> 12; // SUB 通道从索引 12 开始
+            let sub_set_has_any = sub_mask & 0xF != 0;
+            let main_set_has_any = active_mask & 0xFFF != 0;
+
+            if !main_set_has_any && !sub_set_has_any {
+                return true; // 空集合 = 全通
+            }
+
+            if context_is_solo {
+                if sub_set_has_any {
+                    is_in_set
+                } else {
+                    true // 豁免权
+                }
+            } else {
+                // Mute context
+                if sub_set_has_any {
+                    !is_in_set
+                } else {
+                    true // 豁免权
+                }
+            }
+        } else {
+            // Main 通道逻辑：比较模式优先
+            let (context_is_solo, active_mask) = if self.compare == 1 {
+                (true, self.solo_mask)
+            } else if self.compare == 2 {
+                (false, self.mute_mask)
+            } else if self.primary == 1 {
+                (true, self.solo_mask)
+            } else {
+                (false, self.mute_mask)
+            };
+
+            let is_in_set = (active_mask >> ch_idx) & 1 == 1;
+            let main_set_has_any = active_mask & 0xFFF != 0;
+
+            if !main_set_has_any {
+                return true; // 空集合 = 全通
+            }
+
+            if context_is_solo {
+                is_in_set
+            } else {
+                !is_in_set
+            }
+        }
+    }
+}
 
 /// 主模式 - 先进入的模式，常亮
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +293,14 @@ pub struct InteractionManager {
     network_dim: RwLock<Option<bool>>,
     /// 网络接收的 Cut 状态
     network_cut: RwLock<Option<bool>>,
+    /// 网络接收的布局索引
+    network_layout: RwLock<Option<i32>>,
+    /// 网络接收的 SUB 布局索引
+    network_sub_layout: RwLock<Option<i32>>,
+
+    // ========== Lock-Free 音频线程快照 ==========
+    /// 音频线程使用的原子快照（无锁读取）
+    render_snapshot: AtomicCell<RenderSnapshot>,
 }
 
 impl InteractionManager {
@@ -205,6 +321,10 @@ impl InteractionManager {
             network_master_gain: RwLock::new(None),
             network_dim: RwLock::new(None),
             network_cut: RwLock::new(None),
+            network_layout: RwLock::new(None),
+            network_sub_layout: RwLock::new(None),
+            // Lock-Free 快照初始化
+            render_snapshot: AtomicCell::new(RenderSnapshot::default()),
         }
     }
 
@@ -262,6 +382,75 @@ impl InteractionManager {
         self.mute_set.read().contains(ch_name)
     }
 
+    // ========== Lock-Free 快照方法（音频线程使用）==========
+
+    /// 获取当前快照（音频线程调用，无锁）
+    #[inline]
+    pub fn get_snapshot(&self) -> RenderSnapshot {
+        self.render_snapshot.load()
+    }
+
+    /// 更新快照（UI/网络线程在状态变化后调用）
+    pub fn update_snapshot(&self) {
+        let primary = *self.primary.read();
+        let compare = *self.compare.read();
+        let solo_set = self.solo_set.read();
+        let mute_set = self.mute_set.read();
+        let user_mute_sub = self.user_mute_sub.read();
+        let automation = *self.automation_mode.read();
+
+        // 转换为位掩码
+        let solo_mask = Self::channel_set_to_mask(&solo_set.channels);
+        let mute_mask = Self::channel_set_to_mask(&mute_set.channels);
+        let user_mute_sub_mask = Self::sub_set_to_mask(&user_mute_sub);
+
+        let snapshot = RenderSnapshot {
+            primary: match primary {
+                PrimaryMode::None => 0,
+                PrimaryMode::Solo => 1,
+                PrimaryMode::Mute => 2,
+            },
+            compare: match compare {
+                CompareMode::None => 0,
+                CompareMode::Solo => 1,
+                CompareMode::Mute => 2,
+            },
+            solo_mask,
+            mute_mask,
+            user_mute_sub_mask,
+            automation_mode: automation,
+            _padding: [0; 2],
+        };
+
+        self.render_snapshot.store(snapshot);
+    }
+
+    /// 通道名称集合转位掩码
+    fn channel_set_to_mask(channels: &HashSet<String>) -> u32 {
+        let channel_names = [
+            "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS",
+            "LTF", "RTF", "LTB", "RTB",
+            "SUB_F", "SUB_B", "SUB_L", "SUB_R"
+        ];
+        let mut mask: u32 = 0;
+        for (i, name) in channel_names.iter().enumerate() {
+            if channels.contains(*name) {
+                mask |= 1 << i;
+            }
+        }
+        mask
+    }
+
+    /// SUB 集合转位掩码
+    fn sub_set_to_mask(subs: &HashSet<String>) -> u8 {
+        let mut mask: u8 = 0;
+        if subs.contains("SUB_F") { mask |= 1 << 0; }
+        if subs.contains("SUB_B") { mask |= 1 << 1; }
+        if subs.contains("SUB_L") { mask |= 1 << 2; }
+        if subs.contains("SUB_R") { mask |= 1 << 3; }
+        mask
+    }
+
     // ========== 自动化模式管理 ==========
 
     /// 检查是否处于自动化模式
@@ -279,12 +468,14 @@ impl InteractionManager {
         *self.mute_has_memory.write() = false;
         self.user_mute_sub.write().clear();
         *self.automation_mode.write() = true;
+        self.update_snapshot();
     }
 
     /// 退出自动化模式（保持清空状态）
     pub fn exit_automation_mode(&self) {
         *self.automation_mode.write() = false;
         // 不恢复任何状态，保持 Idle
+        self.update_snapshot();
     }
 
     // ========== 辅助函数 ==========
@@ -383,6 +574,9 @@ impl InteractionManager {
         let mute_count = self.mute_set.read().channels.len();
         self.logger.info("interaction", &format!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
             current_primary, current_compare, new_primary, new_compare, solo_count, mute_count));
+
+        // 更新 Lock-Free 快照
+        self.update_snapshot();
     }
 
     /// MUTE 按钮点击
@@ -465,6 +659,9 @@ impl InteractionManager {
         let mute_count = self.mute_set.read().channels.len();
         self.logger.info("interaction", &format!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
             current_primary, current_compare, new_primary, new_compare, solo_count, mute_count));
+
+        // 更新 Lock-Free 快照
+        self.update_snapshot();
     }
 
     // ========== 通道操作 ==========
@@ -548,6 +745,9 @@ impl InteractionManager {
             let mute_count = self.mute_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
             self.logger.info("interaction", &format!("[CH] {} click: solo_count={} mute_count={}",
                 ch_name, solo_count, mute_count));
+
+            // 更新 Lock-Free 快照
+            self.update_snapshot();
         }
 
         result
@@ -595,6 +795,8 @@ impl InteractionManager {
                 }
             }
         }
+        // 更新 Lock-Free 快照
+        self.update_snapshot();
     }
 
     /// 设置通道声音状态（语义层，用于 Group_Dial）
@@ -624,6 +826,9 @@ impl InteractionManager {
         if can_exit_if_empty {
             self.check_and_exit_empty_mode();
         }
+
+        // 更新 Lock-Free 快照
+        self.update_snapshot();
     }
 
     /// 检查集合是否变空，自动退出对应模式
@@ -657,6 +862,8 @@ impl InteractionManager {
                 user_mute.insert(ch_name.to_string());
                 self.logger.info("interaction", &format!("[CH] {} dblclick: user_mute added", ch_name));
             }
+            // 更新 Lock-Free 快照
+            self.update_snapshot();
             true
         } else {
             false
@@ -951,8 +1158,8 @@ impl InteractionManager {
     // ========== 网络同步方法 (Master-Slave) ==========
 
     /// 导出当前状态到网络格式 (Master 调用)
-    /// 需要传入 master_gain/dim/cut 参数（从 params 读取）
-    pub fn to_network_state(&self, master_gain: f32, dim: bool, cut: bool) -> NetworkInteractionState {
+    /// 需要传入 master_gain/dim/cut/layout/sub_layout 参数（从 params 读取）
+    pub fn to_network_state(&self, master_gain: f32, dim: bool, cut: bool, layout: i32, sub_layout: i32) -> NetworkInteractionState {
         let primary = match *self.primary.read() {
             PrimaryMode::None => 0,
             PrimaryMode::Solo => 1,
@@ -968,6 +1175,9 @@ impl InteractionManager {
         let solo_set = self.solo_set.read();
         let mute_set = self.mute_set.read();
         let user_mute_sub = self.user_mute_sub.read();
+        let solo_has_memory = *self.solo_has_memory.read();
+        let mute_has_memory = *self.mute_has_memory.read();
+        let automation_mode = *self.automation_mode.read();
 
         NetworkInteractionState {
             primary,
@@ -978,6 +1188,11 @@ impl InteractionManager {
             master_gain,
             dim,
             cut,
+            layout,
+            sub_layout,
+            solo_has_memory,
+            mute_has_memory,
+            automation_mode,
             timestamp: 0,
             magic: 0,
         }.with_timestamp()
@@ -1021,10 +1236,22 @@ impl InteractionManager {
             *user_mute = NetworkInteractionState::mask_to_sub_set(state.user_mute_sub_mask);
         }
 
+        // 更新记忆标志
+        *self.solo_has_memory.write() = state.solo_has_memory;
+        *self.mute_has_memory.write() = state.mute_has_memory;
+
+        // 更新自动化模式
+        *self.automation_mode.write() = state.automation_mode;
+
         // 更新全局状态（供 Editor 读取并应用到 params）
         *self.network_master_gain.write() = Some(state.master_gain);
         *self.network_dim.write() = Some(state.dim);
         *self.network_cut.write() = Some(state.cut);
+        *self.network_layout.write() = Some(state.layout);
+        *self.network_sub_layout.write() = Some(state.sub_layout);
+
+        // 更新 Lock-Free 快照
+        self.update_snapshot();
     }
 
     /// 获取并清除网络接收的主音量（Slave Editor 调用）
@@ -1040,5 +1267,15 @@ impl InteractionManager {
     /// 获取并清除网络接收的 Cut 状态（Slave Editor 调用）
     pub fn take_network_cut(&self) -> Option<bool> {
         self.network_cut.write().take()
+    }
+
+    /// 获取并清除网络接收的布局索引（Slave Editor 调用）
+    pub fn take_network_layout(&self) -> Option<i32> {
+        self.network_layout.write().take()
+    }
+
+    /// 获取并清除网络接收的 SUB 布局索引（Slave Editor 调用）
+    pub fn take_network_sub_layout(&self) -> Option<i32> {
+        self.network_sub_layout.write().take()
     }
 }

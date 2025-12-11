@@ -9,7 +9,7 @@ pub struct RenderState {
     pub channel_gains: [f32; MAX_CHANNELS],
     // Bitmask for simple mute status (for network efficiency)
     // 1 = Muted/Auto-Muted, 0 = Open
-    pub channel_mute_mask: u32, 
+    pub channel_mute_mask: u32,
 }
 
 impl Default for RenderState {
@@ -28,6 +28,8 @@ impl ChannelLogic {
     /// Pure function to compute RenderState from Params and Layout
     /// `override_role`: If Some, use this role instead of params.role
     /// `interaction`: Reference to the InteractionManager for channel state
+    ///
+    /// **音频线程优化**: 使用 Lock-Free 快照，避免任何锁操作
     pub fn compute(params: &MonitorParams, layout: &Layout, override_role: Option<PluginRole>, interaction: &InteractionManager) -> RenderState {
         let _role = override_role.unwrap_or(params.role.value());
         let master_gain = params.master_gain.value();
@@ -47,8 +49,11 @@ impl ChannelLogic {
 
         state.master_gain = global_gain;
 
-        // 2. 双路径音频处理
-        if interaction.is_automation_mode() {
+        // 2. 获取 Lock-Free 快照（原子操作，无阻塞）
+        let snapshot = interaction.get_snapshot();
+
+        // 3. 双路径音频处理
+        if snapshot.automation_mode {
             // ========== 自动化模式：直接读取 VST3 Enable 参数 ==========
             for i in 0..layout.total_channels {
                 if i >= MAX_CHANNELS { break; }
@@ -61,7 +66,7 @@ impl ChannelLogic {
                 }
             }
         } else {
-            // ========== 手动模式：使用 InteractionManager 状态机 ==========
+            // ========== 手动模式：使用快照进行纯函数计算（无锁）==========
             for i in 0..layout.total_channels {
                 if i >= MAX_CHANNELS { break; }
 
@@ -71,9 +76,9 @@ impl ChannelLogic {
                     .find(|ch| ch.channel_index == i);
 
                 if let Some(ch_info) = channel_info {
-                    // 核心：直接使用 InteractionManager 的状态（基于通道名称）
-                    let display = interaction.get_channel_display(&ch_info.name);
-                    let pass = if display.has_sound { 1.0 } else { 0.0 };
+                    // 核心：使用快照的纯函数计算（无锁！）
+                    let has_sound = snapshot.get_channel_state(&ch_info.name, i);
+                    let pass = if has_sound { 1.0 } else { 0.0 };
 
                     state.channel_gains[i] = pass;
 
@@ -87,4 +92,3 @@ impl ChannelLogic {
         state
     }
 }
-

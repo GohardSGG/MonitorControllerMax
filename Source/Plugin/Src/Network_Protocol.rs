@@ -28,6 +28,18 @@ pub struct NetworkInteractionState {
     pub dim: bool,
     /// Cut 开关
     pub cut: bool,
+    // === v2.5.0 新增字段 ===
+    /// 布局索引（Speaker Layout）
+    pub layout: i32,
+    /// SUB 布局索引
+    pub sub_layout: i32,
+    /// Solo 记忆标志（Compare 模式中用户是否修改过 Solo 集合）
+    pub solo_has_memory: bool,
+    /// Mute 记忆标志（Compare 模式中用户是否修改过 Mute 集合）
+    pub mute_has_memory: bool,
+    /// 是否处于自动化模式
+    pub automation_mode: bool,
+    // ======================
     /// 时间戳（毫秒）
     pub timestamp: u64,
     /// 魔数校验

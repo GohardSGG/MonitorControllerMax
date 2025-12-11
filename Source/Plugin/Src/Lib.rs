@@ -264,6 +264,7 @@ impl Drop for MonitorControllerMax {
     fn drop(&mut self) {
         self.logger.info("monitor_controller_max", "[Plugin] Shutting down...");
         self.osc.shutdown();
+        self.network.shutdown();
     }
 }
 

@@ -45,6 +45,10 @@ struct RawConfig {
 
 pub struct ConfigManager {
     raw_config: RawConfig,
+    /// 缓存的排序后的 speaker 布局名称（避免重复排序和分配）
+    cached_speaker_names: Vec<String>,
+    /// 缓存的排序后的 SUB 布局名称（包含 "None"）
+    cached_sub_names: Vec<String>,
 }
 
 impl ConfigManager {
@@ -69,23 +73,41 @@ impl ConfigManager {
             }
         };
 
-        Self { raw_config }
+        // 预计算并缓存排序后的名称列表
+        let mut cached_speaker_names: Vec<String> = raw_config.speakers.keys().cloned().collect();
+        cached_speaker_names.sort();
+
+        let mut cached_sub_names: Vec<String> = raw_config.subs.keys().cloned().collect();
+        cached_sub_names.sort();
+        cached_sub_names.insert(0, "None".to_string());
+
+        Self {
+            raw_config,
+            cached_speaker_names,
+            cached_sub_names,
+        }
     }
 
     pub fn get_speaker_layouts(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.raw_config.speakers.keys().cloned().collect();
-        // Sort for consistency? Or keep them as is? HashMap is unordered.
-        // Let's sort them to make the dropdown stable.
-        // We might want custom sorting (2.0 < 5.1 < 7.1.4), but alpha sort is a start.
-        names.sort();
-        names
+        // 返回缓存的克隆（为了向后兼容保留此方法）
+        self.cached_speaker_names.clone()
     }
 
     pub fn get_sub_layouts(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.raw_config.subs.keys().cloned().collect();
-        names.sort();
-        names.insert(0, "None".to_string());
-        names
+        // 返回缓存的克隆（为了向后兼容保留此方法）
+        self.cached_sub_names.clone()
+    }
+
+    /// 获取 speaker 布局名称（无分配，用于音频线程）
+    #[inline]
+    pub fn get_speaker_name(&self, idx: usize) -> Option<&str> {
+        self.cached_speaker_names.get(idx).map(|s| s.as_str())
+    }
+
+    /// 获取 SUB 布局名称（无分配，用于音频线程）
+    #[inline]
+    pub fn get_sub_name(&self, idx: usize) -> Option<&str> {
+        self.cached_sub_names.get(idx).map(|s| s.as_str())
     }
 
     pub fn get_layout(&self, speaker_name: &str, sub_name: &str) -> Layout {

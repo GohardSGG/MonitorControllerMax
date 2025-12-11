@@ -53,6 +53,8 @@ impl Default for GainSmoothingState {
 ///
 /// 注意：此函数只做音频处理，不涉及任何网络操作。
 /// Master-Slave 同步由独立的网络线程处理（通过 InteractionManager）。
+///
+/// **优化**: 使用无分配的布局查询方法，避免在音频线程中分配内存
 pub fn process_audio(
     buffer: &mut Buffer,
     params: &MonitorParams,
@@ -62,15 +64,13 @@ pub fn process_audio(
 ) {
     let role = params.role.value();
 
-    // 获取布局信息
+    // 获取布局信息（使用无分配方法）
     let layout_idx = params.layout.value() as usize;
     let sub_layout_idx = params.sub_layout.value() as usize;
 
-    let speaker_names = layout_config.get_speaker_layouts();
-    let sub_names = layout_config.get_sub_layouts();
-
-    let speaker_name = speaker_names.get(layout_idx).map(|s| s.as_str()).unwrap_or("7.1.4");
-    let sub_name = sub_names.get(sub_layout_idx).map(|s| s.as_str()).unwrap_or("None");
+    // 无分配：直接获取 &str 引用
+    let speaker_name = layout_config.get_speaker_name(layout_idx).unwrap_or("7.1.4");
+    let sub_name = layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");
 
     let layout = layout_config.get_layout(speaker_name, sub_name);
 

@@ -160,6 +160,28 @@ pub fn create_editor(
                     setter.set_parameter(&params.cut, cut);
                     setter.end_set_parameter(&params.cut);
                 }
+
+                // 检查并应用网络接收的布局索引
+                if let Some(layout) = interaction_clone.take_network_layout() {
+                    let current_layout = params.layout.value();
+                    if layout != current_layout {
+                        logger.clone().info("editor", &format!("[Slave] Layout sync from Master: {} -> {}", current_layout, layout));
+                        setter.begin_set_parameter(&params.layout);
+                        setter.set_parameter(&params.layout, layout);
+                        setter.end_set_parameter(&params.layout);
+                    }
+                }
+
+                // 检查并应用网络接收的 SUB 布局索引
+                if let Some(sub_layout) = interaction_clone.take_network_sub_layout() {
+                    let current_sub = params.sub_layout.value();
+                    if sub_layout != current_sub {
+                        logger.clone().info("editor", &format!("[Slave] Sub layout sync from Master: {} -> {}", current_sub, sub_layout));
+                        setter.begin_set_parameter(&params.sub_layout);
+                        setter.set_parameter(&params.sub_layout, sub_layout);
+                        setter.end_set_parameter(&params.sub_layout);
+                    }
+                }
             }
 
             // 1. 从 EguiState 获取物理像素尺寸（关键！不能用 ctx.screen_rect()）
@@ -430,7 +452,8 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
 
             // === 检查是否允许布局切换 ===
             let is_automation = interaction.is_automation_mode();
-            let can_change_layout = !is_automation; // 自动化模式下禁止切换布局
+            let is_slave = current_role == PluginRole::Slave;
+            let can_change_layout = !is_automation && !is_slave; // 自动化模式或 Slave 模式下禁止切换布局
 
             // --- Helper: 带微调偏移的 Dropdown (参数绑定版) ---
             let dropdown_y_offset_local = dropdown_y_offset;
@@ -637,7 +660,11 @@ fn custom_button(ui: &mut egui::Ui, primary: &str, secondary: &str, active: bool
 
 /// 渲染左侧控制面板 - 参数绑定版
 fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorParams>, setter: &ParamSetter, interaction: &InteractionManager, osc_state: &Arc<OscSharedState>, layout_config: &ConfigManager, logger: &InstanceLogger) {
-    
+
+    // === 检查是否为 Slave 模式 ===
+    let role = params.role.value();
+    let is_slave = role == PluginRole::Slave;
+
     ui.add_space(scale.s(24.0));
 
     let sidebar_content_width = scale.s(180.0) - scale.s(32.0);
@@ -668,26 +695,29 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 .success(true)  // 绿色按钮
                 .active(solo_visible);
 
-            if ui.add(solo_btn).clicked() {
-                let primary_before = interaction.get_primary();
-                let compare_before = interaction.get_compare();
-                interaction.on_solo_button_click();
-                logger.info("editor", &format!("[Editor] SOLO clicked: ({:?}, {:?}) -> ({:?}, {:?})",
-                    primary_before, compare_before,
-                    interaction.get_primary(), interaction.get_compare()));
+            // Slave 模式下禁用 SOLO 按钮
+            ui.add_enabled_ui(!is_slave, |ui| {
+                if ui.add(solo_btn).clicked() {
+                    let primary_before = interaction.get_primary();
+                    let compare_before = interaction.get_compare();
+                    interaction.on_solo_button_click();
+                    logger.info("editor", &format!("[Editor] SOLO clicked: ({:?}, {:?}) -> ({:?}, {:?})",
+                        primary_before, compare_before,
+                        interaction.get_primary(), interaction.get_compare()));
 
-                // 同步所有通道的 enable 参数
-                sync_all_channel_params(params, setter, &interaction, layout_config, logger);
+                    // 同步所有通道的 enable 参数
+                    sync_all_channel_params(params, setter, &interaction, layout_config, logger);
 
-                // 发送 OSC 模式状态
-                osc_state.send_mode_solo(interaction.is_solo_active());
-                if !interaction.is_mute_active() {
-                    osc_state.send_mode_mute(false);
+                    // 发送 OSC 模式状态
+                    osc_state.send_mode_solo(interaction.is_solo_active());
+                    if !interaction.is_mute_active() {
+                        osc_state.send_mode_mute(false);
+                    }
+
+                    // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
+                    osc_state.broadcast_channel_states(interaction);
                 }
-
-                // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
-                osc_state.broadcast_channel_states(interaction);
-            }
+            });
 
             ui.add_space(scale.s(12.0));
 
@@ -706,55 +736,61 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
                 .full_width(true)
                 .active(mute_visible);
 
-            if ui.add(mute_btn).clicked() {
-                let primary_before = interaction.get_primary();
-                let compare_before = interaction.get_compare();
-                interaction.on_mute_button_click();
-                logger.info("editor", &format!("[Editor] MUTE clicked: ({:?}, {:?}) -> ({:?}, {:?})",
-                    primary_before, compare_before,
-                    interaction.get_primary(), interaction.get_compare()));
+            // Slave 模式下禁用 MUTE 按钮
+            ui.add_enabled_ui(!is_slave, |ui| {
+                if ui.add(mute_btn).clicked() {
+                    let primary_before = interaction.get_primary();
+                    let compare_before = interaction.get_compare();
+                    interaction.on_mute_button_click();
+                    logger.info("editor", &format!("[Editor] MUTE clicked: ({:?}, {:?}) -> ({:?}, {:?})",
+                        primary_before, compare_before,
+                        interaction.get_primary(), interaction.get_compare()));
 
-                // 同步所有通道的 enable 参数
-                sync_all_channel_params(params, setter, &interaction, layout_config, logger);
+                    // 同步所有通道的 enable 参数
+                    sync_all_channel_params(params, setter, &interaction, layout_config, logger);
 
-                // 发送 OSC 模式状态
-                osc_state.send_mode_mute(interaction.is_mute_active());
-                if !interaction.is_solo_active() {
-                    osc_state.send_mode_solo(false);
+                    // 发送 OSC 模式状态
+                    osc_state.send_mode_mute(interaction.is_mute_active());
+                    if !interaction.is_solo_active() {
+                        osc_state.send_mode_solo(false);
+                    }
+
+                    // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
+                    osc_state.broadcast_channel_states(interaction);
                 }
-
-                // 广播所有通道的 LED 状态（防止退出模式时 LED 状态不同步）
-                osc_state.broadcast_channel_states(interaction);
-            }
+            });
 
             ui.add_space(scale.s(24.0));
             ui.separator();
             ui.add_space(scale.s(24.0));
 
             // Volume Knob Area - 绑定到 params.master_gain
-            ui.vertical_centered(|ui| {
-                // 从 params 读取当前增益值并转换为百分比显示（匹配旧 C++ 版本）
-                let current_gain = params.master_gain.value();
-                // 0.0-1.0 增益 → 0-100 百分比（线性映射）
-                let mut volume_percent = current_gain * 100.0;
+            // Slave 模式下禁用 Volume 旋钮
+            ui.add_enabled_ui(!is_slave, |ui| {
+                ui.vertical_centered(|ui| {
+                    // 从 params 读取当前增益值并转换为百分比显示（匹配旧 C++ 版本）
+                    let current_gain = params.master_gain.value();
+                    // 0.0-1.0 增益 → 0-100 百分比（线性映射）
+                    let mut volume_percent = current_gain * 100.0;
 
-                let response = ui.add(TechVolumeKnob::new(&mut volume_percent, scale));
+                    let response = ui.add(TechVolumeKnob::new(&mut volume_percent, scale));
 
-                if response.changed() {
-                    // 转换回增益值：0-100% → 0.0-1.0
-                    let new_gain = (volume_percent / 100.0).clamp(0.0, 1.0);
-                    setter.begin_set_parameter(&params.master_gain);
-                    setter.set_parameter(&params.master_gain, new_gain);
-                    setter.end_set_parameter(&params.master_gain);
+                    if response.changed() {
+                        // 转换回增益值：0-100% → 0.0-1.0
+                        let new_gain = (volume_percent / 100.0).clamp(0.0, 1.0);
+                        setter.begin_set_parameter(&params.master_gain);
+                        setter.set_parameter(&params.master_gain, new_gain);
+                        setter.end_set_parameter(&params.master_gain);
 
-                    // 发送 OSC（使用 0-1 线性值）
-                    osc_state.send_master_volume(new_gain);
-                }
+                        // 发送 OSC（使用 0-1 线性值）
+                        osc_state.send_master_volume(new_gain);
+                    }
 
-                // 只在拖动结束时记录日志
-                if response.drag_stopped() {
-                    logger.info("editor", &format!("[Editor] Master volume set to: {:.1}%", volume_percent));
-                }
+                    // 只在拖动结束时记录日志
+                    if response.drag_stopped() {
+                        logger.info("editor", &format!("[Editor] Master volume set to: {:.1}%", volume_percent));
+                    }
+                });
             });
 
             // --- FIX 2: Layout spacing ---
@@ -765,46 +801,49 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
             ui.add_space(scale.s(16.0)); // Space below the line
 
             // DIM + CUT buttons - 绑定到 params
+            // Slave 模式下禁用 DIM/CUT 按钮
             let button_width = (sidebar_content_width - scale.s(8.0)) / 2.0; // 减去中间间隙
-            ui.horizontal(|ui| {
-                // DIM 按钮
-                let dim_active = params.dim.value();
-                let dim_btn = BrutalistButton::new("DIM", scale)
-                    .width(button_width)
-                    .warning(true)
-                    .active(dim_active);
-                if ui.add(dim_btn).clicked() {
-                    let new_value = !dim_active;
-                    logger.info("editor", &format!("[Editor] DIM toggled: {} -> {}", dim_active, new_value));
-                    setter.begin_set_parameter(&params.dim);
-                    setter.set_parameter(&params.dim, new_value);
-                    setter.end_set_parameter(&params.dim);
+            ui.add_enabled_ui(!is_slave, |ui| {
+                ui.horizontal(|ui| {
+                    // DIM 按钮
+                    let dim_active = params.dim.value();
+                    let dim_btn = BrutalistButton::new("DIM", scale)
+                        .width(button_width)
+                        .warning(true)
+                        .active(dim_active);
+                    if ui.add(dim_btn).clicked() {
+                        let new_value = !dim_active;
+                        logger.info("editor", &format!("[Editor] DIM toggled: {} -> {}", dim_active, new_value));
+                        setter.begin_set_parameter(&params.dim);
+                        setter.set_parameter(&params.dim, new_value);
+                        setter.end_set_parameter(&params.dim);
 
-                    // 发送 OSC
-                    osc_state.send_dim(new_value);
-                }
+                        // 发送 OSC
+                        osc_state.send_dim(new_value);
+                    }
 
-                ui.add_space(scale.s(8.0));
+                    ui.add_space(scale.s(8.0));
 
-                // CUT 按钮
-                let cut_active = params.cut.value();
-                let cut_btn = BrutalistButton::new("CUT", scale)
-                    .width(button_width)
-                    .danger(true)
-                    .active(cut_active);
-                if ui.add(cut_btn).clicked() {
-                    let new_value = !cut_active;
-                    logger.info("editor", &format!("[Editor] CUT toggled: {} -> {}", cut_active, new_value));
-                    setter.begin_set_parameter(&params.cut);
-                    setter.set_parameter(&params.cut, new_value);
-                    setter.end_set_parameter(&params.cut);
+                    // CUT 按钮
+                    let cut_active = params.cut.value();
+                    let cut_btn = BrutalistButton::new("CUT", scale)
+                        .width(button_width)
+                        .danger(true)
+                        .active(cut_active);
+                    if ui.add(cut_btn).clicked() {
+                        let new_value = !cut_active;
+                        logger.info("editor", &format!("[Editor] CUT toggled: {} -> {}", cut_active, new_value));
+                        setter.begin_set_parameter(&params.cut);
+                        setter.set_parameter(&params.cut, new_value);
+                        setter.end_set_parameter(&params.cut);
 
-                    // 同步 Cut 状态（用于 toggle 支持）
-                    osc_state.sync_cut_state(new_value);
+                        // 同步 Cut 状态（用于 toggle 支持）
+                        osc_state.sync_cut_state(new_value);
 
-                    // 发送 OSC
-                    osc_state.send_cut(new_value);
-                }
+                        // 发送 OSC
+                        osc_state.send_cut(new_value);
+                    }
+                });
             });
 
             // Second separator
@@ -812,66 +851,75 @@ fn render_sidebar(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorP
             let line_rect_2 = ui.available_rect_before_wrap();
             ui.painter().hline(line_rect_2.x_range(), line_rect_2.top(), Stroke::new(1.0, COLOR_BORDER_LIGHT));
             ui.add_space(scale.s(16.0));
-            
+
             // --- NEW: Low/High Boost Group ---
-            ui.horizontal(|ui| {
-                // Low Boost - 与硬件同步
-                let lb_active = osc_state.get_low_boost();
-                if custom_button(ui, "Low", "Boost", lb_active, button_width, scale).clicked() {
-                    let new_value = !lb_active;
-                    osc_state.set_low_boost(new_value);
-                    osc_state.send_low_boost(new_value);
-                }
+            // Slave 模式下禁用这些按钮
+            ui.add_enabled_ui(!is_slave, |ui| {
+                ui.horizontal(|ui| {
+                    // Low Boost - 与硬件同步
+                    let lb_active = osc_state.get_low_boost();
+                    if custom_button(ui, "Low", "Boost", lb_active, button_width, scale).clicked() {
+                        let new_value = !lb_active;
+                        osc_state.set_low_boost(new_value);
+                        osc_state.send_low_boost(new_value);
+                    }
 
-                ui.add_space(scale.s(8.0));
+                    ui.add_space(scale.s(8.0));
 
-                // High Boost - 与硬件同步
-                let hb_active = osc_state.get_high_boost();
-                if custom_button(ui, "High", "Boost", hb_active, button_width, scale).clicked() {
-                    let new_value = !hb_active;
-                    osc_state.set_high_boost(new_value);
-                    osc_state.send_high_boost(new_value);
-                }
+                    // High Boost - 与硬件同步
+                    let hb_active = osc_state.get_high_boost();
+                    if custom_button(ui, "High", "Boost", hb_active, button_width, scale).clicked() {
+                        let new_value = !hb_active;
+                        osc_state.set_high_boost(new_value);
+                        osc_state.send_high_boost(new_value);
+                    }
+                });
             });
 
             ui.add_space(scale.s(12.0));
 
             // --- NEW: MONO / +10dB LFE Group ---
-            ui.horizontal(|ui| {
-                // MONO Button - 与硬件同步
-                let mono_active = osc_state.get_mono();
-                let mut btn = BrutalistButton::new("MONO", scale)
-                    .width(button_width)
-                    .height(scale.s(46.0));  // 与 custom_button 高度一致
-                btn = btn.danger(true).active(mono_active);  // 红色样式与硬件一致
-                if ui.add(btn).clicked() {
-                    let new_value = !mono_active;
-                    osc_state.set_mono(new_value);
-                    osc_state.send_mono(new_value);
-                }
+            // Slave 模式下禁用这些按钮
+            ui.add_enabled_ui(!is_slave, |ui| {
+                ui.horizontal(|ui| {
+                    // MONO Button - 与硬件同步
+                    let mono_active = osc_state.get_mono();
+                    let mut btn = BrutalistButton::new("MONO", scale)
+                        .width(button_width)
+                        .height(scale.s(46.0));  // 与 custom_button 高度一致
+                    btn = btn.danger(true).active(mono_active);  // 红色样式与硬件一致
+                    if ui.add(btn).clicked() {
+                        let new_value = !mono_active;
+                        osc_state.set_mono(new_value);
+                        osc_state.send_mono(new_value);
+                    }
 
-                ui.add_space(scale.s(8.0));
+                    ui.add_space(scale.s(8.0));
 
-                // +10dB LFE - 与硬件同步
-                let lfe_active = osc_state.get_lfe_add_10db();
-                if custom_button(ui, "+10dB", "LFE", lfe_active, button_width, scale).clicked() {
-                    let new_value = !lfe_active;
-                    osc_state.set_lfe_add_10db(new_value);
-                    osc_state.send_lfe_add_10db(new_value);
-                }
+                    // +10dB LFE - 与硬件同步
+                    let lfe_active = osc_state.get_lfe_add_10db();
+                    if custom_button(ui, "+10dB", "LFE", lfe_active, button_width, scale).clicked() {
+                        let new_value = !lfe_active;
+                        osc_state.set_lfe_add_10db(new_value);
+                        osc_state.send_lfe_add_10db(new_value);
+                    }
+                });
             });
 
             ui.add_space(scale.s(12.0));
 
             // --- NEW: Curve Button (Full Width) ---
-            let curve_id = ui.id().with("curve_btn");
-            let mut curve_active = ui.memory(|m| m.data.get_temp::<bool>(curve_id).unwrap_or(false));
-            let mut curve_btn = BrutalistButton::new("Curve", scale).full_width(true); // Removed .large()
-            curve_btn = curve_btn.active(curve_active);
-            if ui.add(curve_btn).clicked() {
-                curve_active = !curve_active;
-                ui.memory_mut(|m| m.data.insert_temp(curve_id, curve_active));
-            }
+            // Slave 模式下禁用 Curve 按钮
+            ui.add_enabled_ui(!is_slave, |ui| {
+                let curve_id = ui.id().with("curve_btn");
+                let mut curve_active = ui.memory(|m| m.data.get_temp::<bool>(curve_id).unwrap_or(false));
+                let mut curve_btn = BrutalistButton::new("Curve", scale).full_width(true); // Removed .large()
+                curve_btn = curve_btn.active(curve_active);
+                if ui.add(curve_btn).clicked() {
+                    curve_active = !curve_active;
+                    ui.memory_mut(|m| m.data.insert_temp(curve_id, curve_active));
+                }
+            });
         });
 
         ui.add_space(scale.s(16.0));

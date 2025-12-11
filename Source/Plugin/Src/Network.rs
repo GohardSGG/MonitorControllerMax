@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv};
 use bincode;
@@ -17,6 +17,9 @@ pub struct NetworkManager {
     // Slave 连接状态（供 UI 显示）
     pub is_connected: Arc<AtomicBool>,
 
+    // 最后接收的时间戳（用于防止乱序包）
+    last_timestamp: Arc<AtomicU64>,
+
     // 线程句柄
     thread_handle: Option<JoinHandle<()>>,
 }
@@ -26,6 +29,7 @@ impl NetworkManager {
         Self {
             is_running: Arc::new(AtomicBool::new(false)),
             is_connected: Arc::new(AtomicBool::new(false)),
+            last_timestamp: Arc::new(AtomicU64::new(0)),
             thread_handle: None,
         }
     }
@@ -49,7 +53,15 @@ impl NetworkManager {
         let is_running = Arc::clone(&self.is_running);
 
         self.thread_handle = Some(thread::spawn(move || {
-            let rt = Runtime::new().expect("Failed to create Tokio runtime");
+            // 错误处理：Runtime 创建失败不 panic
+            let rt = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    logger.error("network", &format!("Failed to create Tokio runtime: {}", e));
+                    return;
+                }
+            };
+
             rt.block_on(async move {
                 let mut socket = PubSocket::new();
                 let endpoint = format!("tcp://0.0.0.0:{}", port);
@@ -61,27 +73,43 @@ impl NetworkManager {
                 logger.info("network", &format!("ZMQ Publisher bound to {}", endpoint));
 
                 let mut send_count: u64 = 0;
+                let mut send_error_count: u64 = 0;
 
                 while is_running.load(Ordering::Relaxed) {
-                    // 从 params 读取 master_gain/dim/cut
+                    // 从 params 读取 master_gain/dim/cut/layout/sub_layout
                     let master_gain = params.master_gain.value();
                     let dim = params.dim.value();
                     let cut = params.cut.value();
+                    let layout = params.layout.value();
+                    let sub_layout = params.sub_layout.value();
 
                     // 从 InteractionManager 读取当前状态（包含 params 值）
-                    let state = interaction.to_network_state(master_gain, dim, cut);
+                    let state = interaction.to_network_state(master_gain, dim, cut, layout, sub_layout);
 
                     // 序列化并发送
                     if let Ok(bytes) = bincode::serialize(&state) {
-                        let _ = socket.send(bytes.into()).await;
-                        send_count += 1;
+                        match socket.send(bytes.into()).await {
+                            Ok(_) => {
+                                send_count += 1;
 
-                        // 每 500 次记录一次日志（约 10 秒一次，20ms 间隔）
-                        if send_count % 500 == 0 {
-                            logger.info("network", &format!(
-                                "ZMQ Master sent {} packets, primary={}, compare={}",
-                                send_count, state.primary, state.compare
-                            ));
+                                // 每 500 次记录一次日志（约 10 秒一次，20ms 间隔）
+                                if send_count % 500 == 0 {
+                                    logger.info("network", &format!(
+                                        "ZMQ Master sent {} packets, primary={}, compare={}",
+                                        send_count, state.primary, state.compare
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                send_error_count += 1;
+                                // 只在前几次和每 100 次记录错误，避免日志爆炸
+                                if send_error_count <= 3 || send_error_count % 100 == 0 {
+                                    logger.warn("network", &format!(
+                                        "ZMQ Send Error #{}: {}",
+                                        send_error_count, e
+                                    ));
+                                }
+                            }
                         }
                     }
 
@@ -105,12 +133,22 @@ impl NetworkManager {
         let endpoint = format!("tcp://{}:{}", master_ip, port);
         self.is_running.store(true, Ordering::Relaxed);
         self.is_connected.store(false, Ordering::Relaxed);
+        self.last_timestamp.store(0, Ordering::Relaxed);
 
         let is_running = Arc::clone(&self.is_running);
         let is_connected = Arc::clone(&self.is_connected);
+        let last_timestamp = Arc::clone(&self.last_timestamp);
 
         self.thread_handle = Some(thread::spawn(move || {
-            let rt = Runtime::new().expect("Failed to create Tokio runtime");
+            // 错误处理：Runtime 创建失败不 panic
+            let rt = match Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    logger.error("network", &format!("Failed to create Tokio runtime: {}", e));
+                    return;
+                }
+            };
+
             rt.block_on(async move {
                 let mut socket = SubSocket::new();
                 if let Err(e) = socket.connect(&endpoint).await {
@@ -124,6 +162,7 @@ impl NetworkManager {
                 logger.info("network", &format!("ZMQ Subscriber connected to {}", endpoint));
 
                 let mut recv_count: u64 = 0;
+                let mut out_of_order_count: u64 = 0;
 
                 // 使用非阻塞接收循环
                 while is_running.load(Ordering::Relaxed) {
@@ -138,6 +177,21 @@ impl NetworkManager {
                             if let Some(bytes) = msg.get(0) {
                                 if let Ok(state) = bincode::deserialize::<NetworkInteractionState>(bytes) {
                                     if state.is_valid() {
+                                        // 时间戳检查：防止乱序包
+                                        let prev_ts = last_timestamp.load(Ordering::Relaxed);
+                                        if state.timestamp <= prev_ts && prev_ts != 0 {
+                                            out_of_order_count += 1;
+                                            // 只在前几次和每 100 次记录，避免日志爆炸
+                                            if out_of_order_count <= 3 || out_of_order_count % 100 == 0 {
+                                                logger.warn("network", &format!(
+                                                    "Out-of-order packet #{}: ts={} <= prev={}",
+                                                    out_of_order_count, state.timestamp, prev_ts
+                                                ));
+                                            }
+                                            continue; // 丢弃乱序包
+                                        }
+                                        last_timestamp.store(state.timestamp, Ordering::Relaxed);
+
                                         // 直接更新 InteractionManager
                                         interaction.from_network_state(&state);
                                         recv_count += 1;
