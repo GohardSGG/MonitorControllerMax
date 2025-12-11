@@ -3,7 +3,7 @@
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use std::sync::Arc;
-use crate::config_manager::ConfigManager;
+use crate::Config_Manager::ConfigManager;
 
 // Define max channels constant. Must match array size.
 pub const MAX_CHANNELS: usize = 32;

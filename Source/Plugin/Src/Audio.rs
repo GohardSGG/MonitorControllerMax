@@ -4,8 +4,8 @@ use nih_plug::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
-use crate::channel_logic::ChannelLogic;
-use crate::config_manager::ConfigManager;
+use crate::Channel_Logic::ChannelLogic;
+use crate::Config_Manager::ConfigManager;
 use crate::Interaction::InteractionManager;
 
 // ==================== 增益平滑状态（实例级）====================

@@ -1,5 +1,5 @@
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
-use crate::config_manager::Layout;
+use crate::Config_Manager::Layout;
 use crate::Interaction::InteractionManager;
 
 #[derive(Clone, Copy, Debug)]

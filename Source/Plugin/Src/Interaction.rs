@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 
-use crate::logger::InstanceLogger;
-use crate::network_protocol::NetworkInteractionState;
+use crate::Logger::InstanceLogger;
+use crate::Network_Protocol::NetworkInteractionState;
 
 /// 主模式 - 先进入的模式，常亮
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

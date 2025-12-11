@@ -7,16 +7,16 @@ pub mod Components;
 mod Editor;
 mod Audio;
 mod Params;
-mod scale;
-mod config_manager;
-mod config_file;
+mod Scale;
+mod Config_Manager;
+mod Config_File;
 
-mod network;
-mod network_protocol;
-mod channel_logic;
-mod logger;
+mod Network;
+mod Network_Protocol;
+mod Channel_Logic;
+mod Logger;
 mod Interaction;
-mod osc;
+mod Osc;
 
 // Include auto-generated audio layouts from build.rs
 mod Audio_Layouts {
@@ -24,13 +24,13 @@ mod Audio_Layouts {
 }
 
 use Params::MonitorParams;
-use network::NetworkManager;
-use osc::OscManager;
+use Network::NetworkManager;
+use Osc::OscManager;
 use Audio::GainSmoothingState;
 use Interaction::InteractionManager;
-use logger::InstanceLogger;
-use config_file::AppConfig;
-use config_manager::ConfigManager;
+use Logger::InstanceLogger;
+use Config_File::AppConfig;
+use Config_Manager::ConfigManager;
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
@@ -59,7 +59,7 @@ pub struct MonitorControllerMax {
 impl Default for MonitorControllerMax {
     fn default() -> Self {
         // Generate unique instance ID
-        let instance_id = logger::generate_instance_id();
+        let instance_id = Logger::generate_instance_id();
 
         // Create instance-specific logger
         let logger = InstanceLogger::new(&instance_id);

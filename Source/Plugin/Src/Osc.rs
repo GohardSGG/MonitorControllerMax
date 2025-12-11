@@ -11,9 +11,9 @@ use rosc::{OscPacket, OscMessage, OscType, encoder};
 use parking_lot::RwLock;
 
 // InteractionManager 现在通过参数传递，不再使用全局单例
-use crate::config_file::AppConfig;
-use crate::config_manager::{STANDARD_CHANNEL_ORDER, Layout};
-use crate::logger::InstanceLogger;
+use crate::Config_File::AppConfig;
+use crate::Config_Manager::{STANDARD_CHANNEL_ORDER, Layout};
+use crate::Logger::InstanceLogger;
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;

@@ -11,12 +11,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Components::{self, *};
-use crate::scale::ScaleContext;
-use crate::config_manager::ConfigManager;
-use crate::config_file::AppConfig;
-use crate::logger::InstanceLogger;
+use crate::Scale::ScaleContext;
+use crate::Config_Manager::ConfigManager;
+use crate::Config_File::AppConfig;
+use crate::Logger::InstanceLogger;
 use crate::Interaction::{SubClickType, ChannelMarker, InteractionManager};
-use crate::osc::OscSharedState;
+use crate::Osc::OscSharedState;
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -1156,7 +1156,7 @@ fn draw_grid_background(ui: &mut egui::Ui, rect: egui::Rect, scale: &ScaleContex
 fn render_sub_row_dynamic(
     ui: &mut egui::Ui,
     scale: &ScaleContext,
-    layout: &crate::config_manager::Layout,
+    layout: &crate::Config_Manager::Layout,
     pos_range: std::ops::RangeInclusive<u32>,
     sub_diameter: f32,
     container_width: f32,
@@ -1250,7 +1250,7 @@ fn render_sub_row_dynamic(
 fn render_main_grid_dynamic(
     ui: &mut egui::Ui,
     scale: &ScaleContext,
-    layout: &crate::config_manager::Layout,
+    layout: &crate::Config_Manager::Layout,
     box_size: f32,
     grid_spacing: f32,
     label_height: f32,

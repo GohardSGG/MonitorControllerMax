@@ -4,7 +4,7 @@ use nih_plug_egui::egui::{
     Color32, Rect, Response, Sense, Stroke, Ui, Vec2, Widget, StrokeKind, Align2, Shape, Pos2, emath::Rot2,
 };
 use std::f32::consts::PI;
-use crate::scale::ScaleContext;
+use crate::Scale::ScaleContext;
 
 // --- Colors from React Design ---
 pub const COLOR_BG_APP: Color32 = Color32::from_rgb(229, 231, 235); // Slate-200ish

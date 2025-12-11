@@ -5,9 +5,9 @@ use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv};
 use bincode;
 use tokio::runtime::Runtime;
 
-use crate::network_protocol::NetworkInteractionState;
+use crate::Network_Protocol::NetworkInteractionState;
 use crate::Interaction::InteractionManager;
-use crate::logger::InstanceLogger;
+use crate::Logger::InstanceLogger;
 use crate::Params::MonitorParams;
 
 pub struct NetworkManager {
