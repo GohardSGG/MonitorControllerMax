@@ -19,8 +19,8 @@ windows_keyboard_workaround = ["egui-baseview/windows_keyboard_workaround"]
 [dependencies]
 nih_plug = { path = "..", default-features = false }
 raw-window-handle = "0.5"
-# Use same baseview as egui-baseview to avoid version conflicts
-baseview = { git = "https://github.com/blepfx/baseview.git", rev = "042f0c6cbc4a8befdd152f61128a2bd83d7bae12" }
+# Use local baseview with WM_SETFOCUS/WM_KILLFOCUS fix
+baseview = { path = "../../baseview" }
 crossbeam = "0.8"
 # Use local egui-baseview with windows_keyboard_workaround feature
 egui-baseview = { path = "../../egui-baseview", features = ["windows_keyboard_workaround"] }
