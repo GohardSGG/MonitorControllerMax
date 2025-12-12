@@ -456,10 +456,14 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             let current_layout_idx = params.layout.value() as usize;
             let current_sub_idx = params.sub_layout.value() as usize;
 
+            // === 检查 Settings 窗口是否打开（模态行为）===
+            let settings_open = ui.ctx().memory(|m| m.data.get_temp::<bool>(egui::Id::new("settings_dialog")).unwrap_or(false));
+
             // === 检查是否允许布局切换 ===
             let is_automation = interaction.is_automation_mode();
             let is_slave = current_role == PluginRole::Slave;
-            let can_change_layout = !is_automation && !is_slave; // 自动化模式或 Slave 模式下禁止切换布局
+            let can_change_layout = !is_automation && !is_slave && !settings_open; // 自动化模式、Slave 模式或 Settings 打开时禁止切换布局
+            let can_change_role = !settings_open; // Settings 打开时禁止切换 Role
 
             // --- Helper: 带微调偏移的 Dropdown (参数绑定版) ---
             let dropdown_y_offset_local = dropdown_y_offset;
@@ -541,8 +545,8 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
             label_with_offset(ui, "Map");
             ui.add_space(scale.s(12.0));
 
-            // 3. Role dropdown (Plugin Role)
-            {
+            // 3. Role dropdown (Plugin Role) - Settings 打开时禁用
+            ui.add_enabled_ui(can_change_role, |ui| {
                 let box_size = Vec2::new(scale.s(100.0), scale.s(40.0));
                 let role_names = ["Standalone", "Master", "Slave"];
                 let current_role_idx = current_role as usize;
@@ -587,7 +591,7 @@ fn render_header(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<MonitorPa
                             });
                     });
                 });
-            }
+            });
 
             ui.add_space(scale.s(2.0));
             label_with_offset(ui, "Role");
@@ -1478,7 +1482,10 @@ fn render_settings_content(
     ui.add_space(scale.s(16.0));
 
     // ========== OSC Settings ==========
-    ui.heading(RichText::new("OSC Settings").font(scale.font(16.0)));
+    ui.heading(RichText::new("OSC (Hardware Controller)").font(scale.font(16.0)));
+    ui.label(egui::RichText::new("Communication with TouchOSC, X-Touch, etc.")
+        .size(scale.s(10.0))
+        .color(egui::Color32::from_rgb(156, 163, 175)));
     ui.add_space(scale.s(12.0));
 
     let label_width = scale.s(100.0);
@@ -1527,24 +1534,38 @@ fn render_settings_content(
     ui.add_space(scale.s(16.0));
 
     // ========== Network Settings ==========
-    ui.heading(RichText::new("Network Settings").font(scale.font(16.0)));
+    ui.heading(RichText::new("Network (Instance Sync)").font(scale.font(16.0)));
+    ui.label(egui::RichText::new("Master/Slave communication between plugin instances")
+        .size(scale.s(10.0))
+        .color(egui::Color32::from_rgb(156, 163, 175)));
     ui.add_space(scale.s(12.0));
 
-    // Master IP
+    // Master IP - 仅 Slave 模式可编辑
+    let is_slave = role == crate::Params::PluginRole::Slave;
     ui.horizontal(|ui| {
         ui.add_sized([label_width, scale.s(20.0)],
             egui::Label::new(RichText::new("Master IP:").font(scale.font(14.0))));
-        let response = ui.add_sized([field_width, scale.s(24.0)],
-            egui::TextEdit::singleline(&mut state.master_ip)
-                .font(scale.font(14.0)));
-        if response.changed() {
-            state.dirty = true;
-        }
-        // Poll keyboard when TextEdit has focus
-        if response.has_focus() {
-            if crate::Keyboard_Polling::poll_and_apply(&mut state.master_ip) {
+
+        ui.add_enabled_ui(is_slave, |ui| {
+            let response = ui.add_sized([field_width, scale.s(24.0)],
+                egui::TextEdit::singleline(&mut state.master_ip)
+                    .font(scale.font(14.0)));
+            if response.changed() {
                 state.dirty = true;
             }
+            // Poll keyboard when TextEdit has focus
+            if response.has_focus() {
+                if crate::Keyboard_Polling::poll_and_apply(&mut state.master_ip) {
+                    state.dirty = true;
+                }
+            }
+        });
+
+        // 非 Slave 模式显示提示
+        if !is_slave {
+            ui.label(egui::RichText::new("(Slave only)")
+                .size(scale.s(9.0))
+                .color(egui::Color32::from_rgb(156, 163, 175)));
         }
     });
 
@@ -1641,7 +1662,18 @@ fn render_settings_content(
 
                     // Trigger OSC hot reload with new config
                     interaction.request_osc_restart(new_config.clone());
-                    logger.info("editor", "[Settings] OSC restart requested with new config");
+
+                    // Trigger Network hot reload (only for Master/Slave modes)
+                    if role != crate::Params::PluginRole::Standalone {
+                        interaction.request_network_restart(new_config.clone());
+                    }
+
+                    // Auto-close window after save
+                    ui.memory_mut(|m| {
+                        m.data.remove::<SettingsState>(state_id);
+                        m.data.remove::<bool>(dialog_id);
+                    });
+                    logger.info("editor", "[Settings] Saved and closed");
                 }
                 Err(e) => {
                     logger.error("editor", &format!("[Settings] Save failed: {}", e));

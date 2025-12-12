@@ -302,6 +302,10 @@ pub struct InteractionManager {
     /// 待应用的新配置（用于 OSC 端口热重载）
     osc_restart_config: RwLock<Option<crate::Config_File::AppConfig>>,
 
+    // ========== Network Hot Reload ==========
+    /// 待应用的新配置（用于 Network 端口/IP 热重载）
+    network_restart_config: RwLock<Option<crate::Config_File::AppConfig>>,
+
     // ========== Lock-Free 音频线程快照 ==========
     /// 音频线程使用的原子快照（无锁读取）
     render_snapshot: AtomicCell<RenderSnapshot>,
@@ -329,6 +333,8 @@ impl InteractionManager {
             network_sub_layout: RwLock::new(None),
             // OSC Hot Reload 初始化
             osc_restart_config: RwLock::new(None),
+            // Network Hot Reload 初始化
+            network_restart_config: RwLock::new(None),
             // Lock-Free 快照初始化
             render_snapshot: AtomicCell::new(RenderSnapshot::default()),
         }
@@ -1309,5 +1315,17 @@ impl InteractionManager {
     /// 获取并清除 OSC 重启请求（Lib.rs process 调用）
     pub fn take_osc_restart_request(&self) -> Option<crate::Config_File::AppConfig> {
         self.osc_restart_config.write().take()
+    }
+
+    // ========== Network Hot Reload 方法 ==========
+
+    /// 请求 Network 重启（携带新配置）
+    pub fn request_network_restart(&self, new_config: crate::Config_File::AppConfig) {
+        *self.network_restart_config.write() = Some(new_config);
+    }
+
+    /// 获取并清除 Network 重启请求（Lib.rs process 调用）
+    pub fn take_network_restart_request(&self) -> Option<crate::Config_File::AppConfig> {
+        self.network_restart_config.write().take()
     }
 }

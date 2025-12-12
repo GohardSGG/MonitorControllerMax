@@ -245,6 +245,48 @@ impl Plugin for MonitorControllerMax {
             }
         }
 
+        // 检查 Network 热重载请求
+        if let Some(new_config) = self.interaction.take_network_restart_request() {
+            let role = self.params.role.value();
+            match role {
+                Params::PluginRole::Master => {
+                    self.logger.info("monitor_controller_max", &format!(
+                        "[Hot Reload] Restarting Network (Master) with port={}",
+                        new_config.network_port
+                    ));
+                    self.network.shutdown();
+                    self.network.init_master(
+                        new_config.network_port,
+                        self.interaction.clone(),
+                        self.params.clone(),
+                        Arc::clone(&self.logger)
+                    );
+                    self.app_config = new_config;
+                    self.logger.info("monitor_controller_max", "[Hot Reload] Network restart complete");
+                }
+                Params::PluginRole::Slave => {
+                    self.logger.info("monitor_controller_max", &format!(
+                        "[Hot Reload] Restarting Network (Slave) with ip={}, port={}",
+                        new_config.master_ip, new_config.network_port
+                    ));
+                    self.network.shutdown();
+                    self.network.init_slave(
+                        &new_config.master_ip,
+                        new_config.network_port,
+                        self.interaction.clone(),
+                        self.params.clone(),
+                        Arc::clone(&self.logger),
+                        new_config.clone()
+                    );
+                    self.app_config = new_config;
+                    self.logger.info("monitor_controller_max", "[Hot Reload] Network restart complete");
+                }
+                Params::PluginRole::Standalone => {
+                    // Standalone 不需要 Network，忽略
+                }
+            }
+        }
+
         Audio::process_audio(buffer, &self.params, &self.gain_state, &self.interaction, &self.layout_config);
         ProcessStatus::Normal
     }
@@ -268,7 +310,7 @@ impl MonitorControllerMax {
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Master mode");
             }
             Params::PluginRole::Slave => {
-                self.network.init_slave(&self.app_config.master_ip, self.app_config.network_port, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
+                self.network.init_slave(&self.app_config.master_ip, self.app_config.network_port, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), self.app_config.clone());
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC disabled for Slave mode");
             }
             Params::PluginRole::Standalone => {

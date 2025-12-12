@@ -143,7 +143,7 @@ impl NetworkManager {
     /// 网络线程收到数据后直接更新 InteractionManager
     /// 支持指数退避重连机制 + Role 参数检测 + 心跳超时
     /// D: 检测线程存活状态，死线程则允许重新初始化
-    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>) {
+    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>, app_config: crate::Config_File::AppConfig) {
         // D: 检查线程是否实际在运行（使用 is_finished() 检测）
         let thread_alive = self.thread_handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
 
@@ -312,7 +312,13 @@ impl NetworkManager {
                                 if last_packet_time.elapsed().as_millis() as u64 > HEARTBEAT_TIMEOUT_MS {
                                     if is_connected.load(Ordering::Relaxed) {
                                         is_connected.store(false, Ordering::Relaxed);
-                                        logger.warn("network", "ZMQ Slave: Heartbeat timeout, marking disconnected");
+                                        logger.warn("network", "ZMQ Slave: Heartbeat timeout, requesting reconnect...");
+
+                                        // 请求网络重启（Lib.rs process() 会执行）
+                                        interaction.request_network_restart(app_config.clone());
+
+                                        // 退出线程，等待热重载机制重新启动
+                                        break 'reconnect_loop;
                                     }
                                 }
                                 continue;
