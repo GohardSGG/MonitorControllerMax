@@ -1,30 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell \"cd ''c:\\Code\\LogiPluginSdkTools\\MonitorOSCPlugin\\src''; dotnet build MonitorOSCPlugin.sln 2>&1 | Select-Object -Last 50\")",
-      "Bash(powershell \"(Get-Item ''c:\\Code\\MonitorControllerMax\\target\\release\\monitor_controller_max.dll'').LastWriteTime\")",
-      "Bash(powershell \"(Get-Item ''C:\\Code\\LogiPluginSdkTools\\MonitorOSCPlugin\\bin\\Debug\\MonitorOSCPlugin.dll'').LastWriteTime\")",
-      "Bash(cargo build:*)",
-      "Bash(Select-Object -Last 100)",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 100\")",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 50\")",
-      "Bash(Select-Object -Last 50)",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-String ''error\\['' | Select-Object -Last 5\")",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-String ''HashSet'' -Context 2 | Select-Object -First 10\")",
-      "Bash(powershell \"cd ''c:\\Code\\MonitorControllerMax''; cargo build --release 2>&1 | Select-Object -Last 15\")",
-      "Bash(powershell \"Get-Content ''c:\\Code\\MonitorControllerMax\\Library\\Old\\MonitorControllerMax\\Source\\Config\\Speaker_Config.json'' | Select-String ''SUB'' -Context 2\")",
-      "Bash(powershell:*)",
-      "Bash(git log:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(python3:*)",
-      "Bash(findstr:*)",
-      "Bash(git ls-tree:*)",
-      "Bash(cat:*)",
-      "Bash(for file in Audio.rs Interaction.rs Channel_Logic.rs logger.rs Params.rs Network_Protocol.rs)",
-      "Bash(do echo \"=== $file ===\")",
-      "Bash(done)",
-      "Bash(for file in Interaction.rs Channel_Logic.rs logger.rs Params.rs Network_Protocol.rs)"
+      "Bash(cmd /c dir C:CodeMonitorControllerMaxLibrarybaseviewsrcwin)",
+      "Bash(cmd /c \"del C:\\Code\\MonitorControllerMax\\Library\\baseview\\src\\win\\keyboard_hook.rs\")"
     ],
     "deny": [],
     "ask": []

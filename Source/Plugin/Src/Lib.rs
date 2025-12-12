@@ -11,6 +11,7 @@ mod Params;
 mod Scale;
 mod Config_Manager;
 mod Config_File;
+mod Keyboard_Polling;
 
 mod Network;
 mod Network_Protocol;
@@ -210,6 +211,40 @@ impl Plugin for MonitorControllerMax {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // 检查 OSC 热重载请求
+        if let Some(new_config) = self.interaction.take_osc_restart_request() {
+            let role = self.params.role.value();
+            if role != Params::PluginRole::Slave {
+                self.logger.info("monitor_controller_max", &format!(
+                    "[Hot Reload] Restarting OSC with new ports: send={}, recv={}",
+                    new_config.osc_send_port, new_config.osc_receive_port
+                ));
+
+                // 关闭当前 OSC
+                self.osc.shutdown();
+
+                // 使用新配置重新初始化
+                let master_volume = self.params.master_gain.value();
+                let dim = self.params.dim.value();
+                let cut = self.params.cut.value();
+                self.osc.init(
+                    self.output_channels,
+                    master_volume,
+                    dim,
+                    cut,
+                    self.interaction.clone(),
+                    self.params.clone(),
+                    Arc::clone(&self.logger),
+                    &new_config
+                );
+
+                // 更新保存的配置
+                self.app_config = new_config;
+
+                self.logger.info("monitor_controller_max", "[Hot Reload] OSC restart complete");
+            }
+        }
+
         Audio::process_audio(buffer, &self.params, &self.gain_state, &self.interaction, &self.layout_config);
         ProcessStatus::Normal
     }
@@ -225,7 +260,7 @@ impl MonitorControllerMax {
         // 根据 role 初始化网络
         match role {
             Params::PluginRole::Master => {
-                self.network.init_master(9123, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
+                self.network.init_master(self.app_config.network_port, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
                 let master_volume = self.params.master_gain.value();
                 let dim = self.params.dim.value();
                 let cut = self.params.cut.value();
@@ -233,7 +268,7 @@ impl MonitorControllerMax {
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Master mode");
             }
             Params::PluginRole::Slave => {
-                self.network.init_slave("127.0.0.1", 9123, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
+                self.network.init_slave(&self.app_config.master_ip, self.app_config.network_port, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC disabled for Slave mode");
             }
             Params::PluginRole::Standalone => {

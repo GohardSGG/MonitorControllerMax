@@ -297,28 +297,28 @@ pub fn create_editor(
                             .resizable(false)
                             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                             .show(ctx, |ui| {
-                                render_settings_content(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone);
+                                render_settings_content(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone, &osc_state_clone);
                             });
 
-                        // 自动化确认对话框（从设置窗口触发）
+                        // Automation confirmation dialog (triggered from settings)
                         let confirm_id = egui::Id::new("automation_confirm_from_settings");
                         let show_confirm = ctx.memory(|m| m.data.get_temp::<bool>(confirm_id).unwrap_or(false));
                         if show_confirm {
-                            egui::Window::new("确认启用自动化")
+                            egui::Window::new("Confirm Enable Automation")
                                 .collapsible(false)
                                 .resizable(false)
                                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                                 .show(ctx, |ui| {
-                                    ui.label("启用自动化模式将清空当前的 Solo/Mute 设置。");
-                                    ui.label("确定要继续吗？");
+                                    ui.label("Enabling automation will clear current Solo/Mute settings.");
+                                    ui.label("Continue?");
                                     ui.add_space(scale.s(12.0));
                                     ui.horizontal(|ui| {
-                                        if ui.button("确定").clicked() {
+                                        if ui.button("OK").clicked() {
                                             interaction_clone.enter_automation_mode();
                                             logger_clone.info("editor", "[AUTO] Enter: cleared all state, params unchanged (controlled by DAW)");
                                             ui.memory_mut(|m| m.data.remove::<bool>(confirm_id));
                                         }
-                                        if ui.button("取消").clicked() {
+                                        if ui.button("Cancel").clicked() {
                                             ui.memory_mut(|m| m.data.remove::<bool>(confirm_id));
                                         }
                                     });
@@ -939,14 +939,14 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
     let is_slave = role == PluginRole::Slave;
     let is_automation = interaction.is_automation_mode();
 
-    // 自动化模式全局提示
+    // Automation mode global indicator
     if is_automation {
         ui.horizontal(|ui| {
             ui.add_space(scale.s(16.0));
-            ui.label(egui::RichText::new("🔒 自动化控制中")
+            ui.label(egui::RichText::new("Automation Active")
                 .size(scale.s(14.0))
                 .color(egui::Color32::from_rgb(251, 191, 36))); // Amber-400
-            ui.label(egui::RichText::new("(通道状态由 VST3 参数控制)")
+            ui.label(egui::RichText::new("(Channel states controlled by VST3 parameters)")
                 .size(scale.s(11.0))
                 .color(egui::Color32::from_rgb(156, 163, 175))); // Gray-400
         });
@@ -1389,7 +1389,29 @@ fn render_main_grid_dynamic(
     });
 }
 
-/// 渲染设置窗口内容
+/// Settings dialog state for editable fields
+#[derive(Clone)]
+struct SettingsState {
+    osc_send_port: String,
+    osc_receive_port: String,
+    network_port: String,
+    master_ip: String,
+    dirty: bool,  // Whether settings have been modified
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            osc_send_port: "7444".to_string(),
+            osc_receive_port: "7445".to_string(),
+            network_port: "9123".to_string(),
+            master_ip: "127.0.0.1".to_string(),
+            dirty: false,
+        }
+    }
+}
+
+/// Render settings window content
 fn render_settings_content(
     ui: &mut egui::Ui,
     scale: &ScaleContext,
@@ -1400,15 +1422,26 @@ fn render_settings_content(
     layout_config: &ConfigManager,
     logger: &InstanceLogger,
     app_config: &AppConfig,
+    osc_state: &Arc<OscSharedState>,
 ) {
-    // 注意：设置窗口目前显示的是只读的配置信息
-    // 因为 AppConfig 是实例级别的，修改不会影响其他实例
-    let config = app_config.clone();
-    let mut _changed = false;
+    let state_id = egui::Id::new("settings_state");
+
+    // Load or initialize settings state
+    let mut state = ui.memory(|m| {
+        m.data.get_temp::<SettingsState>(state_id).unwrap_or_else(|| {
+            SettingsState {
+                osc_send_port: app_config.osc_send_port.to_string(),
+                osc_receive_port: app_config.osc_receive_port.to_string(),
+                network_port: app_config.network_port.to_string(),
+                master_ip: app_config.master_ip.clone(),
+                dirty: false,
+            }
+        })
+    });
 
     ui.add_space(scale.s(8.0));
 
-    // ========== 自动化模式设置 ==========
+    // ========== Automation Mode ==========
     ui.heading(RichText::new("Automation Mode").font(scale.font(16.0)));
     ui.add_space(scale.s(12.0));
 
@@ -1417,7 +1450,7 @@ fn render_settings_content(
     let can_use_automation = role == crate::Params::PluginRole::Standalone;
 
     ui.add_enabled_ui(can_use_automation, |ui| {
-        let button_text = if is_automation { "退出自动化" } else { "启用自动化" };
+        let button_text = if is_automation { "Exit Automation" } else { "Enable Automation" };
         let auto_btn = BrutalistButton::new(button_text, scale)
             .full_width(true)
             .active(is_automation);
@@ -1426,10 +1459,8 @@ fn render_settings_content(
             if is_automation {
                 interaction.exit_automation_mode();
                 logger.info("editor", "[AUTO] Exit: idle state, will sync to all=On on next UI update");
-                // 同步所有通道参数到全 On（退出自动化 = Idle）
                 sync_all_channel_params(params, setter, &interaction, layout_config, logger);
             } else {
-                // 弹出确认对话框
                 let confirm_id = egui::Id::new("automation_confirm_from_settings");
                 ui.memory_mut(|m| m.data.insert_temp(confirm_id, true));
             }
@@ -1437,7 +1468,7 @@ fn render_settings_content(
     });
 
     if !can_use_automation {
-        ui.label(egui::RichText::new("(仅 Standalone 可用)")
+        ui.label(egui::RichText::new("(Standalone only)")
             .size(scale.s(9.0))
             .color(egui::Color32::from_rgb(156, 163, 175)));
     }
@@ -1446,41 +1477,192 @@ fn render_settings_content(
     ui.separator();
     ui.add_space(scale.s(16.0));
 
-    // OSC 设置
+    // ========== OSC Settings ==========
     ui.heading(RichText::new("OSC Settings").font(scale.font(16.0)));
     ui.add_space(scale.s(12.0));
 
+    let label_width = scale.s(100.0);
+    let field_width = scale.s(120.0);
+
+    // Send Port
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Send Port:").font(scale.font(14.0)));
-        ui.add_space(scale.s(8.0));
-        ui.label(RichText::new(config.osc_send_port.to_string()).font(scale.font(14.0)));
+        ui.add_sized([label_width, scale.s(20.0)],
+            egui::Label::new(RichText::new("Send Port:").font(scale.font(14.0))));
+        let response = ui.add_sized([field_width, scale.s(24.0)],
+            egui::TextEdit::singleline(&mut state.osc_send_port)
+                .font(scale.font(14.0)));
+        if response.changed() {
+            state.dirty = true;
+        }
+        // Poll keyboard when TextEdit has focus
+        if response.has_focus() {
+            if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_send_port) {
+                state.dirty = true;
+            }
+        }
     });
 
     ui.add_space(scale.s(8.0));
 
+    // Receive Port
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Receive Port:").font(scale.font(14.0)));
-        ui.add_space(scale.s(8.0));
-        ui.label(RichText::new(config.osc_receive_port.to_string()).font(scale.font(14.0)));
+        ui.add_sized([label_width, scale.s(20.0)],
+            egui::Label::new(RichText::new("Receive Port:").font(scale.font(14.0))));
+        let response = ui.add_sized([field_width, scale.s(24.0)],
+            egui::TextEdit::singleline(&mut state.osc_receive_port)
+                .font(scale.font(14.0)));
+        if response.changed() {
+            state.dirty = true;
+        }
+        // Poll keyboard when TextEdit has focus
+        if response.has_focus() {
+            if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_receive_port) {
+                state.dirty = true;
+            }
+        }
     });
-
-    ui.add_space(scale.s(8.0));
-    ui.label(RichText::new("(Edit Config/MonitorControllerMax.toml to change)").font(scale.font(10.0)).color(egui::Color32::from_rgb(156, 163, 175)));
 
     ui.add_space(scale.s(16.0));
     ui.separator();
     ui.add_space(scale.s(16.0));
 
-    // 按钮
+    // ========== Network Settings ==========
+    ui.heading(RichText::new("Network Settings").font(scale.font(16.0)));
+    ui.add_space(scale.s(12.0));
+
+    // Master IP
     ui.horizontal(|ui| {
-        // 设置是只读的（实例级配置在启动时加载）
-        // 关闭按钮
-        if ui.button(RichText::new("Close").font(scale.font(14.0))).clicked() {
-            logger.info("editor", &format!("[Settings] Closed. Current config: send_port={}, recv_port={}",
-                config.osc_send_port, config.osc_receive_port));
-            ui.memory_mut(|m| m.data.remove::<bool>(dialog_id));
+        ui.add_sized([label_width, scale.s(20.0)],
+            egui::Label::new(RichText::new("Master IP:").font(scale.font(14.0))));
+        let response = ui.add_sized([field_width, scale.s(24.0)],
+            egui::TextEdit::singleline(&mut state.master_ip)
+                .font(scale.font(14.0)));
+        if response.changed() {
+            state.dirty = true;
+        }
+        // Poll keyboard when TextEdit has focus
+        if response.has_focus() {
+            if crate::Keyboard_Polling::poll_and_apply(&mut state.master_ip) {
+                state.dirty = true;
+            }
         }
     });
+
+    ui.add_space(scale.s(8.0));
+
+    // Network Port
+    ui.horizontal(|ui| {
+        ui.add_sized([label_width, scale.s(20.0)],
+            egui::Label::new(RichText::new("Port:").font(scale.font(14.0))));
+        let response = ui.add_sized([field_width, scale.s(24.0)],
+            egui::TextEdit::singleline(&mut state.network_port)
+                .font(scale.font(14.0)));
+        if response.changed() {
+            state.dirty = true;
+        }
+        // Poll keyboard when TextEdit has focus
+        if response.has_focus() {
+            if crate::Keyboard_Polling::poll_and_apply(&mut state.network_port) {
+                state.dirty = true;
+            }
+        }
+    });
+
+    ui.add_space(scale.s(8.0));
+    ui.label(egui::RichText::new("Note: Network changes require plugin restart")
+        .size(scale.s(10.0))
+        .color(egui::Color32::from_rgb(156, 163, 175)));
+
+    ui.add_space(scale.s(16.0));
+    ui.separator();
+    ui.add_space(scale.s(16.0));
+
+    // ========== Config Path ==========
+    let config_path = crate::Config_File::AppConfig::config_path();
+    let path_str = config_path.display().to_string();
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Config:").font(scale.font(12.0)).color(egui::Color32::from_rgb(156, 163, 175)));
+        ui.add_space(scale.s(4.0));
+        // Truncate path if too long
+        let display_path = if path_str.len() > 40 {
+            format!("...{}", &path_str[path_str.len()-37..])
+        } else {
+            path_str.clone()
+        };
+        ui.label(RichText::new(display_path).font(scale.font(10.0)).color(egui::Color32::from_rgb(156, 163, 175)));
+    });
+
+    ui.add_space(scale.s(4.0));
+
+    // Open folder button
+    if ui.button(RichText::new("Open Config Folder").font(scale.font(12.0))).clicked() {
+        if let Some(parent) = config_path.parent() {
+            let _ = open::that(parent);
+        }
+    }
+
+    ui.add_space(scale.s(16.0));
+    ui.separator();
+    ui.add_space(scale.s(16.0));
+
+    // ========== Buttons ==========
+    ui.horizontal(|ui| {
+        // Save button
+        let save_btn = ui.add_enabled(state.dirty,
+            egui::Button::new(RichText::new("Save").font(scale.font(14.0))));
+
+        if save_btn.clicked() {
+            // Parse and validate
+            let osc_send: u16 = state.osc_send_port.parse().unwrap_or(7444);
+            let osc_recv: u16 = state.osc_receive_port.parse().unwrap_or(7445);
+            let net_port: u16 = state.network_port.parse().unwrap_or(9123);
+            let master_ip = state.master_ip.clone();
+
+            // Create new config
+            let new_config = crate::Config_File::AppConfig {
+                osc_send_port: osc_send,
+                osc_receive_port: osc_recv,
+                network_port: net_port,
+                master_ip: master_ip.clone(),
+                default_speaker_layout: app_config.default_speaker_layout.clone(),
+                default_sub_layout: app_config.default_sub_layout.clone(),
+                log_directory: app_config.log_directory.clone(),
+            };
+
+            // Save to disk
+            match new_config.save_to_disk() {
+                Ok(_) => {
+                    logger.info("editor", &format!(
+                        "[Settings] Saved: osc_send={}, osc_recv={}, net_port={}, master_ip={}",
+                        osc_send, osc_recv, net_port, master_ip
+                    ));
+                    state.dirty = false;
+
+                    // Trigger OSC hot reload with new config
+                    interaction.request_osc_restart(new_config.clone());
+                    logger.info("editor", "[Settings] OSC restart requested with new config");
+                }
+                Err(e) => {
+                    logger.error("editor", &format!("[Settings] Save failed: {}", e));
+                }
+            }
+        }
+
+        ui.add_space(scale.s(16.0));
+
+        // Close button
+        if ui.button(RichText::new("Close").font(scale.font(14.0))).clicked() {
+            logger.info("editor", "[Settings] Closed");
+            ui.memory_mut(|m| {
+                m.data.remove::<SettingsState>(state_id);
+                m.data.remove::<bool>(dialog_id);
+            });
+        }
+    });
+
+    // Save state back to memory
+    ui.memory_mut(|m| m.data.insert_temp(state_id, state));
 
     ui.add_space(scale.s(8.0));
 }

@@ -5,7 +5,7 @@ use std::ffi::{c_void, CStr};
 use std::mem;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use vst3_sys::base::{kInvalidArgument, kNotImplemented, kResultFalse, kResultOk, tresult, TBool};
+use vst3_sys::base::{kInvalidArgument, kNotImplemented, kResultFalse, kResultOk, kResultTrue, tresult, TBool};
 use vst3_sys::gui::{IPlugFrame, IPlugView, IPlugViewContentScaleSupport, ViewRect};
 use vst3_sys::utils::SharedVstPtr;
 use vst3_sys::VST3;
@@ -17,6 +17,10 @@ use crate::prelude::{Editor, ParentWindowHandle};
 
 // Alias needed for the VST3 attribute macro
 use vst3_sys as vst3_com;
+
+// Windows-specific imports for keyboard forwarding
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicIsize;
 
 // Thanks for putting this behind a platform-specific ifdef...
 // NOTE: This should also be used on the BSDs, but vst3-sys exposes these interfaces only for Linux
@@ -47,6 +51,12 @@ struct RunLoopEventHandlerWrapper<P: Vst3Plugin>(RwLock<Option<Box<RunLoopEventH
 #[cfg(not(target_os = "linux"))]
 struct RunLoopEventHandlerWrapper<P: Vst3Plugin>(std::marker::PhantomData<P>);
 
+/// Wrapper for parent window handle on Windows
+#[cfg(target_os = "windows")]
+struct ParentHwndWrapper(AtomicIsize);
+#[cfg(not(target_os = "windows"))]
+struct ParentHwndWrapper(());
+
 /// The plugin's [`IPlugView`] instance created in [`IEditController::create_view()`] if `P` has an
 /// editor. This is managed separately so the lifetime bounds match up.
 #[VST3(implements(IPlugView, IPlugViewContentScaleSupport))]
@@ -67,6 +77,9 @@ pub(crate) struct WrapperView<P: Vst3Plugin> {
     /// the sizes communicated to and from the DAW should be scaled by this factor since NIH-plug's
     /// APIs only deal in logical pixels.
     scaling_factor: AtomicF32,
+
+    /// The parent window handle (HWND on Windows) for keyboard forwarding
+    parent_hwnd: ParentHwndWrapper,
 }
 
 /// Allow handling tasks on the host's GUI thread on Linux. This doesn't need to be a separate
@@ -110,6 +123,10 @@ impl<P: Vst3Plugin> WrapperView<P> {
             #[cfg(not(target_os = "linux"))]
             RunLoopEventHandlerWrapper(Default::default()),
             AtomicF32::new(1.0),
+            #[cfg(target_os = "windows")]
+            ParentHwndWrapper(AtomicIsize::new(0)),
+            #[cfg(not(target_os = "windows"))]
+            ParentHwndWrapper(()),
         )
     }
 
@@ -292,7 +309,12 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
                 Ok(type_) if type_ == VST3_PLATFORM_NSVIEW => {
                     ParentWindowHandle::AppKitNsView(parent)
                 }
-                Ok(type_) if type_ == VST3_PLATFORM_HWND => ParentWindowHandle::Win32Hwnd(parent),
+                Ok(type_) if type_ == VST3_PLATFORM_HWND => {
+                    // Save the parent HWND for keyboard forwarding on Windows
+                    #[cfg(target_os = "windows")]
+                    self.parent_hwnd.0.store(parent as isize, Ordering::SeqCst);
+                    ParentWindowHandle::Win32Hwnd(parent)
+                }
                 _ => {
                     nih_debug_assert_failure!("Unknown window handle type: {:?}", type_);
                     return kInvalidArgument;
@@ -338,20 +360,98 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
 
     unsafe fn on_key_down(
         &self,
-        _key: vst3_sys::base::char16,
-        _key_code: i16,
+        key: vst3_sys::base::char16,
+        key_code: i16,
         _modifiers: i16,
     ) -> tresult {
-        kNotImplemented
+        #[cfg(target_os = "windows")]
+        {
+            // Forward keyboard events to our child window
+            let parent_hwnd = self.parent_hwnd.0.load(Ordering::SeqCst);
+            if parent_hwnd != 0 {
+                use windows::Win32::Foundation::{HWND, LPARAM, WPARAM, BOOL};
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    EnumChildWindows, PostMessageW, WM_CHAR, WM_KEYDOWN,
+                };
+
+                // Callback to find child window
+                unsafe extern "system" fn enum_child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                    let child_ptr = lparam.0 as *mut isize;
+                    if !child_ptr.is_null() {
+                        let current = unsafe { *child_ptr };
+                        if current == 0 {
+                            unsafe { *child_ptr = hwnd.0 };
+                        }
+                    }
+                    BOOL::from(true)
+                }
+
+                let mut child_hwnd: isize = 0;
+                let _ = EnumChildWindows(
+                    HWND(parent_hwnd),
+                    Some(enum_child_proc),
+                    LPARAM(&mut child_hwnd as *mut isize as isize),
+                );
+
+                if child_hwnd != 0 {
+                    // Send WM_KEYDOWN with virtual key code
+                    if key_code > 0 {
+                        let _ = PostMessageW(HWND(child_hwnd), WM_KEYDOWN, WPARAM(key_code as usize), LPARAM(0));
+                    }
+                    // Send WM_CHAR with the character
+                    if key > 0 {
+                        let _ = PostMessageW(HWND(child_hwnd), WM_CHAR, WPARAM(key as usize), LPARAM(0));
+                    }
+                    return kResultTrue;
+                }
+            }
+        }
+        kResultFalse
     }
 
     unsafe fn on_key_up(
         &self,
         _key: vst3_sys::base::char16,
-        _key_code: i16,
+        key_code: i16,
         _modifiers: i16,
     ) -> tresult {
-        kNotImplemented
+        #[cfg(target_os = "windows")]
+        {
+            // Forward keyboard events to our child window
+            let parent_hwnd = self.parent_hwnd.0.load(Ordering::SeqCst);
+            if parent_hwnd != 0 {
+                use windows::Win32::Foundation::{HWND, LPARAM, WPARAM, BOOL};
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    EnumChildWindows, PostMessageW, WM_KEYUP,
+                };
+
+                unsafe extern "system" fn enum_child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                    let child_ptr = lparam.0 as *mut isize;
+                    if !child_ptr.is_null() {
+                        let current = unsafe { *child_ptr };
+                        if current == 0 {
+                            unsafe { *child_ptr = hwnd.0 };
+                        }
+                    }
+                    BOOL::from(true)
+                }
+
+                let mut child_hwnd: isize = 0;
+                let _ = EnumChildWindows(
+                    HWND(parent_hwnd),
+                    Some(enum_child_proc),
+                    LPARAM(&mut child_hwnd as *mut isize as isize),
+                );
+
+                if child_hwnd != 0 {
+                    if key_code > 0 {
+                        let _ = PostMessageW(HWND(child_hwnd), WM_KEYUP, WPARAM(key_code as usize), LPARAM(0));
+                    }
+                    return kResultTrue;
+                }
+            }
+        }
+        kResultFalse
     }
 
     unsafe fn get_size(&self, size: *mut ViewRect) -> tresult {
