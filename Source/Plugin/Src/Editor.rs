@@ -26,6 +26,19 @@ const ASPECT_RATIO: f32 = 1.0;
 // --- 颜色常量 ---
 const COLOR_BORDER_MAIN: Color32 = Color32::from_rgb(30, 41, 59);  // 主边框颜色（深灰蓝）
 
+// --- Settings 弹窗专用颜色 (Tailwind Slate) ---
+const SETTINGS_SLATE_50: Color32 = Color32::from_rgb(248, 250, 252);
+const SETTINGS_SLATE_100: Color32 = Color32::from_rgb(241, 245, 249);
+const SETTINGS_SLATE_200: Color32 = Color32::from_rgb(226, 232, 240);
+const SETTINGS_SLATE_300: Color32 = Color32::from_rgb(203, 213, 225);
+const SETTINGS_SLATE_400: Color32 = Color32::from_rgb(148, 163, 184);
+const SETTINGS_SLATE_500: Color32 = Color32::from_rgb(100, 116, 139);
+const SETTINGS_SLATE_600: Color32 = Color32::from_rgb(71, 85, 105);
+const SETTINGS_SLATE_700: Color32 = Color32::from_rgb(51, 65, 85);
+const SETTINGS_SLATE_800: Color32 = Color32::from_rgb(30, 41, 59);
+const SETTINGS_AMBER_600: Color32 = Color32::from_rgb(217, 119, 6);
+const SETTINGS_RED_500: Color32 = Color32::from_rgb(239, 68, 68);
+
 pub fn create_editor(
     params: Arc<MonitorParams>,
     interaction: Arc<InteractionManager>,
@@ -292,12 +305,20 @@ pub fn create_editor(
                     let show_settings = ctx.memory(|m| m.data.get_temp::<bool>(dialog_id).unwrap_or(false));
 
                     if show_settings {
-                        egui::Window::new("Settings")
+                        egui::Window::new("")
+                            .id(dialog_id)
                             .collapsible(false)
                             .resizable(false)
+                            .title_bar(false)
+                            .fixed_size([scale.s(500.0), scale.s(0.0)])
                             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                            .frame(egui::Frame::none()
+                                .fill(Color32::WHITE)
+                                .stroke(Stroke::new(scale.s(1.0), SETTINGS_SLATE_300))
+                                .inner_margin(egui::Margin::ZERO)
+                                .outer_margin(egui::Margin::ZERO))
                             .show(ctx, |ui| {
-                                render_settings_content(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone, &osc_state_clone);
+                                render_settings_content_v2(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone, &osc_state_clone);
                             });
 
                         // Automation confirmation dialog (triggered from settings)
@@ -1393,6 +1414,37 @@ fn render_main_grid_dynamic(
     });
 }
 
+/// iOS-style toggle switch for Settings dialog
+fn settings_toggle_switch(ui: &mut egui::Ui, on: &mut bool, scale: &ScaleContext) -> egui::Response {
+    let size = Vec2::new(scale.s(44.0), scale.s(24.0));
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    if response.clicked() {
+        *on = !*on;
+    }
+
+    if ui.is_rect_visible(rect) {
+        let bg = if *on { SETTINGS_SLATE_800 } else { SETTINGS_SLATE_200 };
+        let rounding = scale.s(12.0);
+        ui.painter().rect_filled(rect, rounding, bg);
+
+        // Animate knob position
+        let target_t = if *on { 1.0 } else { 0.0 };
+        let t = ui.ctx().animate_value_with_time(response.id, target_t, 0.15);
+
+        let knob_radius = scale.s(8.0);
+        let knob_margin = scale.s(4.0);
+        let knob_x = egui::lerp(
+            rect.left() + knob_margin + knob_radius..=rect.right() - knob_margin - knob_radius,
+            t
+        );
+        let knob_center = egui::pos2(knob_x, rect.center().y);
+        ui.painter().circle_filled(knob_center, knob_radius, Color32::WHITE);
+    }
+
+    response
+}
+
 /// Settings dialog state for editable fields
 #[derive(Clone)]
 struct SettingsState {
@@ -1415,7 +1467,8 @@ impl Default for SettingsState {
     }
 }
 
-/// Render settings window content
+/// Render settings window content (Legacy - kept for reference)
+#[allow(dead_code)]
 fn render_settings_content(
     ui: &mut egui::Ui,
     scale: &ScaleContext,
@@ -1426,7 +1479,7 @@ fn render_settings_content(
     layout_config: &ConfigManager,
     logger: &InstanceLogger,
     app_config: &AppConfig,
-    osc_state: &Arc<OscSharedState>,
+    _osc_state: &Arc<OscSharedState>,
 ) {
     let state_id = egui::Id::new("settings_state");
 
@@ -1697,4 +1750,533 @@ fn render_settings_content(
     ui.memory_mut(|m| m.data.insert_temp(state_id, state));
 
     ui.add_space(scale.s(8.0));
+}
+
+/// Render settings window content v2 - New Brutalist design
+fn render_settings_content_v2(
+    ui: &mut egui::Ui,
+    scale: &ScaleContext,
+    dialog_id: egui::Id,
+    params: &Arc<MonitorParams>,
+    setter: &ParamSetter,
+    interaction: &InteractionManager,
+    layout_config: &ConfigManager,
+    logger: &InstanceLogger,
+    app_config: &AppConfig,
+    _osc_state: &Arc<OscSharedState>,
+) {
+    let state_id = egui::Id::new("settings_state_v2");
+
+    // Load or initialize settings state
+    let mut state = ui.memory(|m| {
+        m.data.get_temp::<SettingsState>(state_id).unwrap_or_else(|| {
+            SettingsState {
+                osc_send_port: app_config.osc_send_port.to_string(),
+                osc_receive_port: app_config.osc_receive_port.to_string(),
+                network_port: app_config.network_port.to_string(),
+                master_ip: app_config.master_ip.clone(),
+                dirty: false,
+            }
+        })
+    });
+
+    let role = params.role.value();
+    let is_automation = interaction.is_automation_mode();
+    let can_use_automation = role == crate::Params::PluginRole::Standalone;
+    let is_slave = role == crate::Params::PluginRole::Slave;
+
+    // Darker text colors for better readability
+    let text_dark = Color32::from_rgb(30, 41, 59);      // slate-800
+    let text_medium = Color32::from_rgb(71, 85, 105);   // slate-600
+    let text_label = Color32::from_rgb(100, 116, 139);  // slate-500
+    let border_color = Color32::from_rgb(203, 213, 225); // slate-300
+
+    // ========== HEADER ==========
+    let header_height = scale.s(48.0);
+    // 使用 max_rect 获取完整宽度（不受 margin 影响）
+    let window_width = ui.max_rect().width();
+
+    // Header background - 使用 max_rect 确保覆盖完整宽度
+    let header_rect = egui::Rect::from_min_max(
+        ui.max_rect().min,
+        egui::pos2(ui.max_rect().max.x, ui.max_rect().min.y + header_height)
+    );
+    ui.painter().rect_filled(header_rect, 0.0, SETTINGS_SLATE_50);
+
+    // Header bottom border
+    ui.painter().line_segment(
+        [header_rect.left_bottom(), header_rect.right_bottom()],
+        Stroke::new(scale.s(1.0), SETTINGS_SLATE_200)
+    );
+
+    ui.allocate_ui(Vec2::new(window_width, header_height), |ui| {
+        // 使用 Align::Center 让所有元素垂直居中
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.add_space(scale.s(16.0));
+
+            // Gear icon + SETTINGS title - 直接放置，不用 vertical 包裹
+            ui.label(RichText::new("⚙").font(scale.font(18.0)).color(text_medium).strong());
+            ui.add_space(scale.s(8.0));
+            ui.label(RichText::new("SETTINGS").font(scale.font(16.0)).color(text_dark).strong());
+
+            // Right-aligned close button (X)
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(scale.s(16.0));
+
+                // Custom X button with visible rendering
+                let btn_size = Vec2::splat(scale.s(28.0));
+                let (rect, response) = ui.allocate_exact_size(btn_size, egui::Sense::click());
+
+                if ui.is_rect_visible(rect) {
+                    let is_hovered = response.hovered();
+                    let color = if is_hovered { SETTINGS_RED_500 } else { text_label };
+
+                    // Draw X using lines
+                    let margin = scale.s(8.0);
+                    let stroke = Stroke::new(scale.s(2.0), color);
+                    ui.painter().line_segment(
+                        [rect.min + Vec2::splat(margin), rect.max - Vec2::splat(margin)],
+                        stroke
+                    );
+                    ui.painter().line_segment(
+                        [egui::pos2(rect.max.x - margin, rect.min.y + margin),
+                         egui::pos2(rect.min.x + margin, rect.max.y - margin)],
+                        stroke
+                    );
+                }
+
+                if response.clicked() {
+                    logger.info("editor", "[Settings] Closed via X button");
+                    ui.memory_mut(|m| {
+                        m.data.remove::<SettingsState>(state_id);
+                        m.data.remove::<bool>(dialog_id);
+                    });
+                }
+            });
+        });
+    });
+
+    // ========== BODY ==========
+    ui.add_space(scale.s(24.0));
+
+    ui.horizontal(|ui| {
+        ui.add_space(scale.s(24.0));
+
+        ui.vertical(|ui| {
+            ui.set_width(scale.s(500.0) - scale.s(48.0));
+
+            // === Section A: Automation Mode ===
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("⊞").font(scale.font(13.0)).color(text_medium));
+                        ui.add_space(scale.s(6.0));
+                        ui.label(RichText::new("AUTOMATION MODE").font(scale.font(12.0)).color(text_dark).strong());
+                    });
+                    ui.add_space(scale.s(4.0));
+                    ui.label(RichText::new("Enable external automation control | Standalone only")
+                        .font(scale.font(12.0)).color(text_label));
+                });
+
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let mut automation_on = is_automation;
+                    ui.add_enabled_ui(can_use_automation, |ui| {
+                        let response = settings_toggle_switch(ui, &mut automation_on, scale);
+                        if response.clicked() && can_use_automation {
+                            if automation_on {
+                                let confirm_id = egui::Id::new("automation_confirm_from_settings");
+                                ui.memory_mut(|m| m.data.insert_temp(confirm_id, true));
+                            } else {
+                                interaction.exit_automation_mode();
+                                logger.info("editor", "[AUTO] Exit: idle state");
+                                sync_all_channel_params(params, setter, interaction, layout_config, logger);
+                            }
+                        }
+                    });
+                });
+            });
+
+            ui.add_space(scale.s(28.0));
+
+            // === Section B: OSC (Hardware Controller) ===
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("🔊").font(scale.font(13.0)).color(text_medium));
+                ui.add_space(scale.s(6.0));
+                ui.label(RichText::new("OSC (HARDWARE CONTROLLER)").font(scale.font(12.0)).color(text_dark).strong());
+            });
+            ui.add_space(scale.s(12.0));
+
+            // Two-column layout for ports with proper borders
+            ui.horizontal(|ui| {
+                let col_width = (scale.s(500.0) - scale.s(48.0) - scale.s(24.0)) / 2.0;
+
+                // Send Port column
+                ui.vertical(|ui| {
+                    ui.set_width(col_width);
+                    ui.label(RichText::new("Send Port").font(scale.font(12.0)).color(text_medium));
+                    ui.add_space(scale.s(6.0));
+
+                    // Custom bordered input
+                    let input_height = scale.s(40.0);
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(col_width, input_height), egui::Sense::hover());
+
+                    // Draw border
+                    ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+                    ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), Color32::WHITE);
+
+                    // Put input inside
+                    ui.allocate_ui_at_rect(rect.shrink(scale.s(8.0)), |ui| {
+                        ui.centered_and_justified(|ui| {
+                            let response = ui.add(egui::TextEdit::singleline(&mut state.osc_send_port)
+                                .font(scale.font(14.0))
+                                .frame(false)
+                                .text_color(text_dark));
+                            if response.changed() {
+                                state.dirty = true;
+                            }
+                            if response.has_focus() {
+                                if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_send_port) {
+                                    state.dirty = true;
+                                }
+                            }
+                        });
+                    });
+                });
+
+                ui.add_space(scale.s(24.0));
+
+                // Receive Port column
+                ui.vertical(|ui| {
+                    ui.set_width(col_width);
+                    ui.label(RichText::new("Receive Port").font(scale.font(12.0)).color(text_medium));
+                    ui.add_space(scale.s(6.0));
+
+                    // Custom bordered input
+                    let input_height = scale.s(40.0);
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(col_width, input_height), egui::Sense::hover());
+
+                    // Draw border
+                    ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+                    ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), Color32::WHITE);
+
+                    // Put input inside
+                    ui.allocate_ui_at_rect(rect.shrink(scale.s(8.0)), |ui| {
+                        ui.centered_and_justified(|ui| {
+                            let response = ui.add(egui::TextEdit::singleline(&mut state.osc_receive_port)
+                                .font(scale.font(14.0))
+                                .frame(false)
+                                .text_color(text_dark));
+                            if response.changed() {
+                                state.dirty = true;
+                            }
+                            if response.has_focus() {
+                                if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_receive_port) {
+                                    state.dirty = true;
+                                }
+                            }
+                        });
+                    });
+                });
+            });
+
+            ui.add_space(scale.s(28.0));
+
+            // === Section C: Network (Instance Sync) ===
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("🔗").font(scale.font(13.0)).color(text_medium));
+                ui.add_space(scale.s(6.0));
+                ui.label(RichText::new("NETWORK (INSTANCE SYNC)").font(scale.font(12.0)).color(text_dark).strong());
+            });
+            ui.add_space(scale.s(12.0));
+
+            // Bordered container for network settings
+            // 使用"先布局内容，后绘制背景"的方式，让高度自动适应
+            let container_width = scale.s(500.0) - scale.s(48.0);
+            let start_pos = ui.cursor().min;
+
+            // 内容布局
+            ui.add_space(scale.s(12.0));  // 上边距
+            ui.horizontal(|ui| {
+                ui.add_space(scale.s(16.0));  // 左边距
+                ui.vertical(|ui| {
+                    let label_width = scale.s(80.0);
+                    let field_width = container_width - scale.s(32.0) - label_width - scale.s(16.0);
+
+                    // Master IP row
+                    ui.horizontal(|ui| {
+                        // Right-aligned label
+                        ui.allocate_ui(Vec2::new(label_width, scale.s(36.0)), |ui| {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.add_space(scale.s(8.0));
+                                ui.label(RichText::new("Master IP").font(scale.font(12.0)).color(text_medium));
+                            });
+                        });
+
+                        ui.add_space(scale.s(8.0));
+
+                        // Input field with border
+                        let input_height = scale.s(36.0);
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(field_width, input_height), egui::Sense::hover());
+
+                        let input_bg = if is_slave { Color32::WHITE } else { SETTINGS_SLATE_100 };
+                        ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+                        ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), input_bg);
+
+                        ui.allocate_ui_at_rect(rect.shrink(scale.s(10.0)), |ui| {
+                            ui.add_enabled_ui(is_slave, |ui| {
+                                ui.centered_and_justified(|ui| {
+                                    let response = ui.add(egui::TextEdit::singleline(&mut state.master_ip)
+                                        .font(scale.font(14.0))
+                                        .frame(false)
+                                        .text_color(text_dark));
+                                    if response.changed() {
+                                        state.dirty = true;
+                                    }
+                                    if response.has_focus() {
+                                        if crate::Keyboard_Polling::poll_and_apply(&mut state.master_ip) {
+                                            state.dirty = true;
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                    });
+
+                    ui.add_space(scale.s(8.0));
+
+                    // Port row
+                    ui.horizontal(|ui| {
+                        // Right-aligned label
+                        ui.allocate_ui(Vec2::new(label_width, scale.s(36.0)), |ui| {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.add_space(scale.s(8.0));
+                                ui.label(RichText::new("Port").font(scale.font(12.0)).color(text_medium));
+                            });
+                        });
+
+                        ui.add_space(scale.s(8.0));
+
+                        // Input field with border
+                        let input_height = scale.s(36.0);
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(field_width, input_height), egui::Sense::hover());
+
+                        ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+                        ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), Color32::WHITE);
+
+                        ui.allocate_ui_at_rect(rect.shrink(scale.s(10.0)), |ui| {
+                            ui.centered_and_justified(|ui| {
+                                let response = ui.add(egui::TextEdit::singleline(&mut state.network_port)
+                                    .font(scale.font(14.0))
+                                    .frame(false)
+                                    .text_color(text_dark));
+                                if response.changed() {
+                                    state.dirty = true;
+                                }
+                                if response.has_focus() {
+                                    if crate::Keyboard_Polling::poll_and_apply(&mut state.network_port) {
+                                        state.dirty = true;
+                                    }
+                                }
+                            });
+                        });
+                    });
+                });
+            });
+            ui.add_space(scale.s(12.0));  // 下边距
+
+            // 计算内容实际占用的矩形，只绘制边框（背景已经在前面预绘制了）
+            let end_pos = ui.cursor().min;
+            let actual_rect = egui::Rect::from_min_max(
+                egui::pos2(start_pos.x, start_pos.y),
+                egui::pos2(start_pos.x + container_width, end_pos.y)
+            );
+            // 只绘制边框（不绘制背景，避免覆盖输入框）
+            ui.painter().rect_stroke(actual_rect, scale.s(4.0), Stroke::new(scale.s(1.0), SETTINGS_SLATE_200), StrokeKind::Inside);
+
+            // Warning note
+            ui.add_space(scale.s(6.0));
+            ui.label(RichText::new("* Network changes require plugin restart")
+                .font(scale.font(11.0)).color(SETTINGS_AMBER_600));
+
+            ui.add_space(scale.s(16.0));
+
+            // === Section D: Config Path ===
+            let config_path = crate::Config_File::AppConfig::config_path();
+            let path_str = config_path.display().to_string();
+            let display_path = if path_str.len() > 40 {
+                format!("...{}", &path_str[path_str.len()-37..])
+            } else {
+                path_str.clone()
+            };
+
+            // 使用固定高度的行，让两侧元素垂直居中
+            let row_height = scale.s(28.0);
+            ui.allocate_ui(Vec2::new(ui.available_width(), row_height), |ui| {
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.label(RichText::new(format!("Config: {}", display_path))
+                        .font(scale.font(11.0)).color(text_label));
+
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        // Styled OPEN FOLDER button
+                        let btn_text = "📁 OPEN FOLDER";
+                        let btn_size = Vec2::new(scale.s(110.0), scale.s(28.0));
+                        let (rect, response) = ui.allocate_exact_size(btn_size, egui::Sense::click());
+
+                        if ui.is_rect_visible(rect) {
+                            let bg = if response.hovered() { SETTINGS_SLATE_100 } else { Color32::WHITE };
+                            ui.painter().rect_filled(rect, scale.s(4.0), bg);
+                            ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+
+                            let galley = ui.painter().layout_no_wrap(
+                                btn_text.to_string(),
+                                scale.font(11.0),
+                                text_medium
+                            );
+                            let text_pos = rect.center() - galley.rect.size() / 2.0;
+                            ui.painter().galley(text_pos, galley, text_medium);
+                        }
+
+                        if response.clicked() {
+                            if let Some(parent) = config_path.parent() {
+                                let _ = open::that(parent);
+                            }
+                        }
+                    });
+                });
+            });
+        });
+
+        ui.add_space(scale.s(24.0));
+    });
+
+    ui.add_space(scale.s(24.0));
+
+    // ========== FOOTER ==========
+    let footer_height = scale.s(72.0);
+
+    // Footer top border
+    let line_rect = ui.available_rect_before_wrap();
+    ui.painter().line_segment(
+        [line_rect.left_top(), egui::pos2(line_rect.right(), line_rect.top())],
+        Stroke::new(scale.s(1.0), SETTINGS_SLATE_200)
+    );
+
+    // Footer background with bottom border
+    let footer_rect = egui::Rect::from_min_size(line_rect.min, Vec2::new(line_rect.width(), footer_height));
+    ui.painter().rect_filled(footer_rect, 0.0, SETTINGS_SLATE_50);
+    // Footer bottom border
+    ui.painter().line_segment(
+        [footer_rect.left_bottom(), footer_rect.right_bottom()],
+        Stroke::new(scale.s(1.0), SETTINGS_SLATE_200)
+    );
+
+    ui.allocate_ui(Vec2::new(ui.available_width(), footer_height), |ui| {
+        // 使用 Align::Center 让按钮在 footer 区域垂直居中
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.add_space(scale.s(20.0));
+
+            // CLOSE button (left) - white background with border
+            let close_size = Vec2::new(scale.s(90.0), scale.s(36.0));
+            let (close_rect, close_response) = ui.allocate_exact_size(close_size, egui::Sense::click());
+
+            if ui.is_rect_visible(close_rect) {
+                let bg = if close_response.hovered() { SETTINGS_SLATE_100 } else { Color32::WHITE };
+                ui.painter().rect_filled(close_rect, scale.s(4.0), bg);
+                ui.painter().rect_stroke(close_rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
+
+                let galley = ui.painter().layout_no_wrap(
+                    "CLOSE".to_string(),
+                    scale.font(13.0),
+                    text_medium
+                );
+                let text_pos = close_rect.center() - galley.rect.size() / 2.0;
+                ui.painter().galley(text_pos, galley, text_medium);
+            }
+
+            if close_response.clicked() {
+                logger.info("editor", "[Settings] Closed");
+                ui.memory_mut(|m| {
+                    m.data.remove::<SettingsState>(state_id);
+                    m.data.remove::<bool>(dialog_id);
+                });
+            }
+
+            // SAVE button (right)
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(scale.s(20.0));
+
+                let save_size = Vec2::new(scale.s(90.0), scale.s(36.0));
+                let (save_rect, save_response) = ui.allocate_exact_size(save_size, egui::Sense::click());
+
+                let save_enabled = state.dirty;
+                if ui.is_rect_visible(save_rect) {
+                    let bg = if save_enabled {
+                        if save_response.hovered() { SETTINGS_SLATE_700 } else { SETTINGS_SLATE_800 }
+                    } else {
+                        SETTINGS_SLATE_300
+                    };
+                    ui.painter().rect_filled(save_rect, scale.s(4.0), bg);
+
+                    let galley = ui.painter().layout_no_wrap(
+                        "SAVE".to_string(),
+                        scale.font(13.0),
+                        Color32::WHITE
+                    );
+                    let text_pos = save_rect.center() - galley.rect.size() / 2.0;
+                    ui.painter().galley(text_pos, galley, Color32::WHITE);
+                }
+
+                if save_response.clicked() && save_enabled {
+                    // Parse and validate
+                    let osc_send: u16 = state.osc_send_port.parse().unwrap_or(7444);
+                    let osc_recv: u16 = state.osc_receive_port.parse().unwrap_or(7445);
+                    let net_port: u16 = state.network_port.parse().unwrap_or(9123);
+                    let master_ip = state.master_ip.clone();
+
+                    // Create new config
+                    let new_config = crate::Config_File::AppConfig {
+                        osc_send_port: osc_send,
+                        osc_receive_port: osc_recv,
+                        network_port: net_port,
+                        master_ip: master_ip.clone(),
+                        default_speaker_layout: app_config.default_speaker_layout.clone(),
+                        default_sub_layout: app_config.default_sub_layout.clone(),
+                        log_directory: app_config.log_directory.clone(),
+                    };
+
+                    // Save to disk
+                    match new_config.save_to_disk() {
+                        Ok(_) => {
+                            logger.info("editor", &format!(
+                                "[Settings] Saved: osc_send={}, osc_recv={}, net_port={}, master_ip={}",
+                                osc_send, osc_recv, net_port, master_ip
+                            ));
+                            state.dirty = false;
+
+                            // Trigger OSC hot reload with new config
+                            interaction.request_osc_restart(new_config.clone());
+
+                            // Trigger Network hot reload (only for Master/Slave modes)
+                            if role != crate::Params::PluginRole::Standalone {
+                                interaction.request_network_restart(new_config.clone());
+                            }
+
+                            // Auto-close window after save
+                            ui.memory_mut(|m| {
+                                m.data.remove::<SettingsState>(state_id);
+                                m.data.remove::<bool>(dialog_id);
+                            });
+                            logger.info("editor", "[Settings] Saved and closed");
+                        }
+                        Err(e) => {
+                            logger.error("editor", &format!("[Settings] Save failed: {}", e));
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    // Save state back to memory
+    ui.memory_mut(|m| m.data.insert_temp(state_id, state));
 }
