@@ -314,7 +314,7 @@ pub fn create_editor(
                             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                             .frame(egui::Frame::none()
                                 .fill(Color32::WHITE)
-                                .stroke(Stroke::new(scale.s(1.0), SETTINGS_SLATE_300))
+                                // 不在 Frame 上设置 stroke，改为在内容内部手动绘制
                                 .inner_margin(egui::Margin::ZERO)
                                 .outer_margin(egui::Margin::ZERO))
                             .show(ctx, |ui| {
@@ -1791,16 +1791,74 @@ fn render_settings_content_v2(
     let text_label = Color32::from_rgb(100, 116, 139);  // slate-500
     let border_color = Color32::from_rgb(203, 213, 225); // slate-300
 
-    // ========== HEADER ==========
-    let header_height = scale.s(48.0);
-    // 使用 max_rect 获取完整宽度（不受 margin 影响）
-    let window_width = ui.max_rect().width();
+    // ========== DEBUG: 打印各种矩形和计算值 ==========
+    let max_rect = ui.max_rect();
+    let available_rect = ui.available_rect_before_wrap();
 
-    // Header background - 使用 max_rect 确保覆盖完整宽度
-    let header_rect = egui::Rect::from_min_max(
-        ui.max_rect().min,
-        egui::pos2(ui.max_rect().max.x, ui.max_rect().min.y + header_height)
+    logger.info("editor", &format!(
+        "[DEBUG] max_rect: ({:.1}, {:.1}) - ({:.1}, {:.1}), w={:.1}",
+        max_rect.min.x, max_rect.min.y, max_rect.max.x, max_rect.max.y, max_rect.width()
+    ));
+    logger.info("editor", &format!(
+        "[DEBUG] available_rect: ({:.1}, {:.1}) - ({:.1}, {:.1}), w={:.1}",
+        available_rect.min.x, available_rect.min.y, available_rect.max.x, available_rect.max.y, available_rect.width()
+    ));
+
+    // ========== 使用固定的窗口宽度（与 Window.fixed_size 一致）==========
+    let fixed_window_width = scale.s(500.0);
+    let content_min = ui.max_rect().min;
+    let margin_x = (fixed_window_width - ui.max_rect().width()) / 2.0;
+    let true_left = content_min.x - margin_x;
+    let true_right = true_left + fixed_window_width;
+
+    logger.info("editor", &format!(
+        "[DEBUG] fixed_width={:.1}, margin_x={:.1}, true_left={:.1}, true_right={:.1}",
+        fixed_window_width, margin_x, true_left, true_right
+    ));
+
+    // ========== DEBUG: 绘制参考线条 ==========
+    // 红色线 = max_rect 左右边缘
+    ui.painter().line_segment(
+        [egui::pos2(max_rect.min.x, max_rect.min.y), egui::pos2(max_rect.min.x, max_rect.min.y + 200.0)],
+        Stroke::new(scale.s(3.0), Color32::RED)
     );
+    ui.painter().line_segment(
+        [egui::pos2(max_rect.max.x, max_rect.min.y), egui::pos2(max_rect.max.x, max_rect.min.y + 200.0)],
+        Stroke::new(scale.s(3.0), Color32::RED)
+    );
+    // 绿色线 = 计算出的 true_left / true_right
+    ui.painter().line_segment(
+        [egui::pos2(true_left, max_rect.min.y + 10.0), egui::pos2(true_left, max_rect.min.y + 190.0)],
+        Stroke::new(scale.s(3.0), Color32::GREEN)
+    );
+    ui.painter().line_segment(
+        [egui::pos2(true_right, max_rect.min.y + 10.0), egui::pos2(true_right, max_rect.min.y + 190.0)],
+        Stroke::new(scale.s(3.0), Color32::GREEN)
+    );
+    // 蓝色线 = Header 背景绘制的实际边界
+    let header_height = scale.s(48.0);
+    let header_rect = egui::Rect::from_min_max(
+        egui::pos2(true_left, content_min.y - margin_x),
+        egui::pos2(true_right, content_min.y - margin_x + header_height)
+    );
+    ui.painter().line_segment(
+        [egui::pos2(header_rect.min.x, header_rect.min.y + 20.0), egui::pos2(header_rect.min.x, header_rect.max.y - 5.0)],
+        Stroke::new(scale.s(3.0), Color32::BLUE)
+    );
+    ui.painter().line_segment(
+        [egui::pos2(header_rect.max.x, header_rect.min.y + 20.0), egui::pos2(header_rect.max.x, header_rect.max.y - 5.0)],
+        Stroke::new(scale.s(3.0), Color32::BLUE)
+    );
+
+    // ========== 手动绘制窗口边框 ==========
+    let window_border_rect = egui::Rect::from_min_max(
+        egui::pos2(true_left, content_min.y - margin_x),
+        egui::pos2(true_right, ui.max_rect().max.y + margin_x)
+    );
+    ui.painter().rect_stroke(window_border_rect, 0.0, Stroke::new(scale.s(1.0), SETTINGS_SLATE_300), StrokeKind::Inside);
+
+    // ========== HEADER ==========
+    // Header background - 延伸到真正的窗口边缘
     ui.painter().rect_filled(header_rect, 0.0, SETTINGS_SLATE_50);
 
     // Header bottom border
@@ -1809,12 +1867,12 @@ fn render_settings_content_v2(
         Stroke::new(scale.s(1.0), SETTINGS_SLATE_200)
     );
 
-    ui.allocate_ui(Vec2::new(window_width, header_height), |ui| {
+    ui.allocate_ui(Vec2::new(fixed_window_width, header_height), |ui| {
         // 使用 Align::Center 让所有元素垂直居中
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
             ui.add_space(scale.s(16.0));
 
-            // Gear icon + SETTINGS title - 直接放置，不用 vertical 包裹
+            // Gear icon + SETTINGS title
             ui.label(RichText::new("⚙").font(scale.font(18.0)).color(text_medium).strong());
             ui.add_space(scale.s(8.0));
             ui.label(RichText::new("SETTINGS").font(scale.font(16.0)).color(text_dark).strong());
@@ -2154,16 +2212,27 @@ fn render_settings_content_v2(
     // ========== FOOTER ==========
     let footer_height = scale.s(72.0);
 
-    // Footer top border
-    let line_rect = ui.available_rect_before_wrap();
+    // Footer 使用与 Header 相同的固定宽度计算
+    let footer_fixed_width = scale.s(500.0);
+    let footer_content_min = ui.max_rect().min;
+    let footer_margin_x = (footer_fixed_width - ui.max_rect().width()) / 2.0;
+    let footer_true_left = footer_content_min.x - footer_margin_x;
+    let footer_true_right = footer_true_left + footer_fixed_width;
+
+    // Footer top border - 延伸到窗口边缘
+    let current_y = ui.available_rect_before_wrap().top();
     ui.painter().line_segment(
-        [line_rect.left_top(), egui::pos2(line_rect.right(), line_rect.top())],
+        [egui::pos2(footer_true_left, current_y), egui::pos2(footer_true_right, current_y)],
         Stroke::new(scale.s(1.0), SETTINGS_SLATE_200)
     );
 
-    // Footer background with bottom border
-    let footer_rect = egui::Rect::from_min_size(line_rect.min, Vec2::new(line_rect.width(), footer_height));
+    // Footer background - 延伸到窗口边缘
+    let footer_rect = egui::Rect::from_min_max(
+        egui::pos2(footer_true_left, current_y),
+        egui::pos2(footer_true_right, current_y + footer_height)
+    );
     ui.painter().rect_filled(footer_rect, 0.0, SETTINGS_SLATE_50);
+
     // Footer bottom border
     ui.painter().line_segment(
         [footer_rect.left_bottom(), footer_rect.right_bottom()],
