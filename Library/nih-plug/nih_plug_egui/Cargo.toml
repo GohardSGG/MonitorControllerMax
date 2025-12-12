@@ -14,13 +14,16 @@ default = ["opengl", "default_fonts"]
 opengl = ["egui-baseview/opengl"]
 default_fonts = ["egui-baseview/default_fonts"]
 rayon = ["egui-baseview/rayon"]
+windows_keyboard_workaround = ["egui-baseview/windows_keyboard_workaround"]
 
 [dependencies]
 nih_plug = { path = "..", default-features = false }
 raw-window-handle = "0.5"
-baseview = { git = "https://github.com/RustAudio/baseview.git", rev = "9a0b42c09d712777b2edb4c5e0cb6baf21e988f0" }
+# Use same baseview as egui-baseview to avoid version conflicts
+baseview = { git = "https://github.com/blepfx/baseview.git", rev = "042f0c6cbc4a8befdd152f61128a2bd83d7bae12" }
 crossbeam = "0.8"
-egui-baseview = { git = "https://github.com/BillyDM/egui-baseview.git", rev = "ec70c3fe6b2f070dcacbc22924431edbe24bd1c0" }
+# Use local egui-baseview with windows_keyboard_workaround feature
+egui-baseview = { path = "../../egui-baseview", features = ["windows_keyboard_workaround"] }
 parking_lot = "0.12"
 # To make the state persistable
 serde = { version = "1.0", features = ["derive"] }
