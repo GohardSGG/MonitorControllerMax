@@ -125,9 +125,9 @@ impl NetworkInteractionState {
         self
     }
 
-    /// 验证魔数
+    /// 验证魔数和协议版本
     pub fn is_valid(&self) -> bool {
-        self.magic == Self::MAGIC
+        self.magic == Self::MAGIC && self.protocol_version == PROTOCOL_VERSION
     }
 }
 

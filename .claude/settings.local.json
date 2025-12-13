@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(cmd /c dir C:CodeMonitorControllerMaxLibrarybaseviewsrcwin)",
-      "Bash(cmd /c \"del C:\\Code\\MonitorControllerMax\\Library\\baseview\\src\\win\\keyboard_hook.rs\")"
+      "Bash(cmd /c \"del C:\\Code\\MonitorControllerMax\\Library\\baseview\\src\\win\\keyboard_hook.rs\")",
+      "Bash(ls -la \"C:\\Code\\MonitorControllerMax\\Doc\\Main\"\" 2>&1 || dir \"C:CodeMonitorControllerMaxDocMain\"\")"
     ],
     "deny": [],
     "ask": []

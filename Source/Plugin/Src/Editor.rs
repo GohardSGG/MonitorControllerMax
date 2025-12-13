@@ -62,8 +62,10 @@ pub fn create_editor(
     // 实例级布局追踪变量（替代全局静态变量）
     let prev_layout = Arc::new(AtomicI32::new(-1));  // -1 表示未初始化
     let prev_sub_layout = Arc::new(AtomicI32::new(-1));
+    let prev_role = Arc::new(AtomicI32::new(-1));  // Role 追踪变量
     let prev_layout_clone = prev_layout.clone();
     let prev_sub_clone = prev_sub_layout.clone();
+    let prev_role_clone = prev_role.clone();
 
     create_egui_editor(
         egui_state,
@@ -109,7 +111,7 @@ pub fn create_editor(
                     let curr_layout = layout_config_clone.get_layout(&curr_speaker_name, &curr_sub_name);
                     let curr_total = curr_layout.total_channels;
 
-                    logger_clone.info("editor", &format!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
+                    logger_clone.important("editor", &format!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
                         prev_speaker_name, prev_sub_name, curr_speaker_name, curr_sub_name,
                         prev_total, curr_total));
 
@@ -128,6 +130,22 @@ pub fn create_editor(
                     osc_state_clone.broadcast_channel_states(&interaction_clone);
                 }
             }
+
+            // === Role 变化检测（触发网络热重载）===
+            let current_role_value = params.role.value() as i32;
+            let prev_role_val = prev_role_clone.load(Ordering::Relaxed);
+
+            if prev_role_val != -1 && prev_role_val != current_role_value {
+                let new_role = params.role.value();
+                let old_role_name = match prev_role_val { 0 => "Standalone", 1 => "Master", _ => "Slave" };
+                logger_clone.important("editor", &format!("[ROLE] {} -> {:?}, triggering network re-init",
+                    old_role_name, new_role));
+
+                // 触发网络热重载
+                interaction_clone.request_network_restart(app_config_clone.clone());
+            }
+
+            prev_role_clone.store(current_role_value, Ordering::Relaxed);
 
             // === OSC 接收处理：检查是否有从外部接收的参数变化 ===
             if let Some((volume, dim, cut)) = osc_state_clone.get_pending_changes() {
@@ -184,7 +202,9 @@ pub fn create_editor(
                 if let Some(layout) = interaction_clone.take_network_layout() {
                     let current_layout = params.layout.value();
                     if layout != current_layout {
-                        logger.clone().info("editor", &format!("[Slave] Layout sync from Master: {} -> {}", current_layout, layout));
+                        // 先清理交互状态，防止通道名错配
+                        interaction_clone.clear_on_layout_change();
+                        logger.clone().info("editor", &format!("[Slave] Layout sync from Master: {} -> {} (cleared state)", current_layout, layout));
                         setter.begin_set_parameter(&params.layout);
                         setter.set_parameter(&params.layout, layout);
                         setter.end_set_parameter(&params.layout);
@@ -195,7 +215,9 @@ pub fn create_editor(
                 if let Some(sub_layout) = interaction_clone.take_network_sub_layout() {
                     let current_sub = params.sub_layout.value();
                     if sub_layout != current_sub {
-                        logger.clone().info("editor", &format!("[Slave] Sub layout sync from Master: {} -> {}", current_sub, sub_layout));
+                        // 先清理交互状态，防止通道名错配
+                        interaction_clone.clear_on_layout_change();
+                        logger.clone().info("editor", &format!("[Slave] Sub layout sync from Master: {} -> {} (cleared state)", current_sub, sub_layout));
                         setter.begin_set_parameter(&params.sub_layout);
                         setter.set_parameter(&params.sub_layout, sub_layout);
                         setter.end_set_parameter(&params.sub_layout);
@@ -1247,6 +1269,7 @@ fn render_sub_row_dynamic(
     logger: &InstanceLogger,
 ) {
     let is_automation = interaction.is_automation_mode();
+    let is_slave = params.role.value() == PluginRole::Slave;
 
     // 计算 SUB 行内的间距，使 3 个按钮均匀分布在 container_width 内
     // 总宽度 = 3 * sub_diameter + 2 * spacing = container_width
@@ -1278,8 +1301,8 @@ fn render_sub_row_dynamic(
 
             let response = ui.add(sub_btn);
 
-            // 点击处理（仅手动模式）
-            if response.clicked() && !is_automation {
+            // 点击处理（仅手动模式，非 Slave）
+            if response.clicked() && !is_automation && !is_slave {
                 // 使用相对索引进行双击检测（保持一致性）
                 let click_type = interaction.detect_sub_click(sub_relative_idx);
                 match click_type {
@@ -1302,8 +1325,8 @@ fn render_sub_row_dynamic(
                 osc_state.broadcast_channel_states(interaction);
             }
 
-            // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式）
-            if response.secondary_clicked() && !is_automation {
+            // 右键：SUB 的 User Mute 反转（替代双击）（仅手动模式，非 Slave）
+            if response.secondary_clicked() && !is_automation && !is_slave {
                 // on_sub_double_click 使用通道名称
                 interaction.on_sub_double_click(&ch.name);
                 logger.info("editor", &format!("[Editor] SUB {} ({}) right-click -> Mute toggle", sub_relative_idx, ch.name));
@@ -1361,6 +1384,7 @@ fn render_main_grid_dynamic(
                             if let Some(ch) = layout.main_channels.iter().find(|c| c.grid_pos == grid_pos) {
                                 let ch_idx = ch.channel_index;
                                 let is_automation = interaction.is_automation_mode();
+                                let is_slave = params.role.value() == PluginRole::Slave;
 
                                 let channel_label = format!("CH {}", ch_idx + 1);
                                 let speaker_box = if is_automation {
@@ -1391,8 +1415,8 @@ fn render_main_grid_dynamic(
 
                                 let response = ui.add(speaker_box);
 
-                                // 点击处理（仅手动模式）
-                                if response.clicked() && !is_automation {
+                                // 点击处理（仅手动模式，非 Slave）
+                                if response.clicked() && !is_automation && !is_slave {
                                     interaction.on_channel_click(&ch.name);
                                     logger.info("editor", &format!("[Editor] Main {} ({}) clicked", ch_idx, ch.name));
 

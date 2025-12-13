@@ -9,6 +9,10 @@ description = "MonitorControllerMax Rust Edition"
 path = "Src/Lib.rs"
 crate-type = ["cdylib"]
 
+[features]
+default = []
+production = []  # 生产模式：禁用文件日志
+
 [dependencies]
 nih_plug = { workspace = true, features = ["assert_process_allocs"] }
 nih_plug_egui = { workspace = true }

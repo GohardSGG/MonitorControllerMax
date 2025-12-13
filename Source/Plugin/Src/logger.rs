@@ -12,6 +12,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::Local;
 use parking_lot::RwLock;
 
+/// Production 模式：禁用文件日志
+#[cfg(feature = "production")]
+const FILE_LOGGING_ENABLED: bool = false;
+
+#[cfg(not(feature = "production"))]
+const FILE_LOGGING_ENABLED: bool = true;
+
 /// Log levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
@@ -127,21 +134,23 @@ impl InstanceLogger {
     }
 
     /// Internal log function
-    fn log(&self, level: Level, module: &str, message: &str) {
-        let timestamp = Local::now().format("%H:%M:%S");
-        let log_line = format!("[{}] [{}] {}", timestamp, module, message);
-
-        // Write to file (if available)
-        if let Ok(mut guard) = self.file.lock() {
-            if let Some(ref mut f) = *guard {
-                let full_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-                let _ = writeln!(f, "[{}] [{}] [{}] {}", full_timestamp, level, module, message);
-                let _ = f.flush();
+    /// show_in_ui: 是否显示在 UI 日志面板
+    fn log(&self, level: Level, module: &str, message: &str, show_in_ui: bool) {
+        // Write to file (if available and enabled)
+        if FILE_LOGGING_ENABLED {
+            if let Ok(mut guard) = self.file.lock() {
+                if let Some(ref mut f) = *guard {
+                    let full_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                    let _ = writeln!(f, "[{}] [{}] [{}] {}", full_timestamp, level, module, message);
+                    let _ = f.flush();
+                }
             }
         }
 
-        // Add to recent logs buffer (for UI display) - always works even without file
-        {
+        // Add to recent logs buffer (for UI display) - only for important logs
+        if show_in_ui {
+            let timestamp = Local::now().format("%H:%M:%S");
+            let log_line = format!("[{}] [{}] {}", timestamp, module, message);
             let mut logs = self.recent_logs.write();
             if logs.len() >= MAX_RECENT_LOGS {
                 logs.pop_front();
@@ -155,30 +164,36 @@ impl InstanceLogger {
         self.recent_logs.read().iter().cloned().collect()
     }
 
-    /// Log at INFO level
+    /// 重要日志（显示在 UI + 写入文件）
+    /// 用于：网络连接状态、角色切换、布局切换
+    pub fn important(&self, module: &str, message: &str) {
+        self.log(Level::Info, module, message, true);
+    }
+
+    /// Log at INFO level (仅写入文件，不显示在 UI)
     pub fn info(&self, module: &str, message: &str) {
-        self.log(Level::Info, module, message);
+        self.log(Level::Info, module, message, false);
     }
 
-    /// Log at WARN level
+    /// Log at WARN level (仅写入文件，不显示在 UI)
     pub fn warn(&self, module: &str, message: &str) {
-        self.log(Level::Warn, module, message);
+        self.log(Level::Warn, module, message, false);
     }
 
-    /// Log at ERROR level
+    /// Log at ERROR level (仅写入文件，不显示在 UI)
     pub fn error(&self, module: &str, message: &str) {
-        self.log(Level::Error, module, message);
+        self.log(Level::Error, module, message, false);
     }
 
     /// Log at DEBUG level
     #[allow(dead_code)]
     pub fn debug(&self, module: &str, message: &str) {
-        self.log(Level::Debug, module, message);
+        self.log(Level::Debug, module, message, false);
     }
 
     /// Log at TRACE level
     #[allow(dead_code)]
     pub fn trace(&self, module: &str, message: &str) {
-        self.log(Level::Trace, module, message);
+        self.log(Level::Trace, module, message, false);
     }
 }

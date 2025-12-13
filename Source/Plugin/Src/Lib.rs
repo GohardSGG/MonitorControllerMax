@@ -171,7 +171,7 @@ impl Plugin for MonitorControllerMax {
         let role_changed = self.last_role.map(|r| r != current_role).unwrap_or(false);
 
         if role_changed {
-            self.logger.info("monitor_controller_max", &format!(
+            self.logger.important("monitor_controller_max", &format!(
                 "[Reset] Role changed: {:?} -> {:?}, triggering re-init",
                 self.last_role, current_role
             ));

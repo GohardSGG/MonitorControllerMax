@@ -69,6 +69,7 @@ impl NetworkManager {
                 Ok(rt) => rt,
                 Err(e) => {
                     logger.error("network", &format!("Failed to create Tokio runtime: {}", e));
+                    is_running.store(false, Ordering::Release);  // 清理标志，允许重新初始化
                     return;
                 }
             };
@@ -81,7 +82,7 @@ impl NetworkManager {
                     logger.warn("network", &format!("ZMQ port {} unavailable: {}", port, e));
                     return;
                 }
-                logger.info("network", &format!("ZMQ Publisher bound to {}", endpoint));
+                logger.important("network", &format!("ZMQ Publisher bound to {}", endpoint));
 
                 let mut send_count: u64 = 0;
                 let mut send_error_count: u64 = 0;
@@ -174,6 +175,7 @@ impl NetworkManager {
                 Ok(rt) => rt,
                 Err(e) => {
                     logger.error("network", &format!("Failed to create Tokio runtime: {}", e));
+                    is_running.store(false, Ordering::Release);  // 清理标志，允许重新初始化
                     return;
                 }
             };
@@ -216,7 +218,7 @@ impl NetworkManager {
                         continue 'reconnect_loop;
                     }
 
-                    logger.info("network", &format!("ZMQ Subscriber connected to {}", endpoint));
+                    logger.important("network", &format!("ZMQ Subscriber connected to {}", endpoint));
 
                     let mut recv_count: u64 = 0;
                     let mut out_of_order_count: u64 = 0;
@@ -278,7 +280,7 @@ impl NetworkManager {
                                             // 收到有效数据时标记为已连接（包括重连后）
                                             if !is_connected.load(Ordering::Relaxed) {
                                                 is_connected.store(true, Ordering::Relaxed);
-                                                logger.info("network", &format!(
+                                                logger.important("network", &format!(
                                                     "ZMQ Slave: {} connected!",
                                                     if recv_count == 1 { "First packet received," } else { "Reconnected," }
                                                 ));
@@ -312,7 +314,10 @@ impl NetworkManager {
                                 if last_packet_time.elapsed().as_millis() as u64 > HEARTBEAT_TIMEOUT_MS {
                                     if is_connected.load(Ordering::Relaxed) {
                                         is_connected.store(false, Ordering::Relaxed);
-                                        logger.warn("network", "ZMQ Slave: Heartbeat timeout, requesting reconnect...");
+                                        logger.important("network", "ZMQ Slave: Heartbeat timeout, reconnecting...");
+
+                                        // 先清理 is_running 标志，允许热重载机制重新初始化
+                                        is_running.store(false, Ordering::Release);
 
                                         // 请求网络重启（Lib.rs process() 会执行）
                                         interaction.request_network_restart(app_config.clone());
