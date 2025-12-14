@@ -100,7 +100,17 @@ impl InstanceLogger {
 
     /// Get the log file path for this instance
     fn get_log_path(instance_id: &str) -> PathBuf {
+        #[cfg(target_os = "windows")]
         let primary_dir = PathBuf::from("C:/Plugins/MCM_Logs");
+
+        #[cfg(target_os = "macos")]
+        let primary_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library/Logs/MonitorControllerMax");
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let primary_dir = std::env::temp_dir().join("MonitorControllerMax_Logs");
+
         let log_dir = if fs::create_dir_all(&primary_dir).is_ok() {
             primary_dir
         } else {

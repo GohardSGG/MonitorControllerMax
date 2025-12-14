@@ -287,7 +287,18 @@ impl Plugin for MonitorControllerMax {
             }
         }
 
-        Audio::process_audio(buffer, &self.params, &self.gain_state, &self.interaction, &self.layout_config);
+        // === C1 修复：获取 OSC 状态用于覆盖 DAW 参数 ===
+        // 这样即使 Editor 关闭，OSC 控制仍能工作
+        let osc_state = self.osc.get_state();
+
+        Audio::process_audio(
+            buffer,
+            &self.params,
+            &self.gain_state,
+            &self.interaction,
+            &self.layout_config,
+            Some(&osc_state),  // 传递 OSC 状态用于覆盖
+        );
         ProcessStatus::Normal
     }
 }

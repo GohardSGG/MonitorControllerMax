@@ -22,19 +22,46 @@ impl Default for RenderState {
     }
 }
 
+/// OSC 覆盖值（用于 Editor 关闭时仍能响应 OSC 控制）
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OscOverride {
+    pub master_volume: Option<f32>,
+    pub dim: Option<bool>,
+    pub cut: Option<bool>,
+}
+
 pub struct ChannelLogic;
 
 impl ChannelLogic {
     /// Pure function to compute RenderState from Params and Layout
     /// `override_role`: If Some, use this role instead of params.role
     /// `interaction`: Reference to the InteractionManager for channel state
+    /// `osc_override`: Optional OSC override values (used when Editor is closed)
     ///
     /// **音频线程优化**: 使用 Lock-Free 快照，避免任何锁操作
-    pub fn compute(params: &MonitorParams, layout: &Layout, override_role: Option<PluginRole>, interaction: &InteractionManager) -> RenderState {
+    pub fn compute(
+        params: &MonitorParams,
+        layout: &Layout,
+        override_role: Option<PluginRole>,
+        interaction: &InteractionManager,
+        osc_override: Option<OscOverride>,
+    ) -> RenderState {
         let _role = override_role.unwrap_or(params.role.value());
-        let master_gain = params.master_gain.value();
-        let dim_active = params.dim.value();
-        let cut_active = params.cut.value();
+
+        // 使用 OSC 覆盖值（如果有），否则使用 DAW 参数
+        let (master_gain, dim_active, cut_active) = if let Some(osc) = osc_override {
+            (
+                osc.master_volume.unwrap_or_else(|| params.master_gain.value()),
+                osc.dim.unwrap_or_else(|| params.dim.value()),
+                osc.cut.unwrap_or_else(|| params.cut.value()),
+            )
+        } else {
+            (
+                params.master_gain.value(),
+                params.dim.value(),
+                params.cut.value(),
+            )
+        };
 
         let mut state = RenderState::default();
 

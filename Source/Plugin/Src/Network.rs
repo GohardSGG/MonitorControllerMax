@@ -48,18 +48,18 @@ impl NetworkManager {
         let thread_alive = self.thread_handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
 
         // 如果线程真正在运行，先关闭
-        if self.is_running.load(Ordering::Relaxed) && thread_alive {
+        if self.is_running.load(Ordering::Acquire) && thread_alive {
             self.shutdown();
         }
 
         // D: 线程已死但标志未清（C5 线程主动退出导致），清理状态
-        if self.is_running.load(Ordering::Relaxed) && !thread_alive {
+        if self.is_running.load(Ordering::Acquire) && !thread_alive {
             logger.info("network", "[Network Master] Previous thread exited, cleaning up for re-init...");
-            self.is_running.store(false, Ordering::Relaxed);
+            self.is_running.store(false, Ordering::Release);
             if let Some(h) = self.thread_handle.take() { let _ = h.join(); }
         }
 
-        self.is_running.store(true, Ordering::Relaxed);
+        self.is_running.store(true, Ordering::Release);
 
         let is_running = Arc::clone(&self.is_running);
 
@@ -87,7 +87,7 @@ impl NetworkManager {
                 let mut send_count: u64 = 0;
                 let mut send_error_count: u64 = 0;
 
-                while is_running.load(Ordering::Relaxed) {
+                while is_running.load(Ordering::Acquire) {
                     // Role != Master 时暂停（不退出）
                     if params.role.value() != PluginRole::Master {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -149,19 +149,19 @@ impl NetworkManager {
         let thread_alive = self.thread_handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
 
         // 如果线程真正在运行，先关闭
-        if self.is_running.load(Ordering::Relaxed) && thread_alive {
+        if self.is_running.load(Ordering::Acquire) && thread_alive {
             self.shutdown();
         }
 
         // D: 线程已死但标志未清（C5 线程主动退出导致），清理状态
-        if self.is_running.load(Ordering::Relaxed) && !thread_alive {
+        if self.is_running.load(Ordering::Acquire) && !thread_alive {
             logger.info("network", "[Network Slave] Previous thread exited, cleaning up for re-init...");
-            self.is_running.store(false, Ordering::Relaxed);
+            self.is_running.store(false, Ordering::Release);
             if let Some(h) = self.thread_handle.take() { let _ = h.join(); }
         }
 
         let endpoint = format!("tcp://{}:{}", master_ip, port);
-        self.is_running.store(true, Ordering::Relaxed);
+        self.is_running.store(true, Ordering::Release);
         self.is_connected.store(false, Ordering::Relaxed);
         self.last_timestamp.store(0, Ordering::Relaxed);
 
@@ -186,7 +186,7 @@ impl NetworkManager {
                 const HEARTBEAT_TIMEOUT_MS: u64 = 2000;  // C6: 心跳超时 2 秒
 
                 // 外层重连循环
-                'reconnect_loop: while is_running.load(Ordering::Relaxed) {
+                'reconnect_loop: while is_running.load(Ordering::Acquire) {
                     // Role != Slave 时暂停（不退出）
                     if params.role.value() != PluginRole::Slave {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -226,7 +226,7 @@ impl NetworkManager {
                     let mut last_packet_time = std::time::Instant::now();  // C6: 心跳计时
 
                     // 内层接收循环
-                    while is_running.load(Ordering::Relaxed) {
+                    while is_running.load(Ordering::Acquire) {
                         // Role != Slave 时暂停（不退出），断开当前连接
                         if params.role.value() != PluginRole::Slave {
                             is_connected.store(false, Ordering::Relaxed);
@@ -343,12 +343,12 @@ impl NetworkManager {
 
     /// 关闭网络管理器
     pub fn shutdown(&mut self) {
-        if !self.is_running.load(Ordering::Relaxed) {
+        if !self.is_running.load(Ordering::Acquire) {
             return;
         }
 
         // 停止线程
-        self.is_running.store(false, Ordering::Relaxed);
+        self.is_running.store(false, Ordering::Release);
         self.is_connected.store(false, Ordering::Relaxed);
 
         // 等待线程结束

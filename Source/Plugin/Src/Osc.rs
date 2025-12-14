@@ -223,6 +223,30 @@ impl OscSharedState {
         self.high_boost.load(Ordering::Relaxed)
     }
 
+    // === OSC 覆盖值 getter (用于 process() 中直接读取) ===
+
+    /// 获取 OSC 接收的 Master Volume 值
+    /// 注意：这是原始 OSC 值，不是 DAW 参数值
+    pub fn get_osc_master_volume(&self) -> f32 {
+        f32::from_bits(self.master_volume.load(Ordering::Relaxed))
+    }
+
+    /// 获取 OSC 接收的 Dim 状态
+    pub fn get_osc_dim(&self) -> bool {
+        self.dim.load(Ordering::Relaxed)
+    }
+
+    /// 获取 OSC 接收的 Cut 状态
+    pub fn get_osc_cut(&self) -> bool {
+        self.cut.load(Ordering::Relaxed)
+    }
+
+    /// 检查是否有待处理的 OSC 变化（不清除标志）
+    /// 用于 process() 中判断是否需要使用 OSC 覆盖值
+    pub fn has_osc_override(&self) -> bool {
+        self.has_pending.load(Ordering::Relaxed)
+    }
+
     /// 获取并清除待处理的变化
     pub fn get_pending_changes(&self) -> Option<(f32, bool, bool)> {
         if !self.has_pending.swap(false, Ordering::Relaxed) {
@@ -423,15 +447,15 @@ impl OscManager {
             || self.receive_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
             || self.blink_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
 
-        if self.is_running.load(Ordering::Relaxed) && threads_alive {
+        if self.is_running.load(Ordering::Acquire) && threads_alive {
             logger.warn("osc", "[OSC] Already running, skipping initialization");
             return;
         }
 
         // D: 线程已死但标志未清（C5 线程主动退出导致），清理状态以允许重新初始化
-        if self.is_running.load(Ordering::Relaxed) && !threads_alive {
+        if self.is_running.load(Ordering::Acquire) && !threads_alive {
             logger.info("osc", "[OSC] Previous threads exited, cleaning up for re-init...");
-            self.is_running.store(false, Ordering::Relaxed);
+            self.is_running.store(false, Ordering::Release);
             // 等待并清理线程句柄
             if let Some(h) = self.send_thread.take() { let _ = h.join(); }
             if let Some(h) = self.receive_thread.take() { let _ = h.join(); }
@@ -458,7 +482,7 @@ impl OscManager {
         *self.state.sender_tx.write() = Some(send_tx.clone());
 
         // 设置运行标志
-        self.is_running.store(true, Ordering::Relaxed);
+        self.is_running.store(true, Ordering::Release);
 
         // 获取端口配置
         let send_port = app_config.osc_send_port;
@@ -547,7 +571,7 @@ impl OscManager {
 
     /// 关闭 OSC 系统
     pub fn shutdown(&mut self) {
-        if !self.is_running.load(Ordering::Relaxed) {
+        if !self.is_running.load(Ordering::Acquire) {
             return;
         }
 
@@ -556,7 +580,7 @@ impl OscManager {
         }
 
         // 停止所有线程
-        self.is_running.store(false, Ordering::Relaxed);
+        self.is_running.store(false, Ordering::Release);
 
         // 等待线程结束
         if let Some(handle) = self.send_thread.take() {
@@ -596,7 +620,7 @@ impl OscManager {
             let target_addr = format!("127.0.0.1:{}", send_port);
 
             // 主循环：使用阻塞接收 + 批量处理，消除轮询延迟
-            while is_running.load(Ordering::Relaxed) {
+            while is_running.load(Ordering::Acquire) {
                 // Slave 模式时暂停（不退出）
                 if params.role.value() == PluginRole::Slave {
                     thread::sleep(Duration::from_millis(100));
@@ -654,6 +678,8 @@ impl OscManager {
                 Err(e) => {
                     // 绑定失败，可能是另一个实例已占用端口（这是预期行为）
                     state.recv_port_bound.store(false, Ordering::Relaxed);
+                    // C2 修复：清理 is_running 标志，允许重新初始化
+                    is_running.store(false, Ordering::Release);
                     logger.info("osc", &format!("[OSC Recv] Port {} unavailable (another instance may be using it): {}", recv_port, e));
                     return;
                 }
@@ -662,13 +688,15 @@ impl OscManager {
             // 设置非阻塞模式
             if let Err(e) = socket.set_read_timeout(Some(Duration::from_millis(100))) {
                 logger.error("osc", &format!("[OSC Recv] Failed to set timeout: {}", e));
+                // C2 修复：清理 is_running 标志，允许重新初始化
+                is_running.store(false, Ordering::Release);
                 return;
             }
 
             let mut buf = [0u8; 1024];
 
             // 主循环
-            while is_running.load(Ordering::Relaxed) {
+            while is_running.load(Ordering::Acquire) {
                 // Slave 模式时暂停（不退出）
                 if params.role.value() == PluginRole::Slave {
                     thread::sleep(Duration::from_millis(100));
@@ -710,7 +738,7 @@ impl OscManager {
         thread::spawn(move || {
             logger.info("osc", &format!("[OSC Blink] Thread started, interval = {}ms", BLINK_INTERVAL_MS));
 
-            while is_running.load(Ordering::Relaxed) {
+            while is_running.load(Ordering::Acquire) {
                 // Slave 模式时暂停（不退出）
                 if params.role.value() == PluginRole::Slave {
                     thread::sleep(Duration::from_millis(100));

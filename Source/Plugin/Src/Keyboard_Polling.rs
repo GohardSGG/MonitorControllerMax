@@ -160,11 +160,3 @@ pub fn poll_and_apply(_text: &mut String) -> bool {
     false
 }
 
-#[cfg(not(target_os = "windows"))]
-#[derive(Debug, Clone, Copy)]
-pub enum NavKey {
-    Left,
-    Right,
-    Home,
-    End,
-}

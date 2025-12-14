@@ -145,13 +145,22 @@ fn post_build_copy(args: &[String]) -> anyhow::Result<()> {
     println!("[Auto-Copy] Archived to: {}", dest_path_1.display());
 
     // ---------------------------------------------------------
-    // 目标 2: 系统 VST 开发目录 (C:\Plugins\VST Dev)
+    // 目标 2: 系统 VST 开发目录
+    // Windows: C:\Plugins\VST Dev
+    // macOS: ~/Library/Audio/Plug-Ins/VST3
     // ---------------------------------------------------------
-    let external_dev_dir = Path::new(r"C:\Plugins\VST Dev");
+    #[cfg(target_os = "windows")]
+    let external_dev_dir = Path::new(r"C:\Plugins\VST Dev").to_path_buf();
 
+    #[cfg(target_os = "macos")]
+    let external_dev_dir = {
+        let home = env::var("HOME").context("Failed to get HOME env var")?;
+        Path::new(&home).join("Library/Audio/Plug-Ins/VST3")
+    };
+    
     // 如果目录不存在，自动创建
     if !external_dev_dir.exists() {
-        fs::create_dir_all(external_dev_dir)?;
+        fs::create_dir_all(&external_dev_dir)?;
     }
 
     let dest_path_2 = external_dev_dir.join(dir_name);
@@ -159,6 +168,10 @@ fn post_build_copy(args: &[String]) -> anyhow::Result<()> {
     // 执行递归拷贝
     copy_dir_recursive(&src_path, &dest_path_2)?;
     println!("[Auto-Copy] Deployed to: {}", dest_path_2.display());
+
+    // macOS: 执行代码签名
+    #[cfg(target_os = "macos")]
+    sign_vst3_bundle_macos(&dest_path_2)?;
 
     println!("[Auto-Copy] Success!\n");
     Ok(())
@@ -206,22 +219,32 @@ fn post_build_copy_production() -> anyhow::Result<()> {
     println!("[Auto-Copy] Archived to: {}", dest_path_1.display());
 
     // ---------------------------------------------------------
-    // 目标 2: 系统 VST3 目录 (C:\Program Files\Common Files\VST3)
+    // 目标 2: 系统 VST3 目录
+    // Windows: C:\Program Files\Common Files\VST3
+    // macOS: /Library/Audio/Plug-Ins/VST3 (Root)
     // ---------------------------------------------------------
-    let system_vst3_dir = Path::new(r"C:\Program Files\Common Files\VST3");
+    #[cfg(target_os = "windows")]
+    let system_vst3_dir = Path::new(r"C:\Program Files\Common Files\VST3").to_path_buf();
+
+    #[cfg(target_os = "macos")]
+    let system_vst3_dir = Path::new("/Library/Audio/Plug-Ins/VST3").to_path_buf();
 
     // 如果目录不存在，自动创建（需要管理员权限）
     if !system_vst3_dir.exists() {
-        fs::create_dir_all(system_vst3_dir)
-            .context("Failed to create system VST3 directory. Run as Administrator?")?;
+        fs::create_dir_all(&system_vst3_dir)
+            .context("Failed to create system VST3 directory. Run as Administrator/Root?")?;
     }
 
     let dest_path_2 = system_vst3_dir.join(dir_name);
 
     // 执行递归拷贝
     copy_dir_recursive(&src_path, &dest_path_2)
-        .context("Failed to copy to system VST3 directory. Run as Administrator?")?;
+        .context("Failed to copy to system VST3 directory. Run as Administrator/Root?")?;
     println!("[Auto-Copy] Deployed to: {}", dest_path_2.display());
+
+    // macOS: 执行代码签名
+    #[cfg(target_os = "macos")]
+    sign_vst3_bundle_macos(&dest_path_2)?;
 
     println!("[Auto-Copy] Production build complete!\n");
     Ok(())
@@ -250,5 +273,29 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
             fs::copy(entry.path(), &dest_path)?;
         }
     }
+    Ok(())
+}
+
+/// macOS Ad-hoc 签名
+#[cfg(target_os = "macos")]
+fn sign_vst3_bundle_macos(bundle_path: &Path) -> anyhow::Result<()> {
+    println!("[Auto-Copy] Signing VST3 bundle for macOS (Ad-hoc)...");
+    
+    let status = Command::new("codesign")
+        .args([
+            "--force",
+            "--deep",
+            "--sign", "-",
+            bundle_path.to_str().unwrap()
+        ])
+        .status()
+        .context("Failed to execute codesign")?;
+
+    if status.success() {
+        println!("[Auto-Copy] Signing successful.");
+    } else {
+        println!("[Auto-Copy] Warning: Signing failed. Logic Pro might not load the plugin.");
+    }
+
     Ok(())
 }

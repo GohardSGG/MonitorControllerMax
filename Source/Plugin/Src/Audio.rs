@@ -4,9 +4,10 @@ use nih_plug::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
-use crate::Channel_Logic::ChannelLogic;
+use crate::Channel_Logic::{ChannelLogic, OscOverride};
 use crate::Config_Manager::ConfigManager;
 use crate::Interaction::InteractionManager;
+use crate::Osc::OscSharedState;
 
 // ==================== 增益平滑状态（实例级）====================
 
@@ -55,12 +56,14 @@ impl Default for GainSmoothingState {
 /// Master-Slave 同步由独立的网络线程处理（通过 InteractionManager）。
 ///
 /// **优化**: 使用无分配的布局查询方法，避免在音频线程中分配内存
+/// **C1 修复**: 支持 OSC 覆盖值，即使 Editor 关闭也能响应 OSC 控制
 pub fn process_audio(
     buffer: &mut Buffer,
     params: &MonitorParams,
     gain_state: &GainSmoothingState,
     interaction: &Arc<InteractionManager>,
     layout_config: &ConfigManager,
+    osc_state: Option<&Arc<OscSharedState>>,  // 新增：OSC 状态用于覆盖
 ) {
     let role = params.role.value();
 
@@ -74,18 +77,34 @@ pub fn process_audio(
 
     let layout = layout_config.get_layout(speaker_name, sub_name);
 
+    // === C1 修复：检查 OSC 覆盖（全部是 Atomic 操作，无锁！）===
+    let osc_override = if let Some(osc) = osc_state {
+        if osc.has_osc_override() {
+            // OSC 有待处理的值，使用它们覆盖 DAW 参数
+            Some(OscOverride {
+                master_volume: Some(osc.get_osc_master_volume()),
+                dim: Some(osc.get_osc_dim()),
+                cut: Some(osc.get_osc_cut()),
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // 计算 RenderState
     // - Master/Standalone: 从本地 InteractionManager 计算
     // - Slave: 同样从 InteractionManager 计算（已被网络线程同步更新）
     let render_state = match role {
         PluginRole::Master | PluginRole::Standalone => {
-            // 本地计算
-            ChannelLogic::compute(params, &layout, None, interaction)
+            // 本地计算，带 OSC 覆盖支持
+            ChannelLogic::compute(params, &layout, None, interaction, osc_override)
         },
         PluginRole::Slave => {
             // Slave 的 InteractionManager 已被网络线程同步更新
-            // 直接使用它计算状态
-            ChannelLogic::compute(params, &layout, None, interaction)
+            // Slave 不需要 OSC 覆盖（由 Master 控制）
+            ChannelLogic::compute(params, &layout, None, interaction, None)
         }
     };
 
