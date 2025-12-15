@@ -32,6 +32,7 @@ tokio = { workspace = true }
 rosc = "0.10"
 dirs = "5.0"
 open = "5.0"
+wide = { workspace = true }  # P6: SIMD 优化
 
 [build-dependencies]
 serde_json = "1.0"

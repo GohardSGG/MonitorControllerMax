@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv};
 use bincode;
-use tokio::runtime::Runtime;
+// P2 优化：使用 Builder 创建单线程 Runtime，不再需要直接 use Runtime
 
 use crate::Network_Protocol::NetworkInteractionState;
 use crate::Interaction::InteractionManager;
@@ -64,8 +64,11 @@ impl NetworkManager {
         let is_running = Arc::clone(&self.is_running);
 
         self.thread_handle = Some(thread::spawn(move || {
-            // 错误处理：Runtime 创建失败不 panic
-            let rt = match Runtime::new() {
+            // P2 优化：使用单线程 Runtime 减少开销
+            // Master 网络线程只需要单线程，无需多线程 Runtime 的额外开销
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build() {
                 Ok(rt) => rt,
                 Err(e) => {
                     logger.error("network", &format!("Failed to create Tokio runtime: {}", e));
@@ -170,8 +173,11 @@ impl NetworkManager {
         let last_timestamp = Arc::clone(&self.last_timestamp);
 
         self.thread_handle = Some(thread::spawn(move || {
-            // 错误处理：Runtime 创建失败不 panic
-            let rt = match Runtime::new() {
+            // P2 优化：使用单线程 Runtime 减少开销
+            // Slave 网络线程只需要单线程，无需多线程 Runtime 的额外开销
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build() {
                 Ok(rt) => rt,
                 Err(e) => {
                     logger.error("network", &format!("Failed to create Tokio runtime: {}", e));
@@ -260,12 +266,13 @@ impl NetworkManager {
                                             }
 
                                             // 正常乱序检查
+                                            // C9 修复：使用 < 而非 <=，允许相同时间戳的包（高负载时可能发生）
                                             let current_prev = last_timestamp.load(Ordering::Relaxed);
-                                            if state.timestamp <= current_prev && current_prev != 0 {
+                                            if state.timestamp < current_prev && current_prev != 0 {
                                                 out_of_order_count += 1;
                                                 if out_of_order_count <= 3 || out_of_order_count % 100 == 0 {
                                                     logger.warn("network", &format!(
-                                                        "Out-of-order packet #{}: ts={} <= prev={}",
+                                                        "Out-of-order packet #{}: ts={} < prev={}",
                                                         out_of_order_count, state.timestamp, current_prev
                                                     ));
                                                 }
@@ -315,6 +322,9 @@ impl NetworkManager {
                                     if is_connected.load(Ordering::Relaxed) {
                                         is_connected.store(false, Ordering::Relaxed);
                                         logger.important("network", "ZMQ Slave: Heartbeat timeout, reconnecting...");
+
+                                        // C11 修复：清空网络状态，防止旧数据污染新连接
+                                        interaction.clear_network_state();
 
                                         // 先清理 is_running 标志，允许热重载机制重新初始化
                                         is_running.store(false, Ordering::Release);

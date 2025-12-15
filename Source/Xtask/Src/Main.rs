@@ -1,10 +1,93 @@
 #![allow(non_snake_case)]
 
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs;
 use std::process::Command;
 use anyhow::Context;
+
+/// 获取平台特定的 bundled 目录名称
+/// Windows: Windows_X86-64
+/// macOS ARM: MacOS_AArch64
+/// macOS Intel: MacOS_X86-64
+/// Linux: Linux_X86-64
+fn get_platform_bundle_dir() -> &'static str {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    return "Windows_X86-64";
+
+    #[cfg(all(target_os = "windows", target_arch = "x86"))]
+    return "Windows_X86";
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    return "MacOS_AArch64";
+
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    return "MacOS_X86-64";
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return "Linux_X86-64";
+
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    return "Linux_AArch64";
+
+    // Fallback
+    #[allow(unreachable_code)]
+    "Unknown"
+}
+
+/// 清理默认的 bundled 目录（解决 Mac/Windows 格式冲突）
+fn clean_default_bundled_dir(workspace_root: &Path) -> anyhow::Result<()> {
+    let bundled_dir = workspace_root.join("target/bundled");
+    if bundled_dir.exists() {
+        println!("[Pre-Clean] Removing target/bundled to avoid platform conflicts...");
+        fs::remove_dir_all(&bundled_dir)
+            .context("Failed to remove target/bundled directory")?;
+    }
+    Ok(())
+}
+
+/// 将 bundled 目录内容移动到平台特定目录
+fn move_to_platform_dir(workspace_root: &Path) -> anyhow::Result<PathBuf> {
+    let src_dir = workspace_root.join("target/bundled");
+    let platform_dir_name = get_platform_bundle_dir();
+    let dst_dir = workspace_root.join("target/bundled").with_file_name(format!("bundled_{}", platform_dir_name));
+
+    if !src_dir.exists() {
+        return Err(anyhow::anyhow!("target/bundled not found after build"));
+    }
+
+    // 确保目标目录存在
+    if dst_dir.exists() {
+        fs::remove_dir_all(&dst_dir)?;
+    }
+    fs::create_dir_all(&dst_dir)?;
+
+    // 移动所有内容
+    for entry in fs::read_dir(&src_dir)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst_dir.join(entry.file_name());
+
+        // 如果目标已存在，先删除
+        if dst_path.exists() {
+            if dst_path.is_dir() {
+                fs::remove_dir_all(&dst_path)?;
+            } else {
+                fs::remove_file(&dst_path)?;
+            }
+        }
+
+        // 移动（重命名）
+        fs::rename(&src_path, &dst_path)
+            .with_context(|| format!("Failed to move {:?} to {:?}", src_path, dst_path))?;
+    }
+
+    // 删除空的 src_dir
+    let _ = fs::remove_dir(&src_dir);
+
+    println!("[Platform Bundle] Moved to: {}", dst_dir.display());
+    Ok(dst_dir)
+}
 
 fn main() -> anyhow::Result<()> {
     // 1. 检查命令参数
@@ -12,12 +95,16 @@ fn main() -> anyhow::Result<()> {
     let should_copy = args.iter().any(|arg| arg == "bundle");
     let is_production = args.iter().any(|arg| arg == "--production");
 
+    // 获取 workspace 根目录
+    let workspace_root = env::current_dir()?;
+
     // 2. 如果是 production 模式，需要设置环境变量传递 feature
     if is_production && should_copy {
         println!("\n[Production Build] Starting production build with --features production...");
+        println!("[Platform] Target: {}", get_platform_bundle_dir());
 
-        // 获取 workspace 根目录
-        let workspace_root = env::current_dir()?;
+        // 清理默认 bundled 目录（避免 Mac/Windows 格式冲突）
+        clean_default_bundled_dir(&workspace_root)?;
 
         // 方法：直接设置 CARGO_FEATURE_PRODUCTION 环境变量
         // 然后调用标准的 xtask bundle 流程
@@ -74,13 +161,23 @@ fn main() -> anyhow::Result<()> {
         // 给文件系统一点喘息时间
         std::thread::sleep(std::time::Duration::from_millis(500));
 
+        // 移动到平台特定目录
+        let platform_dir = move_to_platform_dir(&workspace_root)?;
+
         // 执行 production 拷贝（部署到系统 VST3 目录）
-        post_build_copy_production()?;
+        post_build_copy_production(&platform_dir)?;
 
         return Ok(());
     }
 
     // 3. 标准构建流程（非 production）
+    println!("[Platform] Target: {}", get_platform_bundle_dir());
+
+    // 清理默认 bundled 目录（避免 Mac/Windows 格式冲突）
+    if should_copy {
+        clean_default_bundled_dir(&workspace_root)?;
+    }
+
     let result = nih_plug_xtask::main();
 
     // 4. 只有构建成功才尝试拷贝
@@ -92,15 +189,18 @@ fn main() -> anyhow::Result<()> {
         // 给文件系统一点喘息时间
         std::thread::sleep(std::time::Duration::from_millis(500));
 
+        // 移动到平台特定目录
+        let platform_dir = move_to_platform_dir(&workspace_root)?;
+
         // 尝试执行拷贝
-        post_build_copy(&args)?;
+        post_build_copy(&args, &platform_dir)?;
     }
 
     Ok(())
 }
 
 /// 构建后自动拷贝任务（开发模式）
-fn post_build_copy(args: &[String]) -> anyhow::Result<()> {
+fn post_build_copy(args: &[String], bundled_dir: &Path) -> anyhow::Result<()> {
     // 判断构建模式
     let is_release = args.iter().any(|arg| arg == "--release");
     let profile = if is_release { "Release" } else { "Debug" };
@@ -109,21 +209,20 @@ fn post_build_copy(args: &[String]) -> anyhow::Result<()> {
 
     // 获取 workspace 根目录 (假设在项目根目录下运行 cargo xtask)
     let workspace_root = env::current_dir()?;
-    let bundled_dir = workspace_root.join("target/bundled");
 
     // 查找生成的 VST3 目录
     if !bundled_dir.exists() {
-        println!("[Auto-Copy] Warning: target/bundled directory not found. Skipping copy.");
-        return Err(anyhow::anyhow!("target/bundled not found after successful build"));
+        println!("[Auto-Copy] Warning: bundled directory not found. Skipping copy.");
+        return Err(anyhow::anyhow!("bundled directory not found after successful build"));
     }
 
-    let vst3_entry = fs::read_dir(&bundled_dir)
-        .context("Failed to read target/bundled directory")?
+    let vst3_entry = fs::read_dir(bundled_dir)
+        .context("Failed to read bundled directory")?
         .filter_map(|e| e.ok())
         .find(|e| {
             e.path().extension().map_or(false, |ext| ext == "vst3")
         })
-        .context("No .vst3 bundle found in target/bundled. Did the build succeed?")?;
+        .context("No .vst3 bundle found in bundled directory. Did the build succeed?")?;
 
     let src_path = vst3_entry.path();
     let dir_name = src_path.file_name().context("Invalid source filename")?;
@@ -178,26 +277,25 @@ fn post_build_copy(args: &[String]) -> anyhow::Result<()> {
 }
 
 /// 构建后自动拷贝任务（生产模式）
-fn post_build_copy_production() -> anyhow::Result<()> {
+fn post_build_copy_production(bundled_dir: &Path) -> anyhow::Result<()> {
     println!("\n[Auto-Copy] Starting post-build copy for Production profile...");
 
     // 获取 workspace 根目录
     let workspace_root = env::current_dir()?;
-    let bundled_dir = workspace_root.join("target/bundled");
 
     // 查找生成的 VST3 目录
     if !bundled_dir.exists() {
-        println!("[Auto-Copy] Warning: target/bundled directory not found. Skipping copy.");
-        return Err(anyhow::anyhow!("target/bundled not found after successful build"));
+        println!("[Auto-Copy] Warning: bundled directory not found. Skipping copy.");
+        return Err(anyhow::anyhow!("bundled directory not found after successful build"));
     }
 
-    let vst3_entry = fs::read_dir(&bundled_dir)
-        .context("Failed to read target/bundled directory")?
+    let vst3_entry = fs::read_dir(bundled_dir)
+        .context("Failed to read bundled directory")?
         .filter_map(|e| e.ok())
         .find(|e| {
             e.path().extension().map_or(false, |ext| ext == "vst3")
         })
-        .context("No .vst3 bundle found in target/bundled. Did the build succeed?")?;
+        .context("No .vst3 bundle found in bundled directory. Did the build succeed?")?;
 
     let src_path = vst3_entry.path();
     let dir_name = src_path.file_name().context("Invalid source filename")?;

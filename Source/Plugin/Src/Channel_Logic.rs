@@ -2,22 +2,25 @@ use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Config_Manager::Layout;
 use crate::Interaction::InteractionManager;
 
+/// P3: 缓存行对齐的 RenderState
+/// 64 字节对齐确保热数据在同一缓存行，减少 L3 未命中
 #[derive(Clone, Copy, Debug)]
-#[repr(C)]
+#[repr(C, align(64))]
 pub struct RenderState {
     pub master_gain: f32,
-    pub channel_gains: [f32; MAX_CHANNELS],
-    // Bitmask for simple mute status (for network efficiency)
-    // 1 = Muted/Auto-Muted, 0 = Open
     pub channel_mute_mask: u32,
+    // P3: 填充到 64 字节边界，确保 channel_gains 从新缓存行开始
+    _padding: [u8; 56],
+    pub channel_gains: [f32; MAX_CHANNELS],
 }
 
 impl Default for RenderState {
     fn default() -> Self {
         Self {
             master_gain: 1.0,
-            channel_gains: [1.0; MAX_CHANNELS],
             channel_mute_mask: 0,
+            _padding: [0; 56],
+            channel_gains: [1.0; MAX_CHANNELS],
         }
     }
 }
@@ -97,14 +100,12 @@ impl ChannelLogic {
             for i in 0..layout.total_channels {
                 if i >= MAX_CHANNELS { break; }
 
-                // 查找通道信息
-                let channel_info = layout.main_channels.iter()
-                    .chain(layout.sub_channels.iter())
-                    .find(|ch| ch.channel_index == i);
-
-                if let Some(ch_info) = channel_info {
+                // P5: O(1) 通道名称查找（替代 O(n) 的 find()）
+                let lookup = &layout.channel_by_index[i];
+                if lookup.valid {
+                    let ch_name = lookup.as_str();
                     // 核心：使用快照的纯函数计算（无锁！）
-                    let has_sound = snapshot.get_channel_state(&ch_info.name, i);
+                    let has_sound = snapshot.get_channel_state(ch_name, i);
                     let pass = if has_sound { 1.0 } else { 0.0 };
 
                     state.channel_gains[i] = pass;

@@ -148,30 +148,32 @@ pub fn create_editor(
             prev_role_clone.store(current_role_value, Ordering::Relaxed);
 
             // === OSC 接收处理：检查是否有从外部接收的参数变化 ===
-            if let Some((volume, dim, cut)) = osc_state_clone.get_pending_changes() {
-                // 更新 Master Volume
+            // B1 修复：分别处理每个参数，只在有变化时更新，避免返回未初始化的默认值
+            if let Some(volume) = osc_state_clone.take_pending_volume() {
                 setter.begin_set_parameter(&params.master_gain);
                 setter.set_parameter(&params.master_gain, volume);
                 setter.end_set_parameter(&params.master_gain);
+                logger_clone.info("editor", &format!("[OSC Recv] Volume: {:.3}", volume));
+            }
 
-                // 更新 Dim
+            if let Some(dim) = osc_state_clone.take_pending_dim() {
                 setter.begin_set_parameter(&params.dim);
                 setter.set_parameter(&params.dim, dim);
                 setter.end_set_parameter(&params.dim);
+                // 回显 OSC 状态
+                osc_state_clone.send_dim(dim);
+                logger_clone.info("editor", &format!("[OSC Recv] Dim: {}", dim));
+            }
 
-                // 更新 Cut
+            if let Some(cut) = osc_state_clone.take_pending_cut() {
                 setter.begin_set_parameter(&params.cut);
                 setter.set_parameter(&params.cut, cut);
                 setter.end_set_parameter(&params.cut);
-
                 // 同步 Cut 状态（用于 toggle 支持）
                 osc_state_clone.sync_cut_state(cut);
-
-                logger_clone.info("editor", &format!("[OSC Recv] Applied changes: volume={:.3}, dim={}, cut={}", volume, dim, cut));
-
-                // 回显 OSC 状态（Volume 不回显，避免与硬件控制器竞争）
-                osc_state_clone.send_dim(dim);
+                // 回显 OSC 状态
                 osc_state_clone.send_cut(cut);
+                logger_clone.info("editor", &format!("[OSC Recv] Cut: {}", cut));
             }
 
             // === Slave 网络同步：检查是否有从 Master 接收的参数变化 ===

@@ -55,8 +55,13 @@ pub struct OscSharedState {
     pub low_boost: AtomicBool,
     /// High Boost 状态
     pub high_boost: AtomicBool,
-    /// 是否有待处理的变化
-    pub has_pending: AtomicBool,
+    // B1 修复：分离的 pending 标志，追踪每个值的变化
+    /// Volume 是否有待处理的变化
+    pub volume_pending: AtomicBool,
+    /// Dim 是否有待处理的变化
+    pub dim_pending: AtomicBool,
+    /// Cut 是否有待处理的变化
+    pub cut_pending: AtomicBool,
     /// OSC 接收端口是否成功绑定（用于UI显示）
     pub recv_port_bound: AtomicBool,
     /// 实例级日志器（线程安全）
@@ -80,7 +85,10 @@ impl OscSharedState {
             lfe_add_10db: AtomicBool::new(false),
             low_boost: AtomicBool::new(false),
             high_boost: AtomicBool::new(false),
-            has_pending: AtomicBool::new(false),
+            // B1 修复：分离的 pending 标志
+            volume_pending: AtomicBool::new(false),
+            dim_pending: AtomicBool::new(false),
+            cut_pending: AtomicBool::new(false),
             recv_port_bound: AtomicBool::new(false),
             logger: None,
         }
@@ -166,21 +174,24 @@ impl OscSharedState {
     // === 接收方法 ===
 
     /// 设置 Master Volume (从 OSC 接收)
+    /// B1 修复：只标记 volume_pending，不影响其他参数
     pub fn set_master_volume(&self, value: f32) {
-        self.master_volume.store(value.to_bits(), Ordering::Relaxed);
-        self.has_pending.store(true, Ordering::Relaxed);
+        self.master_volume.store(value.to_bits(), Ordering::Release);
+        self.volume_pending.store(true, Ordering::Release);
     }
 
     /// 设置 Dim (从 OSC 接收)
+    /// B1 修复：只标记 dim_pending，不影响其他参数
     pub fn set_dim(&self, on: bool) {
-        self.dim.store(on, Ordering::Relaxed);
-        self.has_pending.store(true, Ordering::Relaxed);
+        self.dim.store(on, Ordering::Release);
+        self.dim_pending.store(true, Ordering::Release);
     }
 
     /// 设置 Cut (从 OSC 接收)
+    /// B1 修复：只标记 cut_pending，不影响其他参数
     pub fn set_cut(&self, on: bool) {
-        self.cut.store(on, Ordering::Relaxed);
-        self.has_pending.store(true, Ordering::Relaxed);
+        self.cut.store(on, Ordering::Release);
+        self.cut_pending.store(true, Ordering::Release);
     }
 
     /// 设置 Mono (从 OSC 接收)
@@ -242,20 +253,59 @@ impl OscSharedState {
     }
 
     /// 检查是否有待处理的 OSC 变化（不清除标志）
-    /// 用于 process() 中判断是否需要使用 OSC 覆盖值
+    /// B1 修复：检查所有分离的 pending 标志
     pub fn has_osc_override(&self) -> bool {
-        self.has_pending.load(Ordering::Relaxed)
+        self.volume_pending.load(Ordering::Acquire)
+            || self.dim_pending.load(Ordering::Acquire)
+            || self.cut_pending.load(Ordering::Acquire)
     }
 
-    /// 获取并清除待处理的变化
+    /// B1 修复：获取并清除 Volume 变化（返回 Option）
+    /// 只在 volume 有变化时返回 Some，不影响其他参数
+    pub fn take_pending_volume(&self) -> Option<f32> {
+        if self.volume_pending.swap(false, Ordering::Acquire) {
+            Some(f32::from_bits(self.master_volume.load(Ordering::Acquire)))
+        } else {
+            None
+        }
+    }
+
+    /// B1 修复：获取并清除 Dim 变化（返回 Option）
+    /// 只在 dim 有变化时返回 Some，不影响其他参数
+    pub fn take_pending_dim(&self) -> Option<bool> {
+        if self.dim_pending.swap(false, Ordering::Acquire) {
+            Some(self.dim.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    /// B1 修复：获取并清除 Cut 变化（返回 Option）
+    /// 只在 cut 有变化时返回 Some，不影响其他参数
+    pub fn take_pending_cut(&self) -> Option<bool> {
+        if self.cut_pending.swap(false, Ordering::Acquire) {
+            Some(self.cut.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    /// 获取并清除待处理的变化（已废弃，保留兼容性）
+    /// B1 修复后应该使用 take_pending_volume/dim/cut 替代
+    #[allow(dead_code)]
     pub fn get_pending_changes(&self) -> Option<(f32, bool, bool)> {
-        if !self.has_pending.swap(false, Ordering::Relaxed) {
+        // 检查是否有任何 pending 变化
+        let vol_pending = self.volume_pending.swap(false, Ordering::Acquire);
+        let dim_pending = self.dim_pending.swap(false, Ordering::Acquire);
+        let cut_pending = self.cut_pending.swap(false, Ordering::Acquire);
+
+        if !vol_pending && !dim_pending && !cut_pending {
             return None;
         }
 
-        let volume = f32::from_bits(self.master_volume.load(Ordering::Relaxed));
-        let dim = self.dim.load(Ordering::Relaxed);
-        let cut = self.cut.load(Ordering::Relaxed);
+        let volume = f32::from_bits(self.master_volume.load(Ordering::Acquire));
+        let dim = self.dim.load(Ordering::Acquire);
+        let cut = self.cut.load(Ordering::Acquire);
 
         Some((volume, dim, cut))
     }
@@ -1072,9 +1122,29 @@ impl OscManager {
     }
 
     fn handle_dim(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
-        let on = value > 0.5;
-        logger.info("osc", &format!("[OSC] Dim received: {}", on));
-        state.set_dim(on);
+        let state_val = value.round() as u8;
+
+        let new_dim = match state_val {
+            1 => {
+                // value=1 → toggle（按钮按下）
+                let current = state.dim.load(Ordering::Relaxed);
+                let toggled = !current;
+                logger.info("osc", &format!("[OSC] Dim toggle: {} -> {}", current, toggled));
+                toggled
+            }
+            0 => {
+                // value=0 → 关闭
+                logger.info("osc", "[OSC] Dim set: false");
+                false
+            }
+            _ => {
+                // value>=2 → 开启
+                logger.info("osc", "[OSC] Dim set: true");
+                true
+            }
+        };
+
+        state.set_dim(new_dim);
     }
 
     fn handle_cut(value: f32, state: &OscSharedState, logger: &InstanceLogger) {

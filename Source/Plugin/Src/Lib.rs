@@ -212,77 +212,74 @@ impl Plugin for MonitorControllerMax {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         // 检查 OSC 热重载请求
-        if let Some(new_config) = self.interaction.take_osc_restart_request() {
-            let role = self.params.role.value();
-            if role != Params::PluginRole::Slave {
-                self.logger.info("monitor_controller_max", &format!(
-                    "[Hot Reload] Restarting OSC with new ports: send={}, recv={}",
-                    new_config.osc_send_port, new_config.osc_receive_port
-                ));
+        // P1 优化：只在有 pending 请求时才获取锁
+        if self.interaction.has_osc_restart_pending() {
+            if let Some(new_config) = self.interaction.take_osc_restart_request() {
+                let role = self.params.role.value();
+                if role != Params::PluginRole::Slave {
+                    // P1 性能优化：移除 format! 分配，日志移到 reset() 中
+                    // 原代码: self.logger.info("monitor_controller_max", &format!(...))
 
-                // 关闭当前 OSC
-                self.osc.shutdown();
+                    // 关闭当前 OSC
+                    self.osc.shutdown();
 
-                // 使用新配置重新初始化
-                let master_volume = self.params.master_gain.value();
-                let dim = self.params.dim.value();
-                let cut = self.params.cut.value();
-                self.osc.init(
-                    self.output_channels,
-                    master_volume,
-                    dim,
-                    cut,
-                    self.interaction.clone(),
-                    self.params.clone(),
-                    Arc::clone(&self.logger),
-                    &new_config
-                );
+                    // 使用新配置重新初始化
+                    let master_volume = self.params.master_gain.value();
+                    let dim = self.params.dim.value();
+                    let cut = self.params.cut.value();
+                    self.osc.init(
+                        self.output_channels,
+                        master_volume,
+                        dim,
+                        cut,
+                        self.interaction.clone(),
+                        self.params.clone(),
+                        Arc::clone(&self.logger),
+                        &new_config
+                    );
 
-                // 更新保存的配置
-                self.app_config = new_config;
+                    // 更新保存的配置
+                    self.app_config = new_config;
 
-                self.logger.info("monitor_controller_max", "[Hot Reload] OSC restart complete");
+                    // P1 性能优化：移除 format! 分配
+                    // 原代码: self.logger.info("monitor_controller_max", "[Hot Reload] OSC restart complete");
+                }
             }
         }
 
         // 检查 Network 热重载请求
-        if let Some(new_config) = self.interaction.take_network_restart_request() {
-            let role = self.params.role.value();
-            match role {
-                Params::PluginRole::Master => {
-                    self.logger.info("monitor_controller_max", &format!(
-                        "[Hot Reload] Restarting Network (Master) with port={}",
-                        new_config.network_port
-                    ));
-                    self.network.shutdown();
-                    self.network.init_master(
-                        new_config.network_port,
-                        self.interaction.clone(),
-                        self.params.clone(),
-                        Arc::clone(&self.logger)
-                    );
-                    self.app_config = new_config;
-                    self.logger.info("monitor_controller_max", "[Hot Reload] Network restart complete");
-                }
-                Params::PluginRole::Slave => {
-                    self.logger.info("monitor_controller_max", &format!(
-                        "[Hot Reload] Restarting Network (Slave) with ip={}, port={}",
-                        new_config.master_ip, new_config.network_port
-                    ));
-                    self.network.shutdown();
-                    self.network.init_slave(
-                        &new_config.master_ip,
-                        new_config.network_port,
-                        self.interaction.clone(),
-                        self.params.clone(),
-                        Arc::clone(&self.logger),
-                        new_config.clone()
-                    );
-                    self.app_config = new_config;
-                    self.logger.info("monitor_controller_max", "[Hot Reload] Network restart complete");
-                }
-                Params::PluginRole::Standalone => {
-                    // Standalone 不需要 Network，忽略
+        // P1 优化：只在有 pending 请求时才获取锁
+        if self.interaction.has_network_restart_pending() {
+            if let Some(new_config) = self.interaction.take_network_restart_request() {
+                let role = self.params.role.value();
+                match role {
+                    Params::PluginRole::Master => {
+                        // P1 性能优化：移除 format! 分配
+                        self.network.shutdown();
+                        self.network.init_master(
+                            new_config.network_port,
+                            self.interaction.clone(),
+                            self.params.clone(),
+                            Arc::clone(&self.logger)
+                        );
+                        self.app_config = new_config;
+                    }
+                    Params::PluginRole::Slave => {
+                        // P1 性能优化：移除 format! 分配
+                        self.network.shutdown();
+                        self.network.init_slave(
+                            &new_config.master_ip,
+                            new_config.network_port,
+                            self.interaction.clone(),
+                            self.params.clone(),
+                            Arc::clone(&self.logger),
+                            new_config.clone()
+                        );
+                        self.app_config = new_config;
+                    }
+                    Params::PluginRole::Standalone => {
+                        // Standalone 不需要 Network，忽略
+                    }
                 }
             }
         }

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
+use crate::Params::MAX_CHANNELS;
 
 // Embed the default config
 const DEFAULT_CONFIG_JSON: &str = include_str!("../../Resource/Speaker_Config.json");
@@ -25,6 +26,52 @@ pub struct ChannelInfo {
     pub channel_index: usize, // 0-based index in the audio buffer
 }
 
+/// P5: 预计算的通道名称查找表条目
+/// 使用固定大小字符串避免堆分配
+#[derive(Debug, Clone, Copy)]
+pub struct ChannelLookupEntry {
+    /// 通道名称（固定 8 字节，足够存储 "SUB_F" 等）
+    pub name: [u8; 8],
+    /// 名称实际长度
+    pub name_len: u8,
+    /// 是否有效
+    pub valid: bool,
+}
+
+impl Default for ChannelLookupEntry {
+    fn default() -> Self {
+        Self {
+            name: [0; 8],
+            name_len: 0,
+            valid: false,
+        }
+    }
+}
+
+impl ChannelLookupEntry {
+    /// 从字符串创建查找条目
+    fn from_str(s: &str) -> Self {
+        let mut entry = Self::default();
+        let bytes = s.as_bytes();
+        let len = bytes.len().min(8);
+        entry.name[..len].copy_from_slice(&bytes[..len]);
+        entry.name_len = len as u8;
+        entry.valid = true;
+        entry
+    }
+
+    /// 获取通道名称作为 &str
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        if self.valid {
+            // SAFETY: 我们只存储有效的 UTF-8 字符串
+            unsafe { std::str::from_utf8_unchecked(&self.name[..self.name_len as usize]) }
+        } else {
+            ""
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Layout {
     #[allow(dead_code)]
@@ -34,6 +81,9 @@ pub struct Layout {
     pub main_channels: Vec<ChannelInfo>,  // 主声道（在网格中显示）
     pub sub_channels: Vec<ChannelInfo>,   // SUB 声道（在上下轨道中显示）
     pub total_channels: usize,
+    /// P5: O(1) 通道名称查找表
+    /// channel_by_index[i] = 通道 i 的名称（用于快速查找）
+    pub channel_by_index: [ChannelLookupEntry; MAX_CHANNELS],
 }
 
 #[derive(Deserialize, Debug)]
@@ -203,9 +253,20 @@ impl ConfigManager {
 
         let total_channels = main_channels.len() + sub_channels.len();
 
+        // P5: 构建 O(1) 查找表
+        let mut channel_by_index = [ChannelLookupEntry::default(); MAX_CHANNELS];
+        for ch in main_channels.iter().chain(sub_channels.iter()) {
+            if ch.channel_index < MAX_CHANNELS {
+                channel_by_index[ch.channel_index] = ChannelLookupEntry::from_str(&ch.name);
+            }
+        }
+
         // H3: 空配置降级 - 如果没有任何通道，返回最小立体声配置
         if total_channels == 0 {
             eprintln!("[MCM] WARNING: Empty layout '{}+{}', falling back to stereo", speaker_name, sub_name);
+            let mut fallback_lookup = [ChannelLookupEntry::default(); MAX_CHANNELS];
+            fallback_lookup[0] = ChannelLookupEntry::from_str("L");
+            fallback_lookup[1] = ChannelLookupEntry::from_str("R");
             return Layout {
                 name: "Fallback_Stereo".to_string(),
                 width: 3,
@@ -216,6 +277,7 @@ impl ConfigManager {
                 ],
                 sub_channels: vec![],
                 total_channels: 2,
+                channel_by_index: fallback_lookup,
             };
         }
 
@@ -226,6 +288,7 @@ impl ConfigManager {
             main_channels,
             sub_channels,
             total_channels,
+            channel_by_index,
         }
     }
 }

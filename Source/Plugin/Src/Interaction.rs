@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 use crossbeam::atomic::AtomicCell;
@@ -19,23 +19,26 @@ use crate::Network_Protocol::NetworkInteractionState;
 
 /// 音频线程使用的 Lock-Free 快照
 /// 所有字段都是简单值类型，可以原子复制
+/// C12 修复：明确 16 字节对齐，确保 AtomicCell 在所有平台上正确工作
 #[derive(Clone, Copy, Debug, Default)]
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct RenderSnapshot {
     /// 主模式: 0=None, 1=Solo, 2=Mute
     pub primary: u8,
     /// 比较模式: 0=None, 1=Solo, 2=Mute
     pub compare: u8,
+    /// 是否自动化模式
+    pub automation_mode: bool,
+    /// 填充到 4 字节边界
+    _padding1: u8,
     /// Solo 通道掩码（位图）
     pub solo_mask: u32,
     /// Mute 通道掩码（位图）
     pub mute_mask: u32,
     /// SUB User Mute 掩码（位图，bit 0-3）
     pub user_mute_sub_mask: u8,
-    /// 是否自动化模式
-    pub automation_mode: bool,
-    /// 填充对齐
-    _padding: [u8; 2],
+    /// 填充到 16 字节
+    _padding2: [u8; 3],
 }
 
 impl RenderSnapshot {
@@ -301,10 +304,14 @@ pub struct InteractionManager {
     // ========== OSC Hot Reload ==========
     /// 待应用的新配置（用于 OSC 端口热重载）
     osc_restart_config: RwLock<Option<crate::Config_File::AppConfig>>,
+    /// P1 优化：快速路径标志，避免每个 block 都获取 RwLock
+    osc_restart_pending: AtomicBool,
 
     // ========== Network Hot Reload ==========
     /// 待应用的新配置（用于 Network 端口/IP 热重载）
     network_restart_config: RwLock<Option<crate::Config_File::AppConfig>>,
+    /// P1 优化：快速路径标志，避免每个 block 都获取 RwLock
+    network_restart_pending: AtomicBool,
 
     // ========== Lock-Free 音频线程快照 ==========
     /// 音频线程使用的原子快照（无锁读取）
@@ -333,8 +340,10 @@ impl InteractionManager {
             network_sub_layout: RwLock::new(None),
             // OSC Hot Reload 初始化
             osc_restart_config: RwLock::new(None),
+            osc_restart_pending: AtomicBool::new(false),
             // Network Hot Reload 初始化
             network_restart_config: RwLock::new(None),
+            network_restart_pending: AtomicBool::new(false),
             // Lock-Free 快照初始化
             render_snapshot: AtomicCell::new(RenderSnapshot::default()),
         }
@@ -409,19 +418,17 @@ impl InteractionManager {
 
     /// 更新快照（UI/网络线程在状态变化后调用）
     /// M1: 优化为快速读取所有锁，然后释放锁后再计算
+    /// P3 优化：原地计算掩码，不再克隆 HashSet
     pub fn update_snapshot(&self) {
-        // Step 1: 快速读取所有状态（最小化锁持有时间）
+        // P3 优化：直接在持有锁时计算掩码，避免 HashSet 克隆
         let primary = *self.primary.read();
         let compare = *self.compare.read();
-        let solo_channels = self.solo_set.read().channels.clone();
-        let mute_channels = self.mute_set.read().channels.clone();
-        let user_mute_sub = self.user_mute_sub.read().clone();
         let automation = *self.automation_mode.read();
 
-        // Step 2: 锁已释放，可以安全地进行计算
-        let solo_mask = Self::channel_set_to_mask(&solo_channels);
-        let mute_mask = Self::channel_set_to_mask(&mute_channels);
-        let user_mute_sub_mask = Self::sub_set_to_mask(&user_mute_sub);
+        // 原地计算掩码（不克隆 HashSet）
+        let solo_mask = Self::channel_set_to_mask(&self.solo_set.read().channels);
+        let mute_mask = Self::channel_set_to_mask(&self.mute_set.read().channels);
+        let user_mute_sub_mask = Self::sub_set_to_mask(&self.user_mute_sub.read());
 
         let snapshot = RenderSnapshot {
             primary: match primary {
@@ -434,14 +441,15 @@ impl InteractionManager {
                 CompareMode::Solo => 1,
                 CompareMode::Mute => 2,
             },
+            automation_mode: automation,
+            _padding1: 0,
             solo_mask,
             mute_mask,
             user_mute_sub_mask,
-            automation_mode: automation,
-            _padding: [0; 2],
+            _padding2: [0; 3],
         };
 
-        // Step 3: 原子写入快照
+        // 原子写入快照
         self.render_snapshot.store(snapshot);
     }
 
@@ -1270,11 +1278,26 @@ impl InteractionManager {
         *self.automation_mode.write() = state.automation_mode;
 
         // Step 3: 更新网络接收值（供 Editor 读取并应用到 params）
+        // C10 修复：只在值真正变化时设置，避免重复触发 clear_on_layout_change()
         *self.network_master_gain.write() = Some(state.master_gain);
         *self.network_dim.write() = Some(state.dim);
         *self.network_cut.write() = Some(state.cut);
-        *self.network_layout.write() = Some(state.layout);
-        *self.network_sub_layout.write() = Some(state.sub_layout);
+
+        // 布局只在首次接收或真正变化时设置
+        {
+            let current_layout = self.network_layout.read();
+            if current_layout.is_none() || *current_layout != Some(state.layout) {
+                drop(current_layout);
+                *self.network_layout.write() = Some(state.layout);
+            }
+        }
+        {
+            let current_sub = self.network_sub_layout.read();
+            if current_sub.is_none() || *current_sub != Some(state.sub_layout) {
+                drop(current_sub);
+                *self.network_sub_layout.write() = Some(state.sub_layout);
+            }
+        }
 
         // Step 4: 最后更新 Lock-Free 快照（音频线程读取的是一致的快照）
         self.update_snapshot();
@@ -1305,27 +1328,69 @@ impl InteractionManager {
         self.network_sub_layout.write().take()
     }
 
+    /// C11 修复：清空所有网络接收的状态
+    /// 在心跳超时或断开连接时调用，防止旧数据污染新连接
+    pub fn clear_network_state(&self) {
+        *self.network_master_gain.write() = None;
+        *self.network_dim.write() = None;
+        *self.network_cut.write() = None;
+        *self.network_layout.write() = None;
+        *self.network_sub_layout.write() = None;
+    }
+
     // ========== OSC Hot Reload 方法 ==========
 
     /// 请求 OSC 重启（携带新配置）
+    /// P1 优化：设置 pending 标志，让 process() 可以快速检查
     pub fn request_osc_restart(&self, new_config: crate::Config_File::AppConfig) {
         *self.osc_restart_config.write() = Some(new_config);
+        self.osc_restart_pending.store(true, Ordering::Release);
+    }
+
+    /// P1 优化：快速检查是否有 OSC 重启请求（无锁）
+    #[inline]
+    pub fn has_osc_restart_pending(&self) -> bool {
+        self.osc_restart_pending.load(Ordering::Relaxed)
     }
 
     /// 获取并清除 OSC 重启请求（Lib.rs process 调用）
+    /// P1 优化：只在 pending 为 true 时才获取锁
     pub fn take_osc_restart_request(&self) -> Option<crate::Config_File::AppConfig> {
-        self.osc_restart_config.write().take()
+        if !self.osc_restart_pending.load(Ordering::Relaxed) {
+            return None;  // 快速路径，无锁
+        }
+        let config = self.osc_restart_config.write().take();
+        if config.is_some() {
+            self.osc_restart_pending.store(false, Ordering::Relaxed);
+        }
+        config
     }
 
     // ========== Network Hot Reload 方法 ==========
 
     /// 请求 Network 重启（携带新配置）
+    /// P1 优化：设置 pending 标志，让 process() 可以快速检查
     pub fn request_network_restart(&self, new_config: crate::Config_File::AppConfig) {
         *self.network_restart_config.write() = Some(new_config);
+        self.network_restart_pending.store(true, Ordering::Release);
+    }
+
+    /// P1 优化：快速检查是否有 Network 重启请求（无锁）
+    #[inline]
+    pub fn has_network_restart_pending(&self) -> bool {
+        self.network_restart_pending.load(Ordering::Relaxed)
     }
 
     /// 获取并清除 Network 重启请求（Lib.rs process 调用）
+    /// P1 优化：只在 pending 为 true 时才获取锁
     pub fn take_network_restart_request(&self) -> Option<crate::Config_File::AppConfig> {
-        self.network_restart_config.write().take()
+        if !self.network_restart_pending.load(Ordering::Relaxed) {
+            return None;  // 快速路径，无锁
+        }
+        let config = self.network_restart_config.write().take();
+        if config.is_some() {
+            self.network_restart_pending.store(false, Ordering::Relaxed);
+        }
+        config
     }
 }

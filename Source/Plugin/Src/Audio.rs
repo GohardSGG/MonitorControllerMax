@@ -2,30 +2,37 @@
 
 use nih_plug::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
+use atomic_float::AtomicF32;
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Channel_Logic::{ChannelLogic, OscOverride};
 use crate::Config_Manager::ConfigManager;
 use crate::Interaction::InteractionManager;
 use crate::Osc::OscSharedState;
 
-// ==================== 增益平滑状态（实例级）====================
+// ==================== P2 优化：批量增益平滑 ====================
 
 /// 平滑系数：α = 0.1
 /// 在 48kHz 下，约 50 采样（~1ms）达到 99% 目标值
 const SMOOTHING_ALPHA: f32 = 0.1;
 
+/// P2 优化：批量更新间隔
+/// 每 8 个样本更新一次增益（而非每样本），减少 87% 的平滑计算
+const SMOOTHING_UPDATE_INTERVAL: usize = 8;
+
 /// 增益平滑状态结构体（每个插件实例拥有独立的状态）
+/// P7: 使用 AtomicF32（无位转换开销）
+#[repr(align(64))]  // P3: 缓存行对齐，避免 false sharing
 pub struct GainSmoothingState {
     /// 每通道当前增益状态（用于平滑过渡）
-    /// 使用 AtomicU32 存储 f32 的位表示
-    current_gains: [AtomicU32; MAX_CHANNELS],
+    /// P7: 直接使用 AtomicF32，消除 to_bits/from_bits 转换
+    current_gains: [AtomicF32; MAX_CHANNELS],
 }
 
 impl GainSmoothingState {
     /// 创建新的增益平滑状态（初始增益为 1.0）
     pub fn new() -> Self {
-        const INIT: AtomicU32 = AtomicU32::new(0x3F800000); // 1.0f32 的位表示
+        const INIT: AtomicF32 = AtomicF32::new(1.0);
         Self {
             current_gains: [INIT; MAX_CHANNELS],
         }
@@ -34,13 +41,13 @@ impl GainSmoothingState {
     /// 读取当前增益
     #[inline]
     pub fn load_gain(&self, ch: usize) -> f32 {
-        f32::from_bits(self.current_gains[ch].load(Ordering::Relaxed))
+        self.current_gains[ch].load(Ordering::Relaxed)
     }
 
     /// 存储当前增益
     #[inline]
     pub fn store_gain(&self, ch: usize, value: f32) {
-        self.current_gains[ch].store(value.to_bits(), Ordering::Relaxed);
+        self.current_gains[ch].store(value, Ordering::Relaxed);
     }
 }
 
@@ -50,20 +57,22 @@ impl Default for GainSmoothingState {
     }
 }
 
-/// 音频处理核心逻辑
+/// 音频处理核心逻辑 - P2/P3/P4/P6/P7 极致优化版本
 ///
-/// 注意：此函数只做音频处理，不涉及任何网络操作。
-/// Master-Slave 同步由独立的网络线程处理（通过 InteractionManager）。
-///
-/// **优化**: 使用无分配的布局查询方法，避免在音频线程中分配内存
-/// **C1 修复**: 支持 OSC 覆盖值，即使 Editor 关闭也能响应 OSC 控制
+/// 优化点：
+/// - P2: 批量增益平滑（每 8 样本更新，减少 87% 计算）
+/// - P3: 本地增益缓存（栈上数组，避免原子操作）
+/// - P4: Branchless 静音计算（消除分支预测失败）
+/// - P6: 通道优先处理（as_slice），连续内存访问，LLVM 自动向量化
+/// - P7: AtomicF32 无位转换
+/// - 无内存分配，纯栈操作
 pub fn process_audio(
     buffer: &mut Buffer,
     params: &MonitorParams,
     gain_state: &GainSmoothingState,
     interaction: &Arc<InteractionManager>,
     layout_config: &ConfigManager,
-    osc_state: Option<&Arc<OscSharedState>>,  // 新增：OSC 状态用于覆盖
+    osc_state: Option<&Arc<OscSharedState>>,
 ) {
     let role = params.role.value();
 
@@ -80,7 +89,6 @@ pub fn process_audio(
     // === C1 修复：检查 OSC 覆盖（全部是 Atomic 操作，无锁！）===
     let osc_override = if let Some(osc) = osc_state {
         if osc.has_osc_override() {
-            // OSC 有待处理的值，使用它们覆盖 DAW 参数
             Some(OscOverride {
                 master_volume: Some(osc.get_osc_master_volume()),
                 dim: Some(osc.get_osc_dim()),
@@ -94,47 +102,71 @@ pub fn process_audio(
     };
 
     // 计算 RenderState
-    // - Master/Standalone: 从本地 InteractionManager 计算
-    // - Slave: 同样从 InteractionManager 计算（已被网络线程同步更新）
     let render_state = match role {
         PluginRole::Master | PluginRole::Standalone => {
-            // 本地计算，带 OSC 覆盖支持
             ChannelLogic::compute(params, &layout, None, interaction, osc_override)
         },
         PluginRole::Slave => {
-            // Slave 的 InteractionManager 已被网络线程同步更新
-            // Slave 不需要 OSC 覆盖（由 Master 控制）
             ChannelLogic::compute(params, &layout, None, interaction, None)
         }
     };
 
-    // 应用音频处理 (增益/静音) - 带平滑过渡
-    for channel_samples in buffer.iter_samples() {
-        for (ch_idx, sample) in channel_samples.into_iter().enumerate() {
-            if ch_idx >= MAX_CHANNELS {
-                break;
+    // P2/P3 优化：使用本地增益缓存（栈上，无堆分配）
+    let mut local_gains = [0.0f32; MAX_CHANNELS];
+    let mut target_gains = [0.0f32; MAX_CHANNELS];
+
+    let num_channels = layout.total_channels.min(MAX_CHANNELS);
+
+    // 初始化本地增益 + P4: Branchless 预计算目标增益
+    for ch_idx in 0..num_channels {
+        local_gains[ch_idx] = gain_state.load_gain(ch_idx);
+
+        // P4: Branchless 目标增益计算
+        let is_muted_bit = ((render_state.channel_mute_mask >> ch_idx) & 1) as f32;
+        let muted_multiplier = 1.0 - is_muted_bit;
+
+        target_gains[ch_idx] = render_state.master_gain
+            * render_state.channel_gains[ch_idx]
+            * muted_multiplier;
+    }
+
+    // P6: 通道优先处理 - 使用 as_slice() 获取连续内存访问
+    // 这比 iter_samples() 更高效，因为：
+    // 1. 连续内存访问更好的 L1 缓存命中率
+    // 2. LLVM 可以对内层循环自动向量化
+    let channel_slices = buffer.as_slice();
+    let block_len = channel_slices.first().map(|s| s.len()).unwrap_or(0);
+
+    // P2: 计算平滑更新次数（每 8 样本更新一次）
+    let num_updates = (block_len + SMOOTHING_UPDATE_INTERVAL - 1) / SMOOTHING_UPDATE_INTERVAL;
+
+    for ch_idx in 0..num_channels.min(channel_slices.len()) {
+        let samples = &mut channel_slices[ch_idx];
+        let mut current_gain = local_gains[ch_idx];
+        let target = target_gains[ch_idx];
+
+        // P2/P6: 分块处理 - 每 8 样本更新一次增益
+        for update_idx in 0..num_updates {
+            // 更新平滑值（每块开始时）
+            current_gain += (target - current_gain) * SMOOTHING_ALPHA;
+
+            // 计算本块的样本范围
+            let start = update_idx * SMOOTHING_UPDATE_INTERVAL;
+            let end = (start + SMOOTHING_UPDATE_INTERVAL).min(block_len);
+
+            // P6: 内层循环 - 连续内存访问，LLVM 可自动向量化
+            // 注意：这个循环处理连续的 8 个样本，编译器会优化为 SIMD
+            for sample in &mut samples[start..end] {
+                *sample *= current_gain;
             }
-
-            // 检查该通道是否被静音
-            let is_muted = (render_state.channel_mute_mask >> ch_idx) & 1 == 1;
-
-            // 获取该通道的目标增益
-            let ch_gain = render_state.channel_gains[ch_idx];
-
-            // 计算最终目标增益 = 主增益 × 通道增益 × (静音 ? 0 : 1)
-            let target_gain = if is_muted {
-                0.0
-            } else {
-                render_state.master_gain * ch_gain
-            };
-
-            // 指数平滑：current = current + (target - current) * α
-            let current_gain = gain_state.load_gain(ch_idx);
-            let smoothed_gain = current_gain + (target_gain - current_gain) * SMOOTHING_ALPHA;
-            gain_state.store_gain(ch_idx, smoothed_gain);
-
-            // 应用平滑后的增益到采样点
-            *sample *= smoothed_gain;
         }
+
+        // 保存最终增益值
+        local_gains[ch_idx] = current_gain;
+    }
+
+    // P2: 只在 block 结束时写回原子状态
+    for ch_idx in 0..num_channels {
+        gain_state.store_gain(ch_idx, local_gains[ch_idx]);
     }
 }

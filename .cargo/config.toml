@@ -1,3 +1,16 @@
 [alias]
 xtask = "run -p xtask --"
 
+# P0: 极致性能优化配置
+# 启用 target-cpu=native 让编译器生成针对本机 CPU 的最优指令
+[build]
+rustflags = ["-C", "target-cpu=native", "-C", "opt-level=3"]
+
+# Mac ARM64 (M1/M2) 专属优化
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "target-cpu=native", "-C", "opt-level=3"]
+
+# Windows x64 优化
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=native", "-C", "opt-level=3"]
+
