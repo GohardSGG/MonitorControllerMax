@@ -66,6 +66,8 @@ pub struct OscSharedState {
     pub recv_port_bound: AtomicBool,
     /// 实例级日志器（线程安全）
     logger: Option<Arc<InstanceLogger>>,
+    /// GUI 重绘请求标志（OSC 参数变化时设置，Editor 检测后清除）
+    pub repaint_requested: AtomicBool,
 }
 
 impl OscSharedState {
@@ -91,6 +93,7 @@ impl OscSharedState {
             cut_pending: AtomicBool::new(false),
             recv_port_bound: AtomicBool::new(false),
             logger: None,
+            repaint_requested: AtomicBool::new(false),
         }
     }
 
@@ -178,6 +181,7 @@ impl OscSharedState {
     pub fn set_master_volume(&self, value: f32) {
         self.master_volume.store(value.to_bits(), Ordering::Release);
         self.volume_pending.store(true, Ordering::Release);
+        self.repaint_requested.store(true, Ordering::Release);  // 触发 GUI 重绘
     }
 
     /// 设置 Dim (从 OSC 接收)
@@ -185,6 +189,7 @@ impl OscSharedState {
     pub fn set_dim(&self, on: bool) {
         self.dim.store(on, Ordering::Release);
         self.dim_pending.store(true, Ordering::Release);
+        self.repaint_requested.store(true, Ordering::Release);  // 触发 GUI 重绘
     }
 
     /// 设置 Cut (从 OSC 接收)
@@ -192,6 +197,7 @@ impl OscSharedState {
     pub fn set_cut(&self, on: bool) {
         self.cut.store(on, Ordering::Release);
         self.cut_pending.store(true, Ordering::Release);
+        self.repaint_requested.store(true, Ordering::Release);  // 触发 GUI 重绘
     }
 
     /// 设置 Mono (从 OSC 接收)
@@ -235,29 +241,65 @@ impl OscSharedState {
     }
 
     // === OSC 覆盖值 getter (用于 process() 中直接读取) ===
+    // 注意：这些方法已被 get_override_snapshot() 替代，但保留以供内部调试使用
 
     /// 获取 OSC 接收的 Master Volume 值
     /// 注意：这是原始 OSC 值，不是 DAW 参数值
+    #[allow(dead_code)]
     pub fn get_osc_master_volume(&self) -> f32 {
         f32::from_bits(self.master_volume.load(Ordering::Relaxed))
     }
 
     /// 获取 OSC 接收的 Dim 状态
+    #[allow(dead_code)]
     pub fn get_osc_dim(&self) -> bool {
         self.dim.load(Ordering::Relaxed)
     }
 
     /// 获取 OSC 接收的 Cut 状态
+    #[allow(dead_code)]
     pub fn get_osc_cut(&self) -> bool {
         self.cut.load(Ordering::Relaxed)
     }
 
     /// 检查是否有待处理的 OSC 变化（不清除标志）
     /// B1 修复：检查所有分离的 pending 标志
+    /// P12 优化：使用 Relaxed 代替 Acquire（快速路径，99%+ 情况直接返回 false）
+    /// 注意：此方法已被 get_override_snapshot() 合并，保留以供兼容
+    #[allow(dead_code)]
+    #[inline(always)]
     pub fn has_osc_override(&self) -> bool {
-        self.volume_pending.load(Ordering::Acquire)
-            || self.dim_pending.load(Ordering::Acquire)
-            || self.cut_pending.load(Ordering::Acquire)
+        self.volume_pending.load(Ordering::Relaxed)
+            || self.dim_pending.load(Ordering::Relaxed)
+            || self.cut_pending.load(Ordering::Relaxed)
+    }
+
+    /// P9 优化：获取 OSC 覆盖值快照（合并多次原子操作）
+    /// 返回 Some((volume, dim, cut)) 仅当有待处理的变化时
+    /// 使用 Relaxed 检查 pending 标志，仅在需要时使用 Acquire 读取值
+    #[inline(always)]
+    pub fn get_override_snapshot(&self) -> Option<(f32, bool, bool)> {
+        // 快速路径：先用 Relaxed 检查是否有任何 pending
+        let any_pending = self.volume_pending.load(Ordering::Relaxed)
+            || self.dim_pending.load(Ordering::Relaxed)
+            || self.cut_pending.load(Ordering::Relaxed);
+
+        if any_pending {
+            // 慢路径：有变化时，使用 Acquire 读取实际值
+            Some((
+                f32::from_bits(self.master_volume.load(Ordering::Acquire)),
+                self.dim.load(Ordering::Acquire),
+                self.cut.load(Ordering::Acquire),
+            ))
+        } else {
+            None  // 快速路径：99%+ 情况直接返回
+        }
+    }
+
+    /// 获取并清除 GUI 重绘请求标志
+    #[inline(always)]
+    pub fn take_repaint_request(&self) -> bool {
+        self.repaint_requested.swap(false, Ordering::Acquire)
     }
 
     /// B1 修复：获取并清除 Volume 变化（返回 Option）
@@ -1119,6 +1161,7 @@ impl OscManager {
         let clamped = value.clamp(0.0, 1.0);
         logger.info("osc", &format!("[OSC] Master volume received: {:.3}", clamped));
         state.set_master_volume(clamped);
+        state.send_master_volume(clamped);  // GUI 关闭时也发送反馈到硬件
     }
 
     fn handle_dim(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
@@ -1145,6 +1188,7 @@ impl OscManager {
         };
 
         state.set_dim(new_dim);
+        state.send_dim(new_dim);  // GUI 关闭时也发送反馈到硬件 LED
     }
 
     fn handle_cut(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
@@ -1172,6 +1216,7 @@ impl OscManager {
 
         state.current_cut.store(new_cut, Ordering::Relaxed);
         state.set_cut(new_cut);
+        state.send_cut(new_cut);  // GUI 关闭时也发送反馈到硬件 LED
     }
 
     fn handle_mono(value: f32, state: &OscSharedState, logger: &InstanceLogger) {

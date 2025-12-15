@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use atomic_float::AtomicF32;
 use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use crate::Channel_Logic::{ChannelLogic, OscOverride};
-use crate::Config_Manager::ConfigManager;
+use crate::Config_Manager::Layout;
 use crate::Interaction::InteractionManager;
 use crate::Osc::OscSharedState;
 
@@ -66,12 +66,13 @@ impl Default for GainSmoothingState {
 /// - P6: 通道优先处理（as_slice），连续内存访问，LLVM 自动向量化
 /// - P7: AtomicF32 无位转换
 /// - 无内存分配，纯栈操作
+#[allow(dead_code)]
 pub fn process_audio(
     buffer: &mut Buffer,
     params: &MonitorParams,
     gain_state: &GainSmoothingState,
     interaction: &Arc<InteractionManager>,
-    layout_config: &ConfigManager,
+    layout_config: &crate::Config_Manager::ConfigManager,
     osc_state: Option<&Arc<OscSharedState>>,
 ) {
     let role = params.role.value();
@@ -86,20 +87,14 @@ pub fn process_audio(
 
     let layout = layout_config.get_layout(speaker_name, sub_name);
 
-    // === C1 修复：检查 OSC 覆盖（全部是 Atomic 操作，无锁！）===
-    let osc_override = if let Some(osc) = osc_state {
-        if osc.has_osc_override() {
-            Some(OscOverride {
-                master_volume: Some(osc.get_osc_master_volume()),
-                dim: Some(osc.get_osc_dim()),
-                cut: Some(osc.get_osc_cut()),
-            })
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
+    let osc_override = osc_state.and_then(|osc| {
+        osc.get_override_snapshot().map(|(vol, dim, cut)| OscOverride {
+            master_volume: Some(vol),
+            dim: Some(dim),
+            cut: Some(cut),
+        })
+    });
 
     // 计算 RenderState
     let render_state = match role {
@@ -156,6 +151,96 @@ pub fn process_audio(
 
             // P6: 内层循环 - 连续内存访问，LLVM 可自动向量化
             // 注意：这个循环处理连续的 8 个样本，编译器会优化为 SIMD
+            for sample in &mut samples[start..end] {
+                *sample *= current_gain;
+            }
+        }
+
+        // 保存最终增益值
+        local_gains[ch_idx] = current_gain;
+    }
+
+    // P2: 只在 block 结束时写回原子状态
+    for ch_idx in 0..num_channels {
+        gain_state.store_gain(ch_idx, local_gains[ch_idx]);
+    }
+}
+
+/// P8 优化版：使用预计算的 Layout 避免每帧堆分配
+///
+/// 此函数与 process_audio 功能相同，但接收预计算的 Layout 引用
+/// 而不是每次调用 get_layout() 进行堆分配
+#[inline(always)]
+pub fn process_audio_with_layout(
+    buffer: &mut Buffer,
+    params: &MonitorParams,
+    gain_state: &GainSmoothingState,
+    interaction: &Arc<InteractionManager>,
+    layout: &Layout,
+    osc_state: Option<&Arc<OscSharedState>>,
+) {
+    let role = params.role.value();
+
+    // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
+    let osc_override = osc_state.and_then(|osc| {
+        osc.get_override_snapshot().map(|(vol, dim, cut)| OscOverride {
+            master_volume: Some(vol),
+            dim: Some(dim),
+            cut: Some(cut),
+        })
+    });
+
+    // 计算 RenderState
+    let render_state = match role {
+        PluginRole::Master | PluginRole::Standalone => {
+            ChannelLogic::compute(params, layout, None, interaction, osc_override)
+        },
+        PluginRole::Slave => {
+            ChannelLogic::compute(params, layout, None, interaction, None)
+        }
+    };
+
+    // P2/P3 优化：使用本地增益缓存（栈上，无堆分配）
+    let mut local_gains = [0.0f32; MAX_CHANNELS];
+    let mut target_gains = [0.0f32; MAX_CHANNELS];
+
+    let num_channels = layout.total_channels.min(MAX_CHANNELS);
+
+    // 初始化本地增益 + P4: Branchless 预计算目标增益
+    for ch_idx in 0..num_channels {
+        local_gains[ch_idx] = gain_state.load_gain(ch_idx);
+
+        // P4: Branchless 目标增益计算
+        let is_muted_bit = ((render_state.channel_mute_mask >> ch_idx) & 1) as f32;
+        let muted_multiplier = 1.0 - is_muted_bit;
+
+        target_gains[ch_idx] = render_state.master_gain
+            * render_state.channel_gains[ch_idx]
+            * muted_multiplier;
+    }
+
+    // P6: 通道优先处理 - 使用 as_slice() 获取连续内存访问
+    let channel_slices = buffer.as_slice();
+    let block_len = channel_slices.first().map(|s| s.len()).unwrap_or(0);
+
+    // P2: 计算平滑更新次数（每 8 样本更新一次）
+    let num_updates = (block_len + SMOOTHING_UPDATE_INTERVAL - 1) / SMOOTHING_UPDATE_INTERVAL;
+
+    for ch_idx in 0..num_channels.min(channel_slices.len()) {
+        let samples = &mut channel_slices[ch_idx];
+        let mut current_gain = local_gains[ch_idx];
+        let target = target_gains[ch_idx];
+
+        // P2/P6: 分块处理 - 每 8 样本更新一次增益
+        for update_idx in 0..num_updates {
+            // 更新平滑值（每块开始时）
+            current_gain += (target - current_gain) * SMOOTHING_ALPHA;
+
+            // 计算本块的样本范围
+            let start = update_idx * SMOOTHING_UPDATE_INTERVAL;
+            let end = (start + SMOOTHING_UPDATE_INTERVAL).min(block_len);
+
+            // P6: 内层循环 - 连续内存访问，LLVM 可自动向量化
             for sample in &mut samples[start..end] {
                 *sample *= current_gain;
             }

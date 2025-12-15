@@ -32,7 +32,7 @@ use Audio::GainSmoothingState;
 use Interaction::InteractionManager;
 use Logger::InstanceLogger;
 use Config_File::AppConfig;
-use Config_Manager::ConfigManager;
+use Config_Manager::{ConfigManager, Layout};
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
@@ -59,6 +59,10 @@ pub struct MonitorControllerMax {
     layout_config: Arc<ConfigManager>,
     /// C4: 初始化进行中标志（防止 reset() 重入）
     init_in_progress: AtomicBool,
+    /// P8: Layout 缓存（避免每帧堆分配）
+    layout_cache: Option<Layout>,
+    /// P8: Layout 缓存键（layout_idx, sub_layout_idx）
+    layout_cache_key: (i32, i32),
 }
 
 impl Default for MonitorControllerMax {
@@ -90,6 +94,8 @@ impl Default for MonitorControllerMax {
             app_config,
             layout_config,
             init_in_progress: AtomicBool::new(false),
+            layout_cache: None,
+            layout_cache_key: (-1, -1),  // -1 表示未初始化
         }
     }
 }
@@ -288,12 +294,28 @@ impl Plugin for MonitorControllerMax {
         // 这样即使 Editor 关闭，OSC 控制仍能工作
         let osc_state = self.osc.get_state();
 
-        Audio::process_audio(
+        // === P8: Layout 缓存 - 避免每帧堆分配 ===
+        let layout_idx = self.params.layout.value();
+        let sub_layout_idx = self.params.sub_layout.value();
+        let cache_key = (layout_idx, sub_layout_idx);
+
+        // 只在布局参数变化时重建 Layout
+        if cache_key != self.layout_cache_key || self.layout_cache.is_none() {
+            let speaker_name = self.layout_config.get_speaker_name(layout_idx as usize).unwrap_or("7.1.4");
+            let sub_name = self.layout_config.get_sub_name(sub_layout_idx as usize).unwrap_or("None");
+            self.layout_cache = Some(self.layout_config.get_layout(speaker_name, sub_name));
+            self.layout_cache_key = cache_key;
+        }
+
+        // SAFETY: layout_cache 在上面已确保存在
+        let layout = self.layout_cache.as_ref().unwrap();
+
+        Audio::process_audio_with_layout(
             buffer,
             &self.params,
             &self.gain_state,
             &self.interaction,
-            &self.layout_config,
+            layout,
             Some(&osc_state),  // 传递 OSC 状态用于覆盖
         );
         ProcessStatus::Normal

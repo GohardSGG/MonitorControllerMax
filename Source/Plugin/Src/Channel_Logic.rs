@@ -42,6 +42,7 @@ impl ChannelLogic {
     /// `osc_override`: Optional OSC override values (used when Editor is closed)
     ///
     /// **音频线程优化**: 使用 Lock-Free 快照，避免任何锁操作
+    #[inline]
     pub fn compute(
         params: &MonitorParams,
         layout: &Layout,
@@ -68,14 +69,19 @@ impl ChannelLogic {
 
         let mut state = RenderState::default();
 
-        // 1. Global Level Processing (两种模式都生效)
-        let global_gain = if cut_active {
-            0.0
-        } else if dim_active {
-            master_gain * 0.1 // -20dB approx (0.1 is -20dB in amplitude? 20log(0.1) = -20)
-        } else {
-            master_gain
-        };
+        // P11 优化：Branchless 全局增益计算
+        // 原代码（有分支）：
+        // let global_gain = if cut_active { 0.0 }
+        //     else if dim_active { master_gain * 0.1 }
+        //     else { master_gain };
+        //
+        // 优化后（无分支）：
+        // cut_active -> cut_mul = 0.0, 否则 1.0
+        // dim_active -> dim_mul = 0.1, 否则 1.0
+        // global_gain = master_gain * cut_mul * dim_mul
+        let cut_mul = 1.0 - (cut_active as u8 as f32);  // cut=true -> 0.0, cut=false -> 1.0
+        let dim_mul = 1.0 - 0.9 * (dim_active as u8 as f32);  // dim=true -> 0.1, dim=false -> 1.0
+        let global_gain = master_gain * cut_mul * dim_mul;
 
         state.master_gain = global_gain;
 

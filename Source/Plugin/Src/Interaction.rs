@@ -411,7 +411,8 @@ impl InteractionManager {
     // ========== Lock-Free 快照方法（音频线程使用）==========
 
     /// 获取当前快照（音频线程调用，无锁）
-    #[inline]
+    /// P14: 使用 #[inline(always)] 确保音频线程调用被内联
+    #[inline(always)]
     pub fn get_snapshot(&self) -> RenderSnapshot {
         self.render_snapshot.load()
     }

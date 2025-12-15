@@ -72,6 +72,14 @@ pub fn create_editor(
         (),
         |_, _| {},
         move |ctx, setter, _state| {
+            // === OSC 重绘请求检查：GUI 活跃时处理 OSC 驱动的 UI 更新 ===
+            // 当 DAW 窗口没有焦点时，egui 不会主动刷新，
+            // 但 OSC 仍在后台线程运行并更新参数。
+            // 这里检查 OSC 是否请求了重绘，如果是则触发重绘。
+            if osc_state_clone.take_repaint_request() {
+                ctx.request_repaint();
+            }
+
             // 获取 params 的引用供渲染函数使用
             let params = &params_clone;
 
