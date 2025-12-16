@@ -1226,7 +1226,8 @@ impl OscManager {
         let clamped = value.clamp(0.0, 1.0);
         logger.info("osc", &format!("[OSC] Master volume received: {:.3}", clamped));
         state.set_master_volume(clamped);
-        state.send_master_volume(clamped);  // GUI 关闭时也发送反馈到硬件
+        // 移除回显：避免 OSC 硬件回显造成反馈循环，回显由 Editor 统一处理
+        // state.send_master_volume(clamped);
     }
 
     pub fn handle_dim(value: f32, state: &OscSharedState, logger: &InstanceLogger) {

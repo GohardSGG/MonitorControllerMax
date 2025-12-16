@@ -70,6 +70,8 @@ pub struct MonitorControllerMax {
     layout_cache: Option<Layout>,
     /// P8: Layout 缓存键（layout_idx, sub_layout_idx）
     layout_cache_key: (i32, i32),
+    /// 自动检测的布局索引（仅当 DAW 提供更多通道且用户未手动选择时使用）
+    auto_detected_layout: Option<i32>,
 }
 
 impl Default for MonitorControllerMax {
@@ -104,6 +106,7 @@ impl Default for MonitorControllerMax {
             init_in_progress: AtomicBool::new(false),
             layout_cache: None,
             layout_cache_key: (-1, -1),  // -1 表示未初始化
+            auto_detected_layout: None,
         }
     }
 }
@@ -161,6 +164,26 @@ impl Plugin for MonitorControllerMax {
         // 记录输出通道数，用于延迟初始化
         self.output_channels = output_channels as usize;
 
+        // 自动检测布局：仅当 DAW 提供的通道数大于 2 时
+        // 这允许用户手动选择布局，但在新工程中自动匹配
+        if output_channels > 2 {
+            if let Some(detected_idx) = self.layout_config.find_layout_for_channels(output_channels as usize) {
+                self.auto_detected_layout = Some(detected_idx);
+                self.logger.info("monitor_controller_max", &format!(
+                    "[AutoDetect] Found matching layout index {} for {} channels",
+                    detected_idx, output_channels
+                ));
+            } else {
+                self.auto_detected_layout = None;
+                self.logger.warn("monitor_controller_max", &format!(
+                    "[AutoDetect] No matching layout found for {} channels",
+                    output_channels
+                ));
+            }
+        } else {
+            self.auto_detected_layout = None;
+        }
+
         // 延迟初始化：在 reset() 中执行 OSC/Network 初始化
         self.needs_deferred_init = true;
         self.deferred_init_done = false;
@@ -210,7 +233,21 @@ impl Plugin for MonitorControllerMax {
         if role != Params::PluginRole::Slave && self.deferred_init_done {
             // 初始化通道列表（确保 GUI 未打开时也能响应通道点击）
             // 这是关键修复：通道列表初始化不应依赖 GUI
-            let layout_idx = self.params.layout.value() as usize;
+
+            // 使用自动检测的布局（如果当前是默认布局且有自动检测结果）
+            let param_layout_idx = self.params.layout.value();
+            let layout_idx = if param_layout_idx == 0 && self.auto_detected_layout.is_some() {
+                // 用户未手动选择布局（仍为默认值），使用自动检测结果
+                let auto_idx = self.auto_detected_layout.unwrap();
+                self.logger.info("monitor_controller_max", &format!(
+                    "[Reset] Using auto-detected layout index {} (param was default 0)",
+                    auto_idx
+                ));
+                auto_idx as usize
+            } else {
+                param_layout_idx as usize
+            };
+
             let sub_layout_idx = self.params.sub_layout.value() as usize;
             let speaker_name = self.layout_config.get_speaker_name(layout_idx).unwrap_or("7.1.4");
             let sub_name = self.layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");

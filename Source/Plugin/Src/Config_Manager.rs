@@ -291,4 +291,43 @@ impl ConfigManager {
             channel_by_index,
         }
     }
+
+    /// 根据通道数自动查找最匹配的布局索引
+    /// 返回匹配的 speaker layout 索引，如果没有找到则返回 None
+    pub fn find_layout_for_channels(&self, target_channels: usize) -> Option<i32> {
+        // 遍历所有 speaker 布局，找到通道数完全匹配的
+        for (idx, speaker_name) in self.cached_speaker_names.iter().enumerate() {
+            // 获取该布局的通道数（不包含 SUB）
+            if let Some(layout_map) = self.raw_config.speakers.get(speaker_name) {
+                // 计算通道数（排除 Size 字段）
+                let channel_count = layout_map.iter()
+                    .filter(|(k, v)| *k != "Size" && v.is_u64())
+                    .count();
+
+                if channel_count == target_channels {
+                    return Some(idx as i32);
+                }
+            }
+        }
+
+        // 如果没有精确匹配，查找最接近但不超过目标的布局
+        let mut best_idx: Option<i32> = None;
+        let mut best_count: usize = 0;
+
+        for (idx, speaker_name) in self.cached_speaker_names.iter().enumerate() {
+            if let Some(layout_map) = self.raw_config.speakers.get(speaker_name) {
+                let channel_count = layout_map.iter()
+                    .filter(|(k, v)| *k != "Size" && v.is_u64())
+                    .count();
+
+                // 找最接近但不超过目标的
+                if channel_count <= target_channels && channel_count > best_count {
+                    best_count = channel_count;
+                    best_idx = Some(idx as i32);
+                }
+            }
+        }
+
+        best_idx
+    }
 }
