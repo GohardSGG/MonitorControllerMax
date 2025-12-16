@@ -313,6 +313,12 @@ pub struct InteractionManager {
     /// P1 优化：快速路径标志，避免每个 block 都获取 RwLock
     network_restart_pending: AtomicBool,
 
+    // ========== Web Hot Reload ==========
+    /// Web 服务器重启动作
+    web_restart_action: RwLock<Option<crate::Web_Protocol::WebRestartAction>>,
+    /// P1 优化：快速路径标志
+    web_restart_pending: AtomicBool,
+
     // ========== Lock-Free 音频线程快照 ==========
     /// 音频线程使用的原子快照（无锁读取）
     render_snapshot: AtomicCell<RenderSnapshot>,
@@ -344,6 +350,9 @@ impl InteractionManager {
             // Network Hot Reload 初始化
             network_restart_config: RwLock::new(None),
             network_restart_pending: AtomicBool::new(false),
+            // Web Hot Reload 初始化
+            web_restart_action: RwLock::new(None),
+            web_restart_pending: AtomicBool::new(false),
             // Lock-Free 快照初始化
             render_snapshot: AtomicCell::new(RenderSnapshot::default()),
         }
@@ -1393,5 +1402,31 @@ impl InteractionManager {
             self.network_restart_pending.store(false, Ordering::Relaxed);
         }
         config
+    }
+
+    // ========== Web Hot Reload ==========
+
+    /// 请求 Web 服务器重启（启动/停止）
+    pub fn request_web_restart(&self, action: crate::Web_Protocol::WebRestartAction) {
+        *self.web_restart_action.write() = Some(action);
+        self.web_restart_pending.store(true, Ordering::Release);
+    }
+
+    /// P1 优化：快速检查是否有 Web 重启请求（无锁）
+    #[inline]
+    pub fn has_web_restart_pending(&self) -> bool {
+        self.web_restart_pending.load(Ordering::Relaxed)
+    }
+
+    /// 获取并清除 Web 重启请求
+    pub fn take_web_restart_request(&self) -> Option<crate::Web_Protocol::WebRestartAction> {
+        if !self.web_restart_pending.load(Ordering::Relaxed) {
+            return None;
+        }
+        let action = self.web_restart_action.write().take();
+        if action.is_some() {
+            self.web_restart_pending.store(false, Ordering::Relaxed);
+        }
+        action
     }
 }

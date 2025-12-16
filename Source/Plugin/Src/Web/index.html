@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MCM Controller</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="controller">
+        <!-- Left Knobs -->
+        <div class="knob-panel left">
+            <div class="knob-container">
+                <div class="knob main-volume" id="volume-knob">
+                    <div class="knob-inner"></div>
+                </div>
+                <span class="knob-value" id="volume-display">50%</span>
+            </div>
+            <div class="knob-container">
+                <div class="knob endless group-dial" data-group="FRONT">
+                    <div class="knob-inner"></div>
+                </div>
+                <span class="knob-label">FRONT</span>
+            </div>
+            <div class="knob-container">
+                <div class="knob endless group-dial" data-group="SUB">
+                    <div class="knob-inner"></div>
+                </div>
+                <span class="knob-label">SUB</span>
+            </div>
+        </div>
+
+        <!-- Center Screen -->
+        <div class="screen">
+            <div class="pages-container" id="pages">
+                <!-- Page 1: Main Surround -->
+                <div class="page active" data-page="0">
+                    <div class="button-grid">
+                        <button class="btn mode" data-cmd="ToggleSolo" id="btn-solo">S</button>
+                        <button class="btn channel" data-channel="L">L</button>
+                        <button class="btn channel" data-channel="C">C</button>
+                        <button class="btn channel" data-channel="R">R</button>
+
+                        <button class="btn mode" data-cmd="ToggleMute" id="btn-mute">M</button>
+                        <button class="btn channel" data-channel="LSS">LSS</button>
+                        <button class="btn channel" data-channel="LFE">LFE</button>
+                        <button class="btn channel" data-channel="RSS">RSS</button>
+
+                        <button class="btn action yellow" data-cmd="ToggleDim" id="btn-dim">DIM</button>
+                        <button class="btn channel" data-channel="LRS">LRS</button>
+                        <button class="btn action cyan" data-cmd="ToggleLfeAdd10dB" id="btn-lfe10">+10dB<span class="sub">LFE</span></button>
+                        <button class="btn channel" data-channel="RRS">RRS</button>
+                    </div>
+                </div>
+
+                <!-- Page 2: Height -->
+                <div class="page" data-page="1">
+                    <div class="button-grid">
+                        <button class="btn mode" data-cmd="ToggleSolo">S</button>
+                        <button class="btn channel" data-channel="LTF">LTF</button>
+                        <button class="btn channel" data-channel="LTB">LTB</button>
+                        <button class="btn channel" data-channel="RTF">RTF</button>
+
+                        <button class="btn mode" data-cmd="ToggleMute">M</button>
+                        <button class="btn channel" data-channel="RTB">RTB</button>
+                        <button class="btn action red" data-cmd="ToggleCut" id="btn-cut">CUT</button>
+                        <button class="btn channel" data-channel="SUB_F">SUB_F</button>
+
+                        <button class="btn action yellow" data-cmd="ToggleDim">DIM</button>
+                        <button class="btn channel" data-channel="SUB_B">SUB_B</button>
+                        <button class="btn channel" data-channel="SUB_L">SUB_L</button>
+                        <button class="btn channel" data-channel="SUB_R">SUB_R</button>
+                    </div>
+                </div>
+
+                <!-- Page 3: Effects -->
+                <div class="page" data-page="2">
+                    <div class="button-grid">
+                        <button class="btn mode" data-cmd="ToggleSolo">S</button>
+                        <button class="btn action cyan" data-cmd="ToggleLowBoost" id="btn-low">Low<span class="sub">Boost</span></button>
+                        <button class="btn action cyan" data-cmd="ToggleHighBoost" id="btn-high">High<span class="sub">Boost</span></button>
+                        <button class="btn action red" data-cmd="ToggleMono" id="btn-mono">Mono</button>
+
+                        <button class="btn mode" data-cmd="ToggleMute">M</button>
+                        <button class="btn disabled">-</button>
+                        <button class="btn disabled">-</button>
+                        <button class="btn disabled">-</button>
+
+                        <button class="btn action yellow" data-cmd="ToggleDim">DIM</button>
+                        <button class="btn disabled">-</button>
+                        <button class="btn action cyan" data-cmd="ToggleLfeAdd10dB">+10dB<span class="sub">LFE</span></button>
+                        <button class="btn action red" data-cmd="ToggleCut">CUT</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page Indicators -->
+            <div class="page-indicators">
+                <span class="dot active" data-page="0"></span>
+                <span class="dot" data-page="1"></span>
+                <span class="dot" data-page="2"></span>
+            </div>
+        </div>
+
+        <!-- Right Knobs -->
+        <div class="knob-panel right">
+            <div class="knob-container">
+                <div class="knob endless group-dial" data-group="SURROUND">
+                    <div class="knob-inner"></div>
+                </div>
+                <span class="knob-label">SURROUND</span>
+            </div>
+            <div class="knob-container">
+                <div class="knob endless group-dial" data-group="TOP">
+                    <div class="knob-inner"></div>
+                </div>
+                <span class="knob-label">TOP</span>
+            </div>
+            <div class="knob-container">
+                <div class="knob endless group-dial" data-group="BOTTOM">
+                    <div class="knob-inner"></div>
+                </div>
+                <span class="knob-label">BOTTOM</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Status -->
+    <div class="status" id="status">Connecting...</div>
+
+    <script src="app.js"></script>
+</body>
+</html>

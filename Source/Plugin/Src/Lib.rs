@@ -20,6 +20,11 @@ mod Logger;
 mod Interaction;
 mod Osc;
 
+// Web 控制器模块
+mod Web;
+mod Web_Protocol;
+mod Web_Assets;
+
 // Include auto-generated audio layouts from build.rs
 mod Audio_Layouts {
     include!(concat!(env!("OUT_DIR"), "/Audio_Layouts.rs"));
@@ -33,11 +38,13 @@ use Interaction::InteractionManager;
 use Logger::InstanceLogger;
 use Config_File::AppConfig;
 use Config_Manager::{ConfigManager, Layout};
+use Web::WebManager;
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
     network: NetworkManager,
     osc: OscManager,
+    web: WebManager,  // Web 控制器
     gain_state: GainSmoothingState,
     interaction: Arc<InteractionManager>,
     /// 输出通道数（在 initialize 中记录，延迟初始化时使用）
@@ -83,6 +90,7 @@ impl Default for MonitorControllerMax {
             params: Arc::new(MonitorParams::default()),
             network: NetworkManager::new(),
             osc: OscManager::new(),
+            web: WebManager::new(),  // Web 控制器
             gain_state: GainSmoothingState::new(),
             interaction: Arc::new(InteractionManager::new(Arc::clone(&logger))),
             output_channels: 2,
@@ -132,6 +140,7 @@ impl Plugin for MonitorControllerMax {
             Arc::clone(&self.logger),
             self.app_config.clone(),
             Arc::clone(&self.layout_config),
+            Arc::clone(&self.web.state),  // 传递 Web 状态给 Editor
         )
     }
 
@@ -199,12 +208,26 @@ impl Plugin for MonitorControllerMax {
         // 广播当前参数状态
         let role = self.params.role.value();
         if role != Params::PluginRole::Slave && self.deferred_init_done {
+            // 初始化通道列表（确保 GUI 未打开时也能响应通道点击）
+            // 这是关键修复：通道列表初始化不应依赖 GUI
+            let layout_idx = self.params.layout.value() as usize;
+            let sub_layout_idx = self.params.sub_layout.value() as usize;
+            let speaker_name = self.layout_config.get_speaker_name(layout_idx).unwrap_or("7.1.4");
+            let sub_name = self.layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");
+            let layout = self.layout_config.get_layout(speaker_name, sub_name);
+
+            // 更新 OSC 通道列表（使通道点击能正确反馈）
+            self.osc.state.update_layout_channels(&layout);
+
             let channel_count = self.osc.state.channel_count.load(std::sync::atomic::Ordering::Relaxed);
             let master_volume = self.params.master_gain.value();
             let dim = self.params.dim.value();
             let cut = self.params.cut.value();
             self.logger.info("monitor_controller_max", &format!("[Reset] Broadcasting state: vol={:.4}, dim={}, cut={}", master_volume, dim, cut));
             self.osc.broadcast_state(channel_count, master_volume, dim, cut);
+
+            // 广播通道 LED 状态
+            self.osc.state.broadcast_channel_states(&self.interaction);
         }
 
         // C4: 释放重入锁
@@ -217,6 +240,30 @@ impl Plugin for MonitorControllerMax {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // === Web 热重载检查 ===
+        if self.interaction.has_web_restart_pending() {
+            if let Some(action) = self.interaction.take_web_restart_request() {
+                match action {
+                    Web_Protocol::WebRestartAction::Start => {
+                        let role = self.params.role.value();
+                        if role != Params::PluginRole::Slave && !self.web.is_running() {
+                            self.web.init(
+                                Arc::clone(&self.logger),
+                                self.app_config.osc_receive_port,  // 插件 OSC 接收端口 (默认 7445)
+                            );
+                        }
+                    }
+                    Web_Protocol::WebRestartAction::Stop => {
+                        self.web.shutdown();
+                    }
+                }
+            }
+        }
+
+        // === Web 命令处理已移至 Tokio 线程（完全不占用音频 CPU）===
+        // 原代码: self.web.poll_commands(&self.interaction, &self.osc.state);
+        // 现在命令直接在 WebSocket 接收时处理，不经过音频线程
+
         // 检查 OSC 热重载请求
         // P1 优化：只在有 pending 请求时才获取锁
         if self.interaction.has_osc_restart_pending() {
@@ -241,7 +288,8 @@ impl Plugin for MonitorControllerMax {
                         self.interaction.clone(),
                         self.params.clone(),
                         Arc::clone(&self.logger),
-                        &new_config
+                        &new_config,
+                        Arc::clone(&self.web.state)
                     );
 
                     // 更新保存的配置
@@ -336,7 +384,7 @@ impl MonitorControllerMax {
                 let master_volume = self.params.master_gain.value();
                 let dim = self.params.dim.value();
                 let cut = self.params.cut.value();
-                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config);
+                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config, Arc::clone(&self.web.state));
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Master mode");
             }
             Params::PluginRole::Slave => {
@@ -347,7 +395,7 @@ impl MonitorControllerMax {
                 let master_volume = self.params.master_gain.value();
                 let dim = self.params.dim.value();
                 let cut = self.params.cut.value();
-                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config);
+                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config, Arc::clone(&self.web.state));
                 self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Standalone mode");
             }
         }
@@ -386,6 +434,7 @@ impl Vst3Plugin for MonitorControllerMax {
 impl Drop for MonitorControllerMax {
     fn drop(&mut self) {
         self.logger.info("monitor_controller_max", "[Plugin] Shutting down...");
+        self.web.shutdown();  // 关闭 Web 服务器
         self.osc.shutdown();
         self.network.shutdown();
     }

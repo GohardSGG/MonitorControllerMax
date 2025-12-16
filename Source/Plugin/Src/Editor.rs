@@ -17,6 +17,7 @@ use crate::Config_File::AppConfig;
 use crate::Logger::InstanceLogger;
 use crate::Interaction::{SubClickType, ChannelMarker, InteractionManager};
 use crate::Osc::OscSharedState;
+use crate::Web_Protocol::{WebSharedState, WebRestartAction};
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -47,6 +48,7 @@ pub fn create_editor(
     logger: Arc<InstanceLogger>,
     app_config: AppConfig,
     layout_config: Arc<ConfigManager>,
+    web_state: Arc<WebSharedState>,
 ) -> Option<Box<dyn Editor>> {
     let egui_state = EguiState::from_size(BASE_WIDTH as u32, BASE_HEIGHT as u32);
     let egui_state_clone = egui_state.clone();
@@ -58,6 +60,7 @@ pub fn create_editor(
     let logger_clone = logger.clone();
     let app_config_clone = app_config.clone();
     let layout_config_clone = layout_config.clone();
+    let web_state_clone = web_state.clone();
 
     // 实例级布局追踪变量（替代全局静态变量）
     let prev_layout = Arc::new(AtomicI32::new(-1));  // -1 表示未初始化
@@ -350,7 +353,7 @@ pub fn create_editor(
                                 ui.set_width(dialog_width);
                                 ui.set_max_width(dialog_width);
 
-                                render_settings_content_v2(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone, &osc_state_clone);
+                                render_settings_content_v2(ui, &scale, dialog_id, params, setter, &interaction_clone, &layout_config_clone, &logger_clone, &app_config_clone, &osc_state_clone, &web_state_clone);
                             });
 
                         // Automation confirmation dialog (triggered from settings)
@@ -1798,6 +1801,7 @@ fn render_settings_content_v2(
     logger: &InstanceLogger,
     app_config: &AppConfig,
     _osc_state: &Arc<OscSharedState>,
+    web_state: &Arc<WebSharedState>,
 ) {
     let state_id = egui::Id::new("settings_state_v2");
 
@@ -2188,6 +2192,59 @@ fn render_settings_content_v2(
                     });
                 });
             });
+
+            ui.add_space(scale.s(28.0));
+
+            // === Section E: Web Controller ===
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🌐").font(scale.font(13.0)).color(text_medium));
+                        ui.add_space(scale.s(6.0));
+                        ui.label(RichText::new("WEB CONTROLLER").font(scale.font(12.0)).color(text_dark).strong());
+                    });
+                    ui.add_space(scale.s(4.0));
+
+                    // 显示当前状态：运行中时显示访问地址，否则显示说明
+                    let web_running = web_state.is_running();
+                    if web_running {
+                        if let Some(addr) = web_state.get_address() {
+                            ui.label(RichText::new(format!("Running at: http://{}", addr))
+                                .font(scale.font(12.0)).color(Color32::from_rgb(16, 185, 129))); // green
+                        }
+                    } else {
+                        ui.label(RichText::new("Control plugin from phone/tablet browser")
+                            .font(scale.font(12.0)).color(text_label));
+                    }
+                });
+
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let web_running = web_state.is_running();
+                    let mut toggle_state = web_running;
+
+                    // Slave 模式下禁用 Web 控制器
+                    ui.add_enabled_ui(!is_slave, |ui| {
+                        let response = settings_toggle_switch(ui, &mut toggle_state, scale);
+                        if response.clicked() && !is_slave {
+                            if toggle_state {
+                                // 请求启动 Web 服务器
+                                interaction.request_web_restart(WebRestartAction::Start);
+                                logger.info("editor", "[Web] Requesting start");
+                            } else {
+                                // 请求停止 Web 服务器
+                                interaction.request_web_restart(WebRestartAction::Stop);
+                                logger.info("editor", "[Web] Requesting stop");
+                            }
+                        }
+                    });
+                });
+            });
+
+            if is_slave {
+                ui.add_space(scale.s(4.0));
+                ui.label(RichText::new("(Disabled in Slave mode)")
+                    .font(scale.font(10.0)).color(SETTINGS_AMBER_600));
+            }
         });
 
         ui.add_space(scale.s(24.0));

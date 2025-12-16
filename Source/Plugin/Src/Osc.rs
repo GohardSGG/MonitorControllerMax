@@ -15,6 +15,7 @@ use crate::Config_File::AppConfig;
 use crate::Config_Manager::Layout;
 use crate::Logger::InstanceLogger;
 use crate::Params::{MonitorParams, PluginRole};
+use crate::Web_Protocol::WebSharedState;
 
 /// Blink Timer Interval (milliseconds)
 const BLINK_INTERVAL_MS: u64 = 500;
@@ -503,6 +504,9 @@ pub struct OscManager {
     /// 实例级日志器
     logger: Option<Arc<InstanceLogger>>,
 
+    /// Web 共享状态（用于获取 Web OSC 接收端口）
+    web_state: Option<Arc<WebSharedState>>,
+
     /// 线程句柄
     send_thread: Option<JoinHandle<()>>,
     receive_thread: Option<JoinHandle<()>>,
@@ -519,6 +523,7 @@ impl OscManager {
             channel_count: 0,
             interaction: None,
             logger: None,
+            web_state: None,
             send_thread: None,
             receive_thread: None,
             blink_thread: None,
@@ -533,7 +538,7 @@ impl OscManager {
     /// 初始化 OSC (Master 或 Standalone 模式)
     /// C5: 添加 params 参数用于线程内 Role 检测
     /// D: 检测线程存活状态，死线程则允许重新初始化
-    pub fn init(&mut self, channel_count: usize, _master_volume: f32, _dim: bool, cut: bool, interaction: Arc<crate::Interaction::InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>, app_config: &AppConfig) {
+    pub fn init(&mut self, channel_count: usize, _master_volume: f32, _dim: bool, cut: bool, interaction: Arc<crate::Interaction::InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>, app_config: &AppConfig, web_state: Arc<WebSharedState>) {
         // D: 检查是否有线程实际在运行（使用 is_finished() 检测）
         let threads_alive = self.send_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
             || self.receive_thread.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
@@ -560,6 +565,9 @@ impl OscManager {
 
         // 存储日志器
         self.logger = Some(Arc::clone(&logger));
+
+        // 存储 Web 状态引用
+        self.web_state = Some(Arc::clone(&web_state));
 
         // 存储通道数和交互管理器
         self.channel_count = channel_count;
@@ -589,9 +597,10 @@ impl OscManager {
         let state_clone = Arc::clone(&self.state);
         let logger_clone = Arc::clone(&logger);
         let params_clone = Arc::clone(&params);
+        let web_state_clone = Arc::clone(&web_state);
 
-        // 1. 发送线程 (UDP 7444)
-        self.send_thread = Some(Self::spawn_send_thread(send_rx, is_running_clone.clone(), Arc::clone(&params_clone), init_role, Arc::clone(&logger_clone), send_port));
+        // 1. 发送线程 (UDP 7444 + Web 动态端口)
+        self.send_thread = Some(Self::spawn_send_thread(send_rx, is_running_clone.clone(), Arc::clone(&params_clone), init_role, Arc::clone(&logger_clone), send_port, web_state_clone));
 
         // 2. 接收线程 (UDP 7445) - 传递 interaction 和 state
         self.receive_thread = Some(Self::spawn_receive_thread(
@@ -696,9 +705,10 @@ impl OscManager {
 
     /// 发送线程 - 处理 UDP 发送
     /// C5: 添加 params 和 init_role 用于检测 Role 变化
-    fn spawn_send_thread(rx: Receiver<OscOutMessage>, is_running: Arc<AtomicBool>, params: Arc<MonitorParams>, _init_role: PluginRole, logger: Arc<InstanceLogger>, send_port: u16) -> JoinHandle<()> {
+    /// Web: 添加 web_state 用于动态获取 Web OSC 端口
+    fn spawn_send_thread(rx: Receiver<OscOutMessage>, is_running: Arc<AtomicBool>, params: Arc<MonitorParams>, _init_role: PluginRole, logger: Arc<InstanceLogger>, send_port: u16, web_state: Arc<WebSharedState>) -> JoinHandle<()> {
         thread::spawn(move || {
-            logger.info("osc", &format!("[OSC Send] Thread started, binding to 0.0.0.0:0 → broadcast to 127.0.0.1:{}", send_port));
+            logger.info("osc", &format!("[OSC Send] Thread started, binding to 0.0.0.0:0 → hardware:127.0.0.1:{}", send_port));
 
             // 绑定 UDP Socket
             let socket = match UdpSocket::bind("0.0.0.0:0") {
@@ -709,7 +719,7 @@ impl OscManager {
                 }
             };
 
-            let target_addr = format!("127.0.0.1:{}", send_port);
+            let target_hardware = format!("127.0.0.1:{}", send_port);
 
             // 主循环：使用阻塞接收 + 批量处理，消除轮询延迟
             while is_running.load(Ordering::Acquire) {
@@ -722,12 +732,27 @@ impl OscManager {
                 // 阻塞等待第一条消息（100ms 超时用于检查运行状态）
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(msg) => {
+                        // 检查 Web 端口（动态获取）
+                        let web_port = web_state.osc_recv_port.load(Ordering::Relaxed);
+                        let target_web = if web_port > 0 {
+                            Some(format!("127.0.0.1:{}", web_port))
+                        } else {
+                            None
+                        };
+
                         // 立即处理第一条消息
-                        Self::process_outgoing_message(&socket, &target_addr, msg, &logger);
+                        Self::process_outgoing_message_dual(&socket, &target_hardware, target_web.as_deref(), msg, &logger);
 
                         // 批量处理队列中所有待发消息（避免消息间延迟）
                         while let Ok(msg) = rx.try_recv() {
-                            Self::process_outgoing_message(&socket, &target_addr, msg, &logger);
+                            // 再次检查 Web 端口（可能在循环期间变化）
+                            let web_port = web_state.osc_recv_port.load(Ordering::Relaxed);
+                            let target_web = if web_port > 0 {
+                                Some(format!("127.0.0.1:{}", web_port))
+                            } else {
+                                None
+                            };
+                            Self::process_outgoing_message_dual(&socket, &target_hardware, target_web.as_deref(), msg, &logger);
                         }
                     }
                     Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
@@ -921,6 +946,46 @@ impl OscManager {
         }
     }
 
+    /// 处理发送的 OSC 消息（双目标：硬件 + Web）
+    fn process_outgoing_message_dual(socket: &UdpSocket, target_hardware: &str, target_web: Option<&str>, msg: OscOutMessage, logger: &InstanceLogger) {
+        match msg {
+            OscOutMessage::ChannelLed { channel, state } => {
+                let addr = format!("/Monitor/Channel/{}", channel);
+                Self::send_osc_float_dual(socket, target_hardware, target_web, &addr, state as u8 as f32, logger);
+            }
+            OscOutMessage::ModeSolo { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Mode/Solo", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::ModeMute { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Mode/Mute", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::MasterVolume { value } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Volume", value, logger);
+            }
+            OscOutMessage::Dim { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Dim", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::Cut { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Cut", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::Mono { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Effect/Mono", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::LfeAdd10dB { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/LFE/Add_10dB", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::LowBoost { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Effect/Low_Boost", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::HighBoost { on } => {
+                Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Effect/High_Boost", if on { 1.0 } else { 0.0 }, logger);
+            }
+            OscOutMessage::BroadcastAll { channel_count, master_volume, dim, cut, channel_states, solo_active, mute_active } => {
+                Self::broadcast_all_states_dual(socket, target_hardware, target_web, channel_count, master_volume, dim, cut, &channel_states, solo_active, mute_active, logger);
+            }
+        }
+    }
+
     /// 处理接收的 OSC 数据包
     fn process_incoming_packet(data: &[u8], interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
         let packet = match rosc::decoder::decode_udp(data) {
@@ -992,7 +1057,7 @@ impl OscManager {
 
     // ==================== OSC 消息处理器 ====================
 
-    fn handle_mode_solo(value: f32, interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_mode_solo(value: f32, interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
         if value > 0.5 {
             let state_val = value.round() as u8;
 
@@ -1022,7 +1087,7 @@ impl OscManager {
         }
     }
 
-    fn handle_mode_mute(value: f32, interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_mode_mute(value: f32, interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
         if value > 0.5 {
             let state_val = value.round() as u8;
 
@@ -1052,7 +1117,7 @@ impl OscManager {
         }
     }
 
-    fn handle_channel_click(channel_name: &str, value: f32, interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_channel_click(channel_name: &str, value: f32, interaction: &crate::Interaction::InteractionManager, state: &OscSharedState, logger: &InstanceLogger) {
         // 检查通道是否在当前布局中（使用实例状态）
         let channel_exists = state.current_channel_names.read().contains(&channel_name.to_string());
         let state_val = value.round() as u8;
@@ -1156,7 +1221,7 @@ impl OscManager {
         }
     }
 
-    fn handle_master_volume(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_master_volume(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         // 限制范围 0.0 ~ 1.0
         let clamped = value.clamp(0.0, 1.0);
         logger.info("osc", &format!("[OSC] Master volume received: {:.3}", clamped));
@@ -1164,7 +1229,7 @@ impl OscManager {
         state.send_master_volume(clamped);  // GUI 关闭时也发送反馈到硬件
     }
 
-    fn handle_dim(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_dim(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         let state_val = value.round() as u8;
 
         let new_dim = match state_val {
@@ -1191,7 +1256,7 @@ impl OscManager {
         state.send_dim(new_dim);  // GUI 关闭时也发送反馈到硬件 LED
     }
 
-    fn handle_cut(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_cut(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         let state_val = value.round() as u8;
 
         let new_cut = match state_val {
@@ -1219,7 +1284,7 @@ impl OscManager {
         state.send_cut(new_cut);  // GUI 关闭时也发送反馈到硬件 LED
     }
 
-    fn handle_mono(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_mono(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         let on = value > 0.5;
         logger.info("osc", &format!("[OSC] ===== Mono received: {} =====", on));
         state.set_mono(on);
@@ -1227,7 +1292,7 @@ impl OscManager {
         state.send_mono(on);
     }
 
-    fn handle_lfe_add_10db(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_lfe_add_10db(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         let on = value > 0.5;
         logger.info("osc", &format!("[OSC] ===== LFE +10dB received: {} =====", on));
         state.set_lfe_add_10db(on);
@@ -1235,7 +1300,7 @@ impl OscManager {
         state.send_lfe_add_10db(on);
     }
 
-    fn handle_low_boost(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_low_boost(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         let on = value > 0.5;
         logger.info("osc", &format!("[OSC] ===== Low Boost received: {} =====", on));
         state.set_low_boost(on);
@@ -1243,7 +1308,7 @@ impl OscManager {
         state.send_low_boost(on);
     }
 
-    fn handle_high_boost(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
+    pub fn handle_high_boost(value: f32, state: &OscSharedState, logger: &InstanceLogger) {
         let on = value > 0.5;
         logger.info("osc", &format!("[OSC] ===== High Boost received: {} =====", on));
         state.set_high_boost(on);
@@ -1324,6 +1389,87 @@ impl OscManager {
         );
 
         logger.info("osc", "[OSC] Broadcast complete");
+    }
+
+    /// 发送单个 Float OSC 消息（双目标：硬件 + Web）
+    fn send_osc_float_dual(socket: &UdpSocket, target_hardware: &str, target_web: Option<&str>, addr: &str, value: f32, logger: &InstanceLogger) {
+        let msg = OscMessage {
+            addr: addr.to_string(),
+            args: vec![OscType::Float(value)],
+        };
+
+        let packet = OscPacket::Message(msg);
+
+        match encoder::encode(&packet) {
+            Ok(bytes) => {
+                // 发送到硬件
+                if let Err(e) = socket.send_to(&bytes, target_hardware) {
+                    logger.warn("osc", &format!("[OSC Send] Failed to send to hardware {}: {}", target_hardware, e));
+                }
+                // 发送到 Web（如果端口存在）
+                if let Some(web_target) = target_web {
+                    if let Err(e) = socket.send_to(&bytes, web_target) {
+                        logger.warn("osc", &format!("[OSC Send] Failed to send to web {}: {}", web_target, e));
+                    }
+                }
+            }
+            Err(e) => {
+                logger.error("osc", &format!("[OSC Send] Failed to encode message: {}", e));
+            }
+        }
+    }
+
+    /// 广播所有当前状态（双目标：硬件 + Web）
+    fn broadcast_all_states_dual(
+        socket: &UdpSocket,
+        target_hardware: &str,
+        target_web: Option<&str>,
+        channel_count: usize,
+        master_volume: f32,
+        dim: bool,
+        cut: bool,
+        channel_states: &[(String, u8)],
+        solo_active: bool,
+        mute_active: bool,
+        logger: &InstanceLogger
+    ) {
+        logger.info("osc", &format!("[OSC] Broadcasting all states for {} channels (hardware + web)...", channel_count));
+
+        // 1. 所有通道的 LED 状态（三态：0=off, 1=mute, 2=solo）
+        for (ch_name, state) in channel_states {
+            Self::send_osc_float_dual(socket, target_hardware, target_web,
+                &format!("/Monitor/Channel/{}", ch_name),
+                *state as f32,
+                logger
+            );
+        }
+
+        // 2. 模式按钮状态
+        Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Mode/Solo",
+            if solo_active { 1.0 } else { 0.0 },
+            logger
+        );
+        Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Mode/Mute",
+            if mute_active { 1.0 } else { 0.0 },
+            logger
+        );
+
+        // 3. Master Volume (从参数传入)
+        Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Volume", master_volume, logger);
+
+        // 4. Dim 状态
+        Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Dim",
+            if dim { 1.0 } else { 0.0 },
+            logger
+        );
+
+        // 5. Cut 状态
+        Self::send_osc_float_dual(socket, target_hardware, target_web, "/Monitor/Master/Cut",
+            if cut { 1.0 } else { 0.0 },
+            logger
+        );
+
+        logger.info("osc", "[OSC] Broadcast complete (hardware + web)");
     }
 }
 

@@ -1,0 +1,412 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { 
+  Volume2, 
+} from 'lucide-react';
+
+// --- 数据模型 ---
+
+const PAGES = [
+  {
+    id: 1,
+    title: "Main Surround",
+    buttons: [
+      { label: "S", type: "toggle" },
+      { label: "L", type: "toggle" },
+      { label: "C", type: "toggle" },
+      { label: "R", type: "toggle" },
+      { label: "M", type: "toggle", active: true }, // Mute default on
+      { label: "LSS", type: "toggle" },
+      { label: "LFE", type: "toggle" },
+      { label: "RSS", type: "toggle" },
+      { label: "DIM", type: "action", color: "text-yellow-400" },
+      { label: "LRS", type: "toggle" },
+      { label: "+10dB", sub: "LFE", type: "action", color: "text-cyan-400" },
+      { label: "RRS", type: "toggle" },
+    ]
+  },
+  {
+    id: 2,
+    title: "Height / Top",
+    buttons: [
+      { label: "S", type: "toggle" },
+      { label: "LTF", type: "toggle" },
+      { label: "LBF", type: "toggle" },
+      { label: "RTF", type: "toggle" },
+      { label: "M", type: "toggle", active: true },
+      { label: "RBF", type: "toggle" },
+      { label: "SUB", type: "toggle" },
+      { label: "RBB", type: "toggle" },
+      { label: "DIM", type: "action", color: "text-yellow-400" },
+      { label: "LTB", type: "toggle" },
+      { label: "LBB", type: "toggle" },
+      { label: "RTB", type: "toggle" },
+    ]
+  },
+  {
+    id: 3,
+    title: "EQ & Curves",
+    buttons: [
+      { label: "S", type: "toggle" },
+      { label: "Low", sub: "Boost", type: "toggle", color: "text-cyan-400" },
+      { label: "F", sub: "SUB", type: "toggle", color: "text-cyan-400" },
+      { label: "High", sub: "Boost", type: "toggle", color: "text-cyan-400" },
+      { label: "M", type: "toggle", active: true },
+      { label: "L", sub: "SUB", type: "toggle", color: "text-cyan-400" },
+      { label: "Mono", type: "action", color: "text-red-600" }, // Mono is distinct
+      { label: "R", sub: "SUB", type: "toggle", color: "text-cyan-400" },
+      { label: "DIM", type: "action", color: "text-yellow-400" },
+      { label: "Dolby", sub: "Curve", type: "toggle", color: "text-cyan-400" },
+      { label: "B", sub: "SUB", type: "toggle", color: "text-cyan-400" },
+      { label: "Phone", sub: "Curve", type: "toggle", color: "text-cyan-400" },
+    ]
+  }
+];
+
+// --- 组件 ---
+
+/**
+ * 可交互的物理旋钮组件
+ * @param showMarker 是否显示旋钮上的指示线 (主音量需要，其他无极旋钮不需要)
+ * @param isEndless 是否为无极旋钮 (不显示光圈进度)
+ */
+const InteractiveKnob = ({ 
+  value, 
+  min = 0, 
+  max = 100, 
+  steps = 0, 
+  onChange, 
+  label, 
+  subLabel,
+  icon: Icon,
+  showMarker = true, 
+  isEndless = false
+}) => {
+  const startYRef = useRef(null);
+  const startValueRef = useRef(null);
+
+  const effectiveMax = steps > 0 ? steps - 1 : max;
+  const effectiveMin = steps > 0 ? 0 : min;
+  
+  // 旋转角度计算
+  const rotation = isEndless 
+    ? value * 15 
+    : -135 + ((value - effectiveMin) / (effectiveMax - effectiveMin) * 270);
+
+  const handlePointerDown = (e) => {
+    startYRef.current = e.clientY || e.touches?.[0].clientY;
+    startValueRef.current = value;
+    
+    window.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('mouseup', handlePointerUp);
+    window.addEventListener('touchmove', handlePointerMove, { passive: false });
+    window.addEventListener('touchend', handlePointerUp);
+  };
+
+  const handlePointerMove = useCallback((e) => {
+    if (startYRef.current === null) return;
+    
+    const clientY = e.clientY || e.touches?.[0].clientY;
+    const deltaY = startYRef.current - clientY; 
+    
+    const sensitivity = isEndless ? 0.5 : (max - min) / 200; 
+    let rawValue = startValueRef.current + deltaY * sensitivity;
+    let newValue = rawValue;
+    
+    if (!isEndless) {
+       newValue = Math.max(effectiveMin, Math.min(effectiveMax, rawValue));
+    }
+    
+    if (steps > 0) {
+        newValue = Math.round(newValue);
+    } else if (!isEndless) {
+        if (max - min > 100) {
+            newValue = Math.round(newValue);
+        } else {
+            newValue = Math.round(newValue * 10) / 10;
+        }
+    } else {
+       newValue = Math.round(newValue * 10) / 10;
+    }
+
+    if (onChange && newValue !== value) {
+        if (steps > 0 && navigator.vibrate) navigator.vibrate(5);
+        onChange(newValue);
+    }
+    
+    if (e.preventDefault && e.type === 'touchmove') e.preventDefault();
+  }, [min, max, steps, onChange, value, effectiveMin, effectiveMax, isEndless]);
+
+  const handlePointerUp = useCallback(() => {
+    startYRef.current = null;
+    startValueRef.current = null;
+    window.removeEventListener('mousemove', handlePointerMove);
+    window.removeEventListener('mouseup', handlePointerUp);
+    window.removeEventListener('touchmove', handlePointerMove);
+    window.removeEventListener('touchend', handlePointerUp);
+  }, [handlePointerMove]);
+
+  return (
+    <div 
+      className="flex flex-col items-center gap-2 group relative z-10 touch-none select-none"
+      onMouseDown={handlePointerDown}
+      onTouchStart={handlePointerDown}
+    >
+      <div className={`
+        relative w-16 h-16 lg:w-20 lg:h-20 rounded-full 
+        bg-gradient-to-br from-[#2a2a2a] to-[#111]
+        shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.6)]
+        border border-gray-800 flex items-center justify-center
+        cursor-ns-resize active:cursor-grabbing
+      `}>
+        <div className="absolute inset-0 rounded-full border border-black/50" />
+        
+        {!isEndless && (
+            <div 
+                className="absolute inset-0 rounded-full opacity-80"
+                style={{
+                    background: `conic-gradient(from 225deg, #10b981 ${((value - effectiveMin) / (effectiveMax - effectiveMin)) * 270}deg, transparent 0deg)`,
+                    maskImage: 'radial-gradient(transparent 63%, black 64%)',
+                    WebkitMaskImage: 'radial-gradient(transparent 63%, black 64%)'
+                }}
+            />
+        )}
+
+        <div 
+            className="w-12 h-12 lg:w-14 lg:h-14 rounded-full bg-[#1a1a1a] shadow-[0_4px_10px_rgba(0,0,0,0.9)] flex items-center justify-center transform transition-transform duration-75 ease-out"
+            style={{ transform: `rotate(${rotation}deg)` }}
+        >
+          {showMarker && (
+            <div className="w-1.5 h-4 lg:h-5 bg-gray-500 rounded-full transform -translate-y-3 lg:-translate-y-4 shadow-[0_0_2px_black]" />
+          )}
+          {!showMarker && (
+            <div className="absolute inset-0 rounded-full opacity-20 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.1),transparent)]" />
+          )}
+        </div>
+      </div>
+      
+      <div className="flex flex-col items-center pointer-events-none gap-0.5">
+        {Icon && <Icon size={16} className="text-gray-400 mb-1" />}
+        {label && (
+          <span className={`text-[10px] lg:text-xs font-bold font-mono tracking-wider uppercase text-center leading-tight ${isEndless ? 'text-gray-500' : 'text-gray-200'}`}>
+            {label}
+          </span>
+        )}
+         {subLabel && (
+          <span className="text-[9px] text-gray-500 font-mono group-active:text-green-400">{subLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * 中央按钮网格
+ */
+const ButtonGrid = ({ pageData, activeButtons, toggleButton }) => {
+  return (
+    <div className="grid grid-cols-4 grid-rows-3 gap-2 p-3 w-full h-full relative z-10">
+      {pageData.buttons.map((btn, idx) => {
+        const key = `${pageData.id}-${idx}`;
+        const isActive = activeButtons[key] || btn.active;
+        
+        // 动态样式逻辑
+        const baseTextColor = btn.color || 'text-white'; // 默认白色，特殊按钮由 data 定义颜色
+        
+        return (
+          <button
+            key={idx}
+            onClick={() => toggleButton(key)}
+            className={`
+              relative flex items-center justify-center rounded-md overflow-hidden
+              transition-all duration-75 active:scale-95 touch-manipulation
+              ${isActive 
+                ? 'bg-gray-800 shadow-[inset_0_0_15px_rgba(255,255,255,0.1)] border border-white/20' 
+                : 'bg-[#121212] hover:bg-[#1a1a1a] border border-transparent shadow-[inset_0_1px_2px_rgba(0,0,0,0.8)]'}
+            `}
+          >
+            {/* 高亮光泽 */}
+            {isActive && (
+              <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+            )}
+            
+            {/* 按钮内容容器 - 使用 flex-col 和 items-end 来实现大字在上，小字紧贴右下方的效果 */}
+            <div className="flex flex-col items-end justify-center leading-none px-1">
+                {/* 主标签 - 超级大的字体 */}
+                <span className={`
+                  text-2xl lg:text-3xl font-bold font-sans tracking-tight z-10 
+                  ${isActive ? 'text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.5)]' : baseTextColor}
+                `}>
+                  {btn.label}
+                </span>
+
+                {/* 副标签 - 紧贴在大字的右下方，非绝对定位 */}
+                {btn.sub && (
+                  <span className={`
+                    text-[10px] lg:text-xs font-bold font-sans mt-0.5
+                    ${isActive ? 'text-gray-200' : 'text-gray-500'}
+                  `}>
+                    {btn.sub}
+                  </span>
+                )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+
+export default function App() {
+  const [currentPage, setCurrentPage] = useState(0);
+  const [activeButtons, setActiveButtons] = useState({});
+  const [masterVolume, setMasterVolume] = useState(70);
+  
+  const [frontPos, setFrontPos] = useState(0);
+  const [subPos, setSubPos] = useState(0);
+  const [surroundPos, setSurroundPos] = useState(0);
+  const [topPos, setTopPos] = useState(0);
+  const [bottomPos, setBottomPos] = useState(0);
+
+  const toggleButton = (key) => {
+    setActiveButtons(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const [touchStart, setTouchStart] = useState(null);
+  const [touchEnd, setTouchEnd] = useState(null);
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e) => {
+    setTouchEnd(null); 
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e) => setTouchEnd(e.targetTouches[0].clientX);
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe && currentPage < PAGES.length - 1) {
+      setCurrentPage(prev => prev + 1);
+    }
+    if (isRightSwipe && currentPage > 0) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
+
+  return (
+    <div className="w-full h-screen bg-[#050505] flex flex-col items-center justify-center p-4 overflow-hidden select-none">
+      
+      <div className="relative w-full max-w-[1200px] aspect-video bg-[#0f0f0f] rounded-[2rem] shadow-[0_0_100px_rgba(0,0,0,0.9)] border border-[#222] flex flex-row overflow-hidden">
+        
+        {/* 背景纹理 */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,#1a1a1a_0%,#080808_100%)] opacity-80" />
+        
+        {/* 左侧旋钮区 */}
+        <div className="relative w-1/5 h-full flex flex-col items-center justify-around py-8 border-r border-white/5 bg-[#111]">
+          <div className="absolute top-4 left-4 w-3 h-3 rounded-full bg-[#080808] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] flex items-center justify-center"><div className="w-1 h-1 bg-[#222] rounded-full"/></div>
+          
+          <InteractiveKnob 
+            value={masterVolume} 
+            min={0} 
+            max={100} 
+            onChange={setMasterVolume} 
+            label={`${Math.round(masterVolume)} %`}
+            showMarker={true}
+            isEndless={false}
+          />
+          
+          <InteractiveKnob 
+            value={frontPos} 
+            onChange={setFrontPos} 
+            label="FRONT" 
+            showMarker={false}
+            isEndless={true}
+          />
+          <InteractiveKnob 
+            value={subPos} 
+            onChange={setSubPos} 
+            label="SUB" 
+            showMarker={false}
+            isEndless={true}
+          />
+
+          <div className="absolute bottom-4 left-4 w-3 h-3 rounded-full bg-[#080808] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] flex items-center justify-center"><div className="w-1 h-1 bg-[#222] rounded-full"/></div>
+        </div>
+
+        {/* 中央屏幕区 */}
+        <div className="relative flex-1 h-full bg-black shadow-[inset_0_0_50px_rgba(0,0,0,1)] flex flex-col z-10">
+           <div className="absolute inset-y-0 left-0 w-px bg-white/10 z-20" />
+           <div className="absolute inset-y-0 right-0 w-px bg-white/10 z-20" />
+           
+           <div 
+             className="flex-1 overflow-hidden relative"
+             onTouchStart={onTouchStart}
+             onTouchMove={onTouchMove}
+             onTouchEnd={onTouchEnd}
+           >
+             <div 
+               className="flex h-full transition-transform duration-300 ease-out"
+               style={{ transform: `translateX(-${currentPage * 100}%)` }}
+             >
+               {PAGES.map((page) => (
+                 <div key={page.id} className="min-w-full h-full flex flex-col bg-[#050505] relative">
+                   <div className="absolute inset-0 opacity-10 pointer-events-none" 
+                        style={{ backgroundImage: 'radial-gradient(#333 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+                   
+                   <ButtonGrid 
+                     pageData={page} 
+                     activeButtons={activeButtons} 
+                     toggleButton={toggleButton} 
+                   />
+                 </div>
+               ))}
+             </div>
+           </div>
+
+           <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none z-30">
+              {PAGES.map((_, idx) => (
+                <div 
+                  key={idx}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentPage ? 'bg-green-600 w-4 opacity-100 shadow-[0_0_8px_rgba(22,163,74,0.6)]' : 'bg-gray-700 w-1.5 opacity-50'}`}
+                />
+              ))}
+           </div>
+        </div>
+
+        {/* 右侧旋钮区 */}
+        <div className="relative w-1/5 h-full flex flex-col items-center justify-around py-8 border-l border-white/5 bg-[#111]">
+          <div className="absolute top-4 right-4 w-3 h-3 rounded-full bg-[#080808] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] flex items-center justify-center"><div className="w-1 h-1 bg-[#222] rounded-full"/></div>
+          
+          <InteractiveKnob 
+            value={surroundPos} 
+            onChange={setSurroundPos} 
+            label="SURROUND" 
+            showMarker={false}
+            isEndless={true}
+          />
+          <InteractiveKnob 
+            value={topPos} 
+            onChange={setTopPos} 
+            label="TOP" 
+            showMarker={false}
+            isEndless={true}
+          />
+          <InteractiveKnob 
+            value={bottomPos} 
+            onChange={setBottomPos} 
+            label="BOTTOM" 
+            showMarker={false}
+            isEndless={true}
+          />
+
+          <div className="absolute bottom-4 right-4 w-3 h-3 rounded-full bg-[#080808] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] flex items-center justify-center"><div className="w-1 h-1 bg-[#222] rounded-full"/></div>
+        </div>
+
+      </div>
+    </div>
+  );
+}

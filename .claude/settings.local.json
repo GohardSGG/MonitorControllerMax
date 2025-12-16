@@ -5,7 +5,10 @@
       "Bash(cmd /c \"del C:\\Code\\MonitorControllerMax\\Library\\baseview\\src\\win\\keyboard_hook.rs\")",
       "Bash(ls -la \"C:\\Code\\MonitorControllerMax\\Doc\\Main\"\" 2>&1 || dir \"C:CodeMonitorControllerMaxDocMain\"\")",
       "Bash(cargo --version:*)",
-      "Bash(rustc:*)"
+      "Bash(rustc:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(cargo tree:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
