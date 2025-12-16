@@ -38,6 +38,11 @@ static PREV_KEY_STATES: [AtomicU16; 256] = {
 /// Check if a key was just pressed (transition from up to down)
 #[cfg(target_os = "windows")]
 fn is_key_just_pressed(vk: i32) -> bool {
+    // 边界检查：防止数组越界访问
+    if vk < 0 || vk as usize >= 256 {
+        return false;
+    }
+
     let current = unsafe { GetAsyncKeyState(vk) };
     let is_down = (current & 0x8000u16 as i16) != 0;
     let prev = PREV_KEY_STATES[vk as usize].swap(current as u16, Ordering::Relaxed);

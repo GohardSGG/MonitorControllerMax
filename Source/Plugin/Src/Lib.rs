@@ -355,8 +355,14 @@ impl Plugin for MonitorControllerMax {
             self.layout_cache_key = cache_key;
         }
 
-        // SAFETY: layout_cache 在上面已确保存在
-        let layout = self.layout_cache.as_ref().unwrap();
+        // 安全获取 layout，如果意外为 None 则跳过音频处理
+        let layout = match self.layout_cache.as_ref() {
+            Some(l) => l,
+            None => {
+                self.logger.error("monitor_controller_max", "[Process] layout_cache is None, skipping audio processing");
+                return ProcessStatus::Normal;
+            }
+        };
 
         Audio::process_audio_with_layout(
             buffer,
