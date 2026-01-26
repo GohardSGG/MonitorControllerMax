@@ -6,5 +6,5 @@ use rust_embed::RustEmbed;
 
 /// 嵌入 Web 前端资源
 #[derive(RustEmbed)]
-#[folder = "Src/Web/"]
+#[folder = "../../assets/"]
 pub struct Assets;

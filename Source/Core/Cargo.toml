@@ -1,0 +1,22 @@
+[package]
+name = "mcm_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# 核心依赖：只允许纯计算库
+atomic_float = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+lazy_static = { workspace = true }
+wide = { workspace = true } # SIMD
+parking_lot = { workspace = true } # 仅用于非实时路径
+crossbeam = { workspace = true } # setup InteractionManager
+
+# NIH-Plug (数据定义需要)
+nih_plug = { workspace = true }
+nih_plug_egui = { workspace = true }
+
+# 引用其他内部库
+mcm_protocol = { workspace = true }
+mcm_infra = { workspace = true }

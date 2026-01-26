@@ -1,6 +1,6 @@
+use crate::params::MAX_CHANNELS;
 use serde::Deserialize;
 use std::collections::HashMap;
-use crate::Params::MAX_CHANNELS;
 
 // Embed the default config
 const DEFAULT_CONFIG_JSON: &str = include_str!("../../Resource/Speaker_Config.json");
@@ -13,8 +13,7 @@ const UTF8_BOM: &str = "\u{FEFF}";
 /// 注意：SUB 通道统一使用下划线格式 "SUB_F", "SUB_B" 等（不使用空格）
 pub const STANDARD_CHANNEL_ORDER: &[&str] = &[
     // Main channels (7.1.4)
-    "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS",
-    "LTF", "RTF", "LTB", "RTB",
+    "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS", "LTF", "RTF", "LTB", "RTB",
     // SUB channels (统一使用下划线格式)
     "SUB_F", "SUB_B", "SUB_L", "SUB_R",
 ];
@@ -78,8 +77,8 @@ pub struct Layout {
     pub name: String,
     pub width: u32,
     pub height: u32,
-    pub main_channels: Vec<ChannelInfo>,  // 主声道（在网格中显示）
-    pub sub_channels: Vec<ChannelInfo>,   // SUB 声道（在上下轨道中显示）
+    pub main_channels: Vec<ChannelInfo>, // 主声道（在网格中显示）
+    pub sub_channels: Vec<ChannelInfo>,  // SUB 声道（在上下轨道中显示）
     pub total_channels: usize,
     /// P5: O(1) 通道名称查找表
     /// channel_by_index[i] = 通道 i 的名称（用于快速查找）
@@ -219,7 +218,7 @@ impl ConfigManager {
             // Second pass: Any other channels not in standard list?
             for (k, v) in layout_map {
                 if k != "Size" && !standard_order.contains(&k.as_str()) {
-                     if let Some(grid_pos) = v.as_u64() {
+                    if let Some(grid_pos) = v.as_u64() {
                         main_channels.push(ChannelInfo {
                             name: k.clone(),
                             grid_pos: grid_pos as u32,
@@ -263,7 +262,10 @@ impl ConfigManager {
 
         // H3: 空配置降级 - 如果没有任何通道，返回最小立体声配置
         if total_channels == 0 {
-            eprintln!("[MCM] WARNING: Empty layout '{}+{}', falling back to stereo", speaker_name, sub_name);
+            eprintln!(
+                "[MCM] WARNING: Empty layout '{}+{}', falling back to stereo",
+                speaker_name, sub_name
+            );
             let mut fallback_lookup = [ChannelLookupEntry::default(); MAX_CHANNELS];
             fallback_lookup[0] = ChannelLookupEntry::from_str("L");
             fallback_lookup[1] = ChannelLookupEntry::from_str("R");
@@ -272,8 +274,16 @@ impl ConfigManager {
                 width: 3,
                 height: 1,
                 main_channels: vec![
-                    ChannelInfo { name: "L".to_string(), grid_pos: 1, channel_index: 0 },
-                    ChannelInfo { name: "R".to_string(), grid_pos: 3, channel_index: 1 },
+                    ChannelInfo {
+                        name: "L".to_string(),
+                        grid_pos: 1,
+                        channel_index: 0,
+                    },
+                    ChannelInfo {
+                        name: "R".to_string(),
+                        grid_pos: 3,
+                        channel_index: 1,
+                    },
                 ],
                 sub_channels: vec![],
                 total_channels: 2,
@@ -300,7 +310,8 @@ impl ConfigManager {
             // 获取该布局的通道数（不包含 SUB）
             if let Some(layout_map) = self.raw_config.speakers.get(speaker_name) {
                 // 计算通道数（排除 Size 字段）
-                let channel_count = layout_map.iter()
+                let channel_count = layout_map
+                    .iter()
                     .filter(|(k, v)| *k != "Size" && v.is_u64())
                     .count();
 
@@ -316,7 +327,8 @@ impl ConfigManager {
 
         for (idx, speaker_name) in self.cached_speaker_names.iter().enumerate() {
             if let Some(layout_map) = self.raw_config.speakers.get(speaker_name) {
-                let channel_count = layout_map.iter()
+                let channel_count = layout_map
+                    .iter()
                     .filter(|(k, v)| *k != "Size" && v.is_u64())
                     .count();
 

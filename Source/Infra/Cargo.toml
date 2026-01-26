@@ -1,0 +1,18 @@
+[package]
+name = "mcm_infra"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+production = []
+
+[dependencies]
+log = { workspace = true }
+chrono = { workspace = true }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+lazy_static = { workspace = true }
+dirs = "5.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+mcm_protocol = { workspace = true }

@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// 标准通道名称列表（用于位掩码映射）
@@ -116,7 +116,7 @@ impl NetworkInteractionState {
     /// 创建带时间戳的新状态
     pub fn with_timestamp(mut self) -> Self {
         use std::time::{SystemTime, UNIX_EPOCH};
-        self.protocol_version = PROTOCOL_VERSION;  // M4: 设置协议版本
+        self.protocol_version = PROTOCOL_VERSION; // M4: 设置协议版本
         self.timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -130,4 +130,3 @@ impl NetworkInteractionState {
         self.magic == Self::MAGIC && self.protocol_version == PROTOCOL_VERSION
     }
 }
-

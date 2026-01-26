@@ -8,6 +8,6 @@ name = "xtask"
 path = "Src/Main.rs"
 
 [dependencies]
-nih_plug_xtask = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+nih_plug_xtask = { path = "../../Library/nih-plug/nih_plug_xtask" }
 anyhow = { workspace = true }
 

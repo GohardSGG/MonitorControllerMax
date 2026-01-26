@@ -6,7 +6,7 @@ authors = ["GohardSGG"]
 description = "MonitorControllerMax Rust Edition"
 
 [lib]
-path = "Src/Lib.rs"
+path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [features]
@@ -18,25 +18,22 @@ nih_plug = { workspace = true, features = ["assert_process_allocs"] }
 nih_plug_egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-lazy_static = { workspace = true }
 atomic_float = { workspace = true }
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 log = { workspace = true }
-chrono = "0.4"
-zeromq = "0.4.0"
-bincode = { workspace = true }
-rust-embed = { workspace = true }
-futures = { workspace = true }
-tokio = { workspace = true }
-rosc = "0.10"
-dirs = "5.0"
-open = "5.0"
-wide = { workspace = true }  # P6: SIMD 优化
-# Web 控制器依赖
-axum = { workspace = true }
-tower-http = { workspace = true }
-local-ip-address = { workspace = true }
+
+# Workspace Modules
+mcm_core = { workspace = true }
+mcm_reactor = { workspace = true }
+mcm_protocol = { workspace = true }
+mcm_infra = { workspace = true }
+open = "5.3.3"
+
+# For build.rs or specific needs?
+# rust-embed is likely used in Reactor now, but if Plugin uses it for something else?
+# Plugin/components.rs doesn't use it.
+# Leave it out unless compilation fails.
 
 [build-dependencies]
 serde_json = "1.0"

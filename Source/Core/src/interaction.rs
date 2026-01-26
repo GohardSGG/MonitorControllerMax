@@ -5,15 +5,17 @@
 //! - 比较模式: 在主模式基础上叠加另一个模式 (闪烁)
 //! - 通道操作: 始终操作当前激活的 Context (闪烁的那个优先)
 
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::{Duration, Instant};
-use parking_lot::RwLock;
 use crossbeam::atomic::AtomicCell;
+use parking_lot::RwLock;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use crate::Logger::InstanceLogger;
-use crate::Network_Protocol::NetworkInteractionState;
+use mcm_infra::logger::InstanceLogger;
+use mcm_protocol::config::AppConfig;
+use mcm_protocol::network_structs::NetworkInteractionState;
+use mcm_protocol::web_structs::WebRestartAction;
 
 // ========== Lock-Free 音频线程快照 ==========
 
@@ -303,19 +305,19 @@ pub struct InteractionManager {
 
     // ========== OSC Hot Reload ==========
     /// 待应用的新配置（用于 OSC 端口热重载）
-    osc_restart_config: RwLock<Option<crate::Config_File::AppConfig>>,
+    osc_restart_config: RwLock<Option<AppConfig>>,
     /// P1 优化：快速路径标志，避免每个 block 都获取 RwLock
     osc_restart_pending: AtomicBool,
 
     // ========== Network Hot Reload ==========
     /// 待应用的新配置（用于 Network 端口/IP 热重载）
-    network_restart_config: RwLock<Option<crate::Config_File::AppConfig>>,
+    network_restart_config: RwLock<Option<AppConfig>>,
     /// P1 优化：快速路径标志，避免每个 block 都获取 RwLock
     network_restart_pending: AtomicBool,
 
     // ========== Web Hot Reload ==========
     /// Web 服务器重启动作
-    web_restart_action: RwLock<Option<crate::Web_Protocol::WebRestartAction>>,
+    web_restart_action: RwLock<Option<WebRestartAction>>,
     /// P1 优化：快速路径标志
     web_restart_pending: AtomicBool,
 
@@ -466,9 +468,8 @@ impl InteractionManager {
     /// 通道名称集合转位掩码
     fn channel_set_to_mask(channels: &HashSet<String>) -> u32 {
         let channel_names = [
-            "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS",
-            "LTF", "RTF", "LTB", "RTB",
-            "SUB_F", "SUB_B", "SUB_L", "SUB_R"
+            "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS", "LTF", "RTF", "LTB", "RTB", "SUB_F",
+            "SUB_B", "SUB_L", "SUB_R",
         ];
         let mut mask: u32 = 0;
         for (i, name) in channel_names.iter().enumerate() {
@@ -482,10 +483,18 @@ impl InteractionManager {
     /// SUB 集合转位掩码
     fn sub_set_to_mask(subs: &HashSet<String>) -> u8 {
         let mut mask: u8 = 0;
-        if subs.contains("SUB_F") { mask |= 1 << 0; }
-        if subs.contains("SUB_B") { mask |= 1 << 1; }
-        if subs.contains("SUB_L") { mask |= 1 << 2; }
-        if subs.contains("SUB_R") { mask |= 1 << 3; }
+        if subs.contains("SUB_F") {
+            mask |= 1 << 0;
+        }
+        if subs.contains("SUB_B") {
+            mask |= 1 << 1;
+        }
+        if subs.contains("SUB_L") {
+            mask |= 1 << 2;
+        }
+        if subs.contains("SUB_R") {
+            mask |= 1 << 3;
+        }
         mask
     }
 
@@ -540,7 +549,9 @@ impl InteractionManager {
     /// 逻辑：被 Solo 的通道 -> 变成被 Mute 的通道（相同的通道集合）
     fn copy_set(&self, source: &ChannelSet) -> ChannelSet {
         // 只拷贝 Main 通道（过滤掉 SUB）
-        let channels: HashSet<String> = source.channels.iter()
+        let channels: HashSet<String> = source
+            .channels
+            .iter()
             .filter(|name| !name.starts_with("SUB"))
             .cloned()
             .collect();
@@ -570,8 +581,8 @@ impl InteractionManager {
             (PrimaryMode::None, CompareMode::None) => Action::SetSoloActive,
             (PrimaryMode::Solo, CompareMode::None) => Action::ExitToIdle,
             (PrimaryMode::Mute, CompareMode::None) => Action::EnterSoloCompare,
-            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitSoloCompare,  // 点击 Compare 按钮，只退出 Compare
-            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitAll,  // 点击 Primary 按钮，完全退出
+            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitSoloCompare, // 点击 Compare 按钮，只退出 Compare
+            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitAll, // 点击 Primary 按钮，完全退出
             _ => Action::None,
         };
 
@@ -628,8 +639,13 @@ impl InteractionManager {
         let new_compare = *self.compare.read();
         let solo_count = self.solo_set.read().channels.len();
         let mute_count = self.mute_set.read().channels.len();
-        self.logger.info("interaction", &format!("[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
-            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count));
+        self.logger.info(
+            "interaction",
+            &format!(
+                "[SM] SOLO: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
+                current_primary, current_compare, new_primary, new_compare, solo_count, mute_count
+            ),
+        );
 
         // 更新 Lock-Free 快照
         self.update_snapshot();
@@ -655,8 +671,8 @@ impl InteractionManager {
             (PrimaryMode::None, CompareMode::None) => Action::SetMuteActive,
             (PrimaryMode::Mute, CompareMode::None) => Action::ExitToIdle,
             (PrimaryMode::Solo, CompareMode::None) => Action::EnterMuteCompare,
-            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitMuteCompare,  // 点击 Compare 按钮，只退出 Compare
-            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitAll,  // 点击 Primary 按钮，完全退出
+            (PrimaryMode::Solo, CompareMode::Mute) => Action::ExitMuteCompare, // 点击 Compare 按钮，只退出 Compare
+            (PrimaryMode::Mute, CompareMode::Solo) => Action::ExitAll, // 点击 Primary 按钮，完全退出
             _ => Action::None,
         };
 
@@ -713,8 +729,13 @@ impl InteractionManager {
         let new_compare = *self.compare.read();
         let solo_count = self.solo_set.read().channels.len();
         let mute_count = self.mute_set.read().channels.len();
-        self.logger.info("interaction", &format!("[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
-            current_primary, current_compare, new_primary, new_compare, solo_count, mute_count));
+        self.logger.info(
+            "interaction",
+            &format!(
+                "[SM] MUTE: ({:?},{:?})->({:?},{:?}) solo_count={} mute_count={}",
+                current_primary, current_compare, new_primary, new_compare, solo_count, mute_count
+            ),
+        );
 
         // 更新 Lock-Free 快照
         self.update_snapshot();
@@ -797,10 +818,25 @@ impl InteractionManager {
 
         // 记录通道点击日志
         if result {
-            let solo_count = self.solo_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
-            let mute_count = self.mute_set.read().iter().filter(|n| !n.starts_with("SUB")).count();
-            self.logger.info("interaction", &format!("[CH] {} click: solo_count={} mute_count={}",
-                ch_name, solo_count, mute_count));
+            let solo_count = self
+                .solo_set
+                .read()
+                .iter()
+                .filter(|n| !n.starts_with("SUB"))
+                .count();
+            let mute_count = self
+                .mute_set
+                .read()
+                .iter()
+                .filter(|n| !n.starts_with("SUB"))
+                .count();
+            self.logger.info(
+                "interaction",
+                &format!(
+                    "[CH] {} click: solo_count={} mute_count={}",
+                    ch_name, solo_count, mute_count
+                ),
+            );
 
             // 更新 Lock-Free 快照
             self.update_snapshot();
@@ -895,13 +931,19 @@ impl InteractionManager {
         // 检查 Solo 模式
         if solo_empty && *self.primary.read() == PrimaryMode::Solo {
             *self.primary.write() = PrimaryMode::None;
-            self.logger.info("interaction", "[Mode] Solo set empty, auto-exiting Solo mode");
+            self.logger.info(
+                "interaction",
+                "[Mode] Solo set empty, auto-exiting Solo mode",
+            );
         }
 
         // 检查 Mute 模式
         if mute_empty && *self.primary.read() == PrimaryMode::Mute {
             *self.primary.write() = PrimaryMode::None;
-            self.logger.info("interaction", "[Mode] Mute set empty, auto-exiting Mute mode");
+            self.logger.info(
+                "interaction",
+                "[Mode] Mute set empty, auto-exiting Mute mode",
+            );
         }
     }
 
@@ -913,10 +955,16 @@ impl InteractionManager {
 
             if was_muted {
                 user_mute.remove(ch_name);
-                self.logger.info("interaction", &format!("[CH] {} dblclick: user_mute removed", ch_name));
+                self.logger.info(
+                    "interaction",
+                    &format!("[CH] {} dblclick: user_mute removed", ch_name),
+                );
             } else {
                 user_mute.insert(ch_name.to_string());
-                self.logger.info("interaction", &format!("[CH] {} dblclick: user_mute added", ch_name));
+                self.logger.info(
+                    "interaction",
+                    &format!("[CH] {} dblclick: user_mute added", ch_name),
+                );
             }
             // 更新 Lock-Free 快照
             self.update_snapshot();
@@ -951,7 +999,7 @@ impl InteractionManager {
         // Idle 状态：全部灰色（UI），但音频全通（has_sound = true）
         if primary == PrimaryMode::None {
             return ChannelDisplay {
-                has_sound: true,   // ← 修复：Idle = 全通
+                has_sound: true, // ← 修复：Idle = 全通
                 marker: None,
                 is_blinking: false,
             };
@@ -966,18 +1014,14 @@ impl InteractionManager {
                 return ChannelDisplay {
                     has_sound: false,
                     marker: Some(ChannelMarker::Mute),
-                    is_blinking: false,  // User Mute 不闪烁
+                    is_blinking: false, // User Mute 不闪烁
                 };
             }
 
             // SUB 使用 Primary 模式的集合（不管是否在 Compare 模式）
             let (sub_context_type, active_set) = match primary {
-                PrimaryMode::Solo => {
-                    (ContextType::Solo, self.solo_set.read())
-                }
-                PrimaryMode::Mute => {
-                    (ContextType::Mute, self.mute_set.read())
-                }
+                PrimaryMode::Solo => (ContextType::Solo, self.solo_set.read()),
+                PrimaryMode::Mute => (ContextType::Mute, self.mute_set.read()),
                 PrimaryMode::None => unreachable!(),
             };
 
@@ -993,7 +1037,7 @@ impl InteractionManager {
 
             if !main_set_has_any && !sub_set_has_any {
                 return ChannelDisplay {
-                    has_sound: true,  // 空集合 = 全通（不处理）
+                    has_sound: true, // 空集合 = 全通（不处理）
                     marker: None,
                     is_blinking: false,
                 };
@@ -1002,20 +1046,26 @@ impl InteractionManager {
             let marker = match sub_context_type {
                 ContextType::Solo => {
                     if sub_set_has_any {
-                        if is_in_sub_set { Some(ChannelMarker::Solo) }
-                        else { Some(ChannelMarker::Mute) }
+                        if is_in_sub_set {
+                            Some(ChannelMarker::Solo)
+                        } else {
+                            Some(ChannelMarker::Mute)
+                        }
                     } else if main_set_has_any {
-                        Some(ChannelMarker::Solo)  // 豁免权
+                        Some(ChannelMarker::Solo) // 豁免权
                     } else {
                         None
                     }
                 }
                 ContextType::Mute => {
                     if sub_set_has_any {
-                        if is_in_sub_set { Some(ChannelMarker::Mute) }
-                        else { Some(ChannelMarker::Solo) }
+                        if is_in_sub_set {
+                            Some(ChannelMarker::Mute)
+                        } else {
+                            Some(ChannelMarker::Solo)
+                        }
                     } else if main_set_has_any {
-                        Some(ChannelMarker::Solo)  // 豁免权
+                        Some(ChannelMarker::Solo) // 豁免权
                     } else {
                         None
                     }
@@ -1033,19 +1083,13 @@ impl InteractionManager {
         // === Main 通道逻辑 (Group M) ===
         // Main 通道使用当前激活的上下文（比较模式优先）
         let (context_type, active_set, is_compare_mode) = match compare {
-            CompareMode::Solo => {
-                (ContextType::Solo, self.solo_set.read(), true)
-            }
-            CompareMode::Mute => {
-                (ContextType::Mute, self.mute_set.read(), true)
-            }
-            CompareMode::None => {
-                match primary {
-                    PrimaryMode::Solo => (ContextType::Solo, self.solo_set.read(), false),
-                    PrimaryMode::Mute => (ContextType::Mute, self.mute_set.read(), false),
-                    PrimaryMode::None => unreachable!(),
-                }
-            }
+            CompareMode::Solo => (ContextType::Solo, self.solo_set.read(), true),
+            CompareMode::Mute => (ContextType::Mute, self.mute_set.read(), true),
+            CompareMode::None => match primary {
+                PrimaryMode::Solo => (ContextType::Solo, self.solo_set.read(), false),
+                PrimaryMode::Mute => (ContextType::Mute, self.mute_set.read(), false),
+                PrimaryMode::None => unreachable!(),
+            },
         };
 
         let is_in_main_set = active_set.contains(ch_name);
@@ -1133,7 +1177,8 @@ impl InteractionManager {
             CompareMode::Solo => {
                 // Solo Compare 模式: 返回 solo_set 中的所有Main通道（SUB不闪烁）
                 let solo_set = self.solo_set.read();
-                solo_set.iter()
+                solo_set
+                    .iter()
                     .filter(|name| !name.starts_with("SUB"))
                     .cloned()
                     .collect()
@@ -1141,7 +1186,8 @@ impl InteractionManager {
             CompareMode::Mute => {
                 // Mute Compare 模式: 返回 mute_set 中的所有Main通道（SUB不闪烁）
                 let mute_set = self.mute_set.read();
-                mute_set.iter()
+                mute_set
+                    .iter()
                     .filter(|name| !name.starts_with("SUB"))
                     .cloned()
                     .collect()
@@ -1215,7 +1261,14 @@ impl InteractionManager {
 
     /// 导出当前状态到网络格式 (Master 调用)
     /// 需要传入 master_gain/dim/cut/layout/sub_layout 参数（从 params 读取）
-    pub fn to_network_state(&self, master_gain: f32, dim: bool, cut: bool, layout: i32, sub_layout: i32) -> NetworkInteractionState {
+    pub fn to_network_state(
+        &self,
+        master_gain: f32,
+        dim: bool,
+        cut: bool,
+        layout: i32,
+        sub_layout: i32,
+    ) -> NetworkInteractionState {
         let primary = match *self.primary.read() {
             PrimaryMode::None => 0,
             PrimaryMode::Solo => 1,
@@ -1236,7 +1289,7 @@ impl InteractionManager {
         let automation_mode = *self.automation_mode.read();
 
         NetworkInteractionState {
-            protocol_version: 0,  // M4: with_timestamp() 会设置正确的版本
+            protocol_version: 0, // M4: with_timestamp() 会设置正确的版本
             primary,
             compare,
             solo_mask: NetworkInteractionState::channel_set_to_mask(&solo_set.channels),
@@ -1252,7 +1305,8 @@ impl InteractionManager {
             automation_mode,
             timestamp: 0,
             magic: 0,
-        }.with_timestamp()
+        }
+        .with_timestamp()
     }
 
     /// 从网络格式导入状态 (Slave 调用)
@@ -1352,7 +1406,7 @@ impl InteractionManager {
 
     /// 请求 OSC 重启（携带新配置）
     /// P1 优化：设置 pending 标志，让 process() 可以快速检查
-    pub fn request_osc_restart(&self, new_config: crate::Config_File::AppConfig) {
+    pub fn request_osc_restart(&self, new_config: AppConfig) {
         *self.osc_restart_config.write() = Some(new_config);
         self.osc_restart_pending.store(true, Ordering::Release);
     }
@@ -1365,9 +1419,9 @@ impl InteractionManager {
 
     /// 获取并清除 OSC 重启请求（Lib.rs process 调用）
     /// P1 优化：只在 pending 为 true 时才获取锁
-    pub fn take_osc_restart_request(&self) -> Option<crate::Config_File::AppConfig> {
+    pub fn take_osc_restart_request(&self) -> Option<AppConfig> {
         if !self.osc_restart_pending.load(Ordering::Relaxed) {
-            return None;  // 快速路径，无锁
+            return None; // 快速路径，无锁
         }
         let config = self.osc_restart_config.write().take();
         if config.is_some() {
@@ -1380,7 +1434,7 @@ impl InteractionManager {
 
     /// 请求 Network 重启（携带新配置）
     /// P1 优化：设置 pending 标志，让 process() 可以快速检查
-    pub fn request_network_restart(&self, new_config: crate::Config_File::AppConfig) {
+    pub fn request_network_restart(&self, new_config: AppConfig) {
         *self.network_restart_config.write() = Some(new_config);
         self.network_restart_pending.store(true, Ordering::Release);
     }
@@ -1393,9 +1447,9 @@ impl InteractionManager {
 
     /// 获取并清除 Network 重启请求（Lib.rs process 调用）
     /// P1 优化：只在 pending 为 true 时才获取锁
-    pub fn take_network_restart_request(&self) -> Option<crate::Config_File::AppConfig> {
+    pub fn take_network_restart_request(&self) -> Option<AppConfig> {
         if !self.network_restart_pending.load(Ordering::Relaxed) {
-            return None;  // 快速路径，无锁
+            return None; // 快速路径，无锁
         }
         let config = self.network_restart_config.write().take();
         if config.is_some() {
@@ -1407,7 +1461,7 @@ impl InteractionManager {
     // ========== Web Hot Reload ==========
 
     /// 请求 Web 服务器重启（启动/停止）
-    pub fn request_web_restart(&self, action: crate::Web_Protocol::WebRestartAction) {
+    pub fn request_web_restart(&self, action: WebRestartAction) {
         *self.web_restart_action.write() = Some(action);
         self.web_restart_pending.store(true, Ordering::Release);
     }
@@ -1419,7 +1473,7 @@ impl InteractionManager {
     }
 
     /// 获取并清除 Web 重启请求
-    pub fn take_web_restart_request(&self) -> Option<crate::Web_Protocol::WebRestartAction> {
+    pub fn take_web_restart_request(&self) -> Option<WebRestartAction> {
         if !self.web_restart_pending.load(Ordering::Relaxed) {
             return None;
         }

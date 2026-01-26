@@ -1,10 +1,11 @@
 #![allow(non_snake_case)]
 
+use crate::scale::ScaleContext;
 use nih_plug_egui::egui::{
-    Color32, Rect, Response, Sense, Stroke, Ui, Vec2, Widget, StrokeKind, Align2, Shape, Pos2, emath::Rot2,
+    emath::Rot2, Align2, Color32, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
+    Widget,
 };
 use std::f32::consts::PI;
-use crate::Scale::ScaleContext;
 
 // --- Colors from React Design ---
 pub const COLOR_BG_APP: Color32 = Color32::from_rgb(229, 231, 235); // Slate-200ish
@@ -38,9 +39,9 @@ fn shape_arc(center: Pos2, radius: f32, start_angle: f32, end_angle: f32, stroke
 pub struct BrutalistButton<'a> {
     label: &'a str,
     active: bool,
-    danger: bool,    // 红色 (MUTE)
-    success: bool,   // 绿色 (SOLO)
-    warning: bool,   // 黄色 (DIM)
+    danger: bool,            // 红色 (MUTE)
+    success: bool,           // 绿色 (SOLO)
+    warning: bool,           // 黄色 (DIM)
     width_mode: ButtonWidth, // <-- UPDATED: Replaced bool with an enum
     height: f32,
     scale: &'a ScaleContext,
@@ -48,9 +49,9 @@ pub struct BrutalistButton<'a> {
 
 // --- ADDED: Enum to control width logic ---
 enum ButtonWidth {
-    Full,          // Takes up all available width
-    Fixed(f32),    // A specific, scaled width
-    Default,       // The original default (80px scaled)
+    Full,       // Takes up all available width
+    Fixed(f32), // A specific, scaled width
+    Default,    // The original default (80px scaled)
 }
 
 impl<'a> BrutalistButton<'a> {
@@ -94,7 +95,7 @@ impl<'a> BrutalistButton<'a> {
         }
         self
     }
-    
+
     // --- ADDED: Method to set a specific width ---
     pub fn width(mut self, width_px: f32) -> Self {
         self.width_mode = ButtonWidth::Fixed(width_px);
@@ -116,7 +117,7 @@ impl<'a> BrutalistButton<'a> {
 impl<'a> Widget for BrutalistButton<'a> {
     fn ui(self, ui: &mut Ui) -> Response {
         let s = self.scale;
-        
+
         // --- UPDATED: Size calculation logic based on the enum ---
         let size = match self.width_mode {
             ButtonWidth::Full => Vec2::new(ui.available_width(), self.height),
@@ -134,16 +135,32 @@ impl<'a> Widget for BrutalistButton<'a> {
         let (bg_color, text_color, border_color) = if is_active {
             if self.danger {
                 // MUTE 按钮激活：红色
-                (COLOR_ACTIVE_RED_BG, Color32::WHITE, Color32::from_rgb(185, 28, 28))
+                (
+                    COLOR_ACTIVE_RED_BG,
+                    Color32::WHITE,
+                    Color32::from_rgb(185, 28, 28),
+                )
             } else if self.success {
                 // SOLO 按钮激活：绿色
-                (COLOR_ACTIVE_GREEN_BG, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+                (
+                    COLOR_ACTIVE_GREEN_BG,
+                    Color32::WHITE,
+                    Color32::from_rgb(22, 163, 74),
+                )
             } else if self.warning {
                 // DIM 按钮激活：淡黄色 (与 +10dB LFE 一致)
-                (COLOR_ACTIVE_YELLOW_BG, COLOR_TEXT_DARK, Color32::from_rgb(202, 138, 4))
+                (
+                    COLOR_ACTIVE_YELLOW_BG,
+                    COLOR_TEXT_DARK,
+                    Color32::from_rgb(202, 138, 4),
+                )
             } else {
                 // 其他按钮激活：深灰色
-                (COLOR_ACTIVE_SLATE_BG, Color32::WHITE, Color32::from_rgb(100, 116, 139))
+                (
+                    COLOR_ACTIVE_SLATE_BG,
+                    Color32::WHITE,
+                    Color32::from_rgb(100, 116, 139),
+                )
             }
         } else if is_hovered {
             (COLOR_BG_SIDEBAR, COLOR_TEXT_DARK, COLOR_BORDER_DARK)
@@ -151,7 +168,11 @@ impl<'a> Widget for BrutalistButton<'a> {
             (Color32::WHITE, COLOR_TEXT_MEDIUM, COLOR_BORDER_MEDIUM)
         };
 
-        let offset = if is_clicking { s.vec2(0.0, 1.0) } else { Vec2::ZERO };
+        let offset = if is_clicking {
+            s.vec2(0.0, 1.0)
+        } else {
+            Vec2::ZERO
+        };
         let draw_rect = rect.translate(offset);
 
         // Shadow effect (Hard shadow)
@@ -159,18 +180,27 @@ impl<'a> Widget for BrutalistButton<'a> {
             painter.rect_filled(
                 rect.translate(s.vec2(1.0, 1.0)),
                 0.0,
-                Color32::from_black_alpha(20)
+                Color32::from_black_alpha(20),
             );
         }
 
         painter.rect_filled(draw_rect, 0.0, bg_color);
-        painter.rect_stroke(draw_rect, 0.0, Stroke::new(s.s(1.0), border_color), StrokeKind::Inside);
+        painter.rect_stroke(
+            draw_rect,
+            0.0,
+            Stroke::new(s.s(1.0), border_color),
+            StrokeKind::Inside,
+        );
 
         painter.text(
             draw_rect.center(),
             Align2::CENTER_CENTER,
             self.label,
-            if self.height > s.s(45.0) { s.font(14.0) } else { s.font(12.0) },
+            if self.height > s.s(45.0) {
+                s.font(14.0)
+            } else {
+                s.font(12.0)
+            },
             text_color,
         );
 
@@ -189,7 +219,12 @@ pub struct TechVolumeKnob<'a> {
 impl<'a> TechVolumeKnob<'a> {
     pub fn new(value: &'a mut f32, scale: &'a ScaleContext) -> Self {
         // 范围: 0% 到 100% (线性百分比，匹配旧 C++ 版本的 OSC 行为)
-        Self { value, min: 0.0, max: 100.0, scale }
+        Self {
+            value,
+            min: 0.0,
+            max: 100.0,
+            scale,
+        }
     }
 }
 
@@ -215,72 +250,87 @@ impl<'a> Widget for TechVolumeKnob<'a> {
         // Angles: -135deg to +135deg (in radians)
         // -135 deg = -2.356 rad
         // +135 deg = +2.356 rad
-        let start_angle = -135.0f32.to_radians(); 
-        let end_angle = 135.0f32.to_radians(); 
-        
+        let start_angle = -135.0f32.to_radians();
+        let end_angle = 135.0f32.to_radians();
+
         // Background Track (Thin, dark)
         // We draw the full 270 degree arc
         painter.add(shape_arc(
-            center, 
-            radius, 
+            center,
+            radius,
             start_angle - PI / 2.0, // egui 0 is X axis, we want 0 to be UP? No, egui Y is down.
-            // Let's use standard unit circle: 0 is Right (3 o'clock). 
+            // Let's use standard unit circle: 0 is Right (3 o'clock).
             // -135 is bottom-left. +135 is bottom-right.
-            // Wait, usually knobs are: 
+            // Wait, usually knobs are:
             // Min: Bottom-Left (approx 135 deg in normal math, or 225 deg)
             // Max: Bottom-Right (approx 45 deg or 315 deg)
             // In egui:
             // 0 = Right, PI/2 = Bottom, PI = Left, 3PI/2 = Top
             // Let's map Min to 3/4 PI + something
-            
+
             // Standard knob: 7 o'clock to 5 o'clock
             // 7 o'clock = 135 deg from Bottom (90) = 225 deg total?
             // Egui coordinates:
-            // 0 is Right. 
+            // 0 is Right.
             // Min (-135 deg from Top):
-            // Top is -PI/2. 
+            // Top is -PI/2.
             // Min = -PI/2 - 135deg = -90 - 135 = -225 deg?
-            
+
             // Let's stick to the React logic: rotate(135deg)
             // React: 0 value = -135deg. Max value = +135deg. 0deg is TOP (12 o'clock).
             // Egui: 0 rad is Right (3 o'clock).
             // So Top is -PI/2.
             // Min = -PI/2 - (135 * PI/180)
             // Max = -PI/2 + (135 * PI/180)
-            
             end_angle - PI / 2.0,
-            Stroke::new(s.s(4.0), COLOR_BORDER_LIGHT)
+            Stroke::new(s.s(4.0), COLOR_BORDER_LIGHT),
         ));
 
         let min_angle_rad = -PI / 2.0 - (135.0f32.to_radians());
         let max_angle_rad = -PI / 2.0 + (135.0f32.to_radians());
-        
+
         let t = (*self.value - self.min) / (self.max - self.min);
         let current_angle_rad = min_angle_rad + (max_angle_rad - min_angle_rad) * t;
 
         // Draw Background Arc (Full Range)
-        painter.add(shape_arc(center, radius, min_angle_rad, max_angle_rad, Stroke::new(s.s(4.0), COLOR_BORDER_LIGHT)));
+        painter.add(shape_arc(
+            center,
+            radius,
+            min_angle_rad,
+            max_angle_rad,
+            Stroke::new(s.s(4.0), COLOR_BORDER_LIGHT),
+        ));
 
         // Draw Active Arc
-        let active_color = if t > 0.9 { COLOR_ACTIVE_RED_BG } else { COLOR_TEXT_DARK };
-        painter.add(shape_arc(center, radius, min_angle_rad, current_angle_rad, Stroke::new(s.s(4.0), active_color)));
+        let active_color = if t > 0.9 {
+            COLOR_ACTIVE_RED_BG
+        } else {
+            COLOR_TEXT_DARK
+        };
+        painter.add(shape_arc(
+            center,
+            radius,
+            min_angle_rad,
+            current_angle_rad,
+            Stroke::new(s.s(4.0), active_color),
+        ));
 
         // Draw Knob Handle (The big rotating box)
         let knob_size = s.s(64.0);
         let _knob_rect = Rect::from_center_size(center, Vec2::splat(knob_size));
-        
+
         // Rotate the knob rect
         // We can't rotate a rect easily, but we can draw a rotated shape or use transform
         // Egui doesn't have a simple "draw rotated rect" without Mesh.
         // Let's verify if we can rotate the painter transform?
-        
+
         // Easier: Calculate corners manually
         let rotation = Rot2::from_angle(current_angle_rad + PI / 2.0); // Adjust because 0 angle for rect is usually Up?
-        
+
         // Actually, let's just draw the square unrotated, but with an indicator line that rotates?
         // React design: The whole square rotates.
         // <div style={{ transform: `rotate(${angle}deg)` }}>
-        
+
         let half_size = knob_size / 2.0;
         let corners = [
             Vec2::new(-half_size, -half_size),
@@ -288,19 +338,26 @@ impl<'a> Widget for TechVolumeKnob<'a> {
             Vec2::new(half_size, half_size),
             Vec2::new(-half_size, half_size),
         ];
-        
-        let rotated_corners: Vec<Pos2> = corners.iter().map(|p| {
-            center + rotation * *p
-        }).collect();
-        
+
+        let rotated_corners: Vec<Pos2> = corners.iter().map(|p| center + rotation * *p).collect();
+
         // Draw the Knob Body (White Box)
         // Shadow first
         let shadow_offset = s.vec2(0.0, 2.0);
-        let shadow_corners: Vec<Pos2> = rotated_corners.iter().map(|p| *p + shadow_offset).collect();
-        painter.add(Shape::convex_polygon(shadow_corners, Color32::from_black_alpha(20), Stroke::NONE));
+        let shadow_corners: Vec<Pos2> =
+            rotated_corners.iter().map(|p| *p + shadow_offset).collect();
+        painter.add(Shape::convex_polygon(
+            shadow_corners,
+            Color32::from_black_alpha(20),
+            Stroke::NONE,
+        ));
 
         // Main Box
-        painter.add(Shape::convex_polygon(rotated_corners.clone(), Color32::WHITE, Stroke::new(s.s(2.0), COLOR_BORDER_DARK)));
+        painter.add(Shape::convex_polygon(
+            rotated_corners.clone(),
+            Color32::WHITE,
+            Stroke::new(s.s(2.0), COLOR_BORDER_DARK),
+        ));
 
         // Indicator Line (Black strip at top)
         // Relative to center, Top is (0, -half_size)
@@ -325,9 +382,9 @@ impl<'a> Widget for TechVolumeKnob<'a> {
             Align2::CENTER_CENTER,
             format!("{:.0}%", percentage),
             s.mono_font(12.0),
-            COLOR_TEXT_DARK
+            COLOR_TEXT_DARK,
         );
-        
+
         response
     }
 }
@@ -335,21 +392,21 @@ impl<'a> Widget for TechVolumeKnob<'a> {
 // --- 3. Speaker Box ---
 pub struct SpeakerBox<'a> {
     name: &'a str,
-    is_idle: bool,     // 无状态 (灰色背景)
+    is_idle: bool, // 无状态 (灰色背景)
     is_sub: bool,
-    is_solo: bool,     // Solo 状态 (绿色背景 + S 标记)
-    is_muted: bool,    // Mute 状态 (红色背景 + M 标记)
+    is_solo: bool,  // Solo 状态 (绿色背景 + S 标记)
+    is_muted: bool, // Mute 状态 (红色背景 + M 标记)
     scale: &'a ScaleContext,
-    label: Option<&'a str>, // For "CH 7", "AUX" labels below
+    label: Option<&'a str>,   // For "CH 7", "AUX" labels below
     custom_size: Option<f32>, // 自定义尺寸（如果为 None 则使用默认值）
-    is_locked: bool,   // 自动化模式锁定
-    is_enabled: bool,  // 自动化模式的 On/Off 状态
+    is_locked: bool,          // 自动化模式锁定
+    is_enabled: bool,         // 自动化模式的 On/Off 状态
 }
 
 // 通道颜色
 const COLOR_CHANNEL_ACTIVE: Color32 = Color32::from_rgb(34, 197, 94); // Green-500 (有声)
 const COLOR_CHANNEL_MUTED: Color32 = Color32::from_rgb(239, 68, 68); // Red-500 (没声)
-// Solo/Mute 指示器颜色
+                                                                     // Solo/Mute 指示器颜色
 const COLOR_SOLO_INDICATOR: Color32 = Color32::from_rgb(34, 197, 94); // Green-500
 const COLOR_MUTE_INDICATOR: Color32 = Color32::from_rgb(239, 68, 68); // Red-500
 
@@ -357,7 +414,7 @@ impl<'a> SpeakerBox<'a> {
     pub fn new(name: &'a str, scale: &'a ScaleContext) -> Self {
         Self {
             name,
-            is_idle: true,  // 默认无状态（灰色）
+            is_idle: true, // 默认无状态（灰色）
             is_sub: name.contains("SUB") || name == "LFE",
             is_solo: false,
             is_muted: false,
@@ -426,8 +483,16 @@ impl<'a> Widget for SpeakerBox<'a> {
 
         // Container for Box + Label (锁定模式下禁用点击)
         let (rect, response) = ui.allocate_exact_size(
-            if self.label.is_some() { box_size + Vec2::new(0.0, s.s(20.0)) } else { box_size },
-            if self.is_locked { Sense::hover() } else { Sense::click() }
+            if self.label.is_some() {
+                box_size + Vec2::new(0.0, s.s(20.0))
+            } else {
+                box_size
+            },
+            if self.is_locked {
+                Sense::hover()
+            } else {
+                Sense::click()
+            },
         );
 
         let box_rect = Rect::from_min_size(rect.min, box_size);
@@ -436,42 +501,77 @@ impl<'a> Widget for SpeakerBox<'a> {
         let is_hovered = response.hovered();
 
         // 颜色逻辑
-        const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59);  // 深色背景
-        const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85);  // 悬停时稍亮
+        const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59); // 深色背景
+        const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85); // 悬停时稍亮
 
         let (mut bg_color, mut text_color, border_color) = if self.is_locked {
             // 锁定模式：使用 is_enabled 决定颜色
             if self.is_enabled {
                 // On 状态：绿色（降低不透明度）
-                (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+                (
+                    COLOR_CHANNEL_ACTIVE,
+                    Color32::WHITE,
+                    Color32::from_rgb(22, 163, 74),
+                )
             } else {
                 // Off 状态：深灰色
-                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+                (
+                    COLOR_IDLE_BG,
+                    Color32::from_rgb(148, 163, 184),
+                    Color32::from_rgb(51, 65, 85),
+                )
             }
         } else if self.is_muted {
             // Mute 状态：红色
-            (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
+            (
+                COLOR_CHANNEL_MUTED,
+                Color32::WHITE,
+                Color32::from_rgb(185, 28, 28),
+            )
         } else if self.is_solo {
             // Solo 状态：绿色
-            (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+            (
+                COLOR_CHANNEL_ACTIVE,
+                Color32::WHITE,
+                Color32::from_rgb(22, 163, 74),
+            )
         } else {
             // 无状态：深色
             if is_hovered {
-                (COLOR_IDLE_HOVER, Color32::WHITE, Color32::from_rgb(71, 85, 105))
+                (
+                    COLOR_IDLE_HOVER,
+                    Color32::WHITE,
+                    Color32::from_rgb(71, 85, 105),
+                )
             } else {
-                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+                (
+                    COLOR_IDLE_BG,
+                    Color32::from_rgb(148, 163, 184),
+                    Color32::from_rgb(51, 65, 85),
+                )
             }
         };
 
         // 锁定模式：降低不透明度
         if self.is_locked {
-            bg_color = Color32::from_rgba_unmultiplied(bg_color.r(), bg_color.g(), bg_color.b(), 128);
-            text_color = Color32::from_rgba_unmultiplied(text_color.r(), text_color.g(), text_color.b(), 128);
+            bg_color =
+                Color32::from_rgba_unmultiplied(bg_color.r(), bg_color.g(), bg_color.b(), 128);
+            text_color = Color32::from_rgba_unmultiplied(
+                text_color.r(),
+                text_color.g(),
+                text_color.b(),
+                128,
+            );
         }
 
         // 1. Box Background
         painter.rect_filled(box_rect, 0.0, bg_color);
-        painter.rect_stroke(box_rect, 0.0, Stroke::new(s.s(1.0), border_color), StrokeKind::Inside);
+        painter.rect_stroke(
+            box_rect,
+            0.0,
+            Stroke::new(s.s(1.0), border_color),
+            StrokeKind::Inside,
+        );
 
         // 2. Corner Accents (Tech Feel)
         let corner_len = s.s(4.0);
@@ -483,19 +583,44 @@ impl<'a> Widget for SpeakerBox<'a> {
         };
 
         // TL
-        painter.rect_filled(Rect::from_min_size(box_rect.min, Vec2::splat(corner_len)), 0.0, corner_color);
+        painter.rect_filled(
+            Rect::from_min_size(box_rect.min, Vec2::splat(corner_len)),
+            0.0,
+            corner_color,
+        );
         // TR
-        painter.rect_filled(Rect::from_min_size(box_rect.right_top() - Vec2::new(corner_len, 0.0), Vec2::splat(corner_len)), 0.0, corner_color);
+        painter.rect_filled(
+            Rect::from_min_size(
+                box_rect.right_top() - Vec2::new(corner_len, 0.0),
+                Vec2::splat(corner_len),
+            ),
+            0.0,
+            corner_color,
+        );
         // BL
-        painter.rect_filled(Rect::from_min_size(box_rect.left_bottom() - Vec2::new(0.0, corner_len), Vec2::splat(corner_len)), 0.0, corner_color);
+        painter.rect_filled(
+            Rect::from_min_size(
+                box_rect.left_bottom() - Vec2::new(0.0, corner_len),
+                Vec2::splat(corner_len),
+            ),
+            0.0,
+            corner_color,
+        );
         // BR
-        painter.rect_filled(Rect::from_min_size(box_rect.right_bottom() - Vec2::splat(corner_len), Vec2::splat(corner_len)), 0.0, corner_color);
+        painter.rect_filled(
+            Rect::from_min_size(
+                box_rect.right_bottom() - Vec2::splat(corner_len),
+                Vec2::splat(corner_len),
+            ),
+            0.0,
+            corner_color,
+        );
 
         // 3. Solo 指示器 (如果是 Solo 状态，在左上角绘制 "S" 标记)
         if self.is_solo {
             let indicator_rect = Rect::from_min_size(
                 box_rect.min + Vec2::new(s.s(6.0), s.s(6.0)),
-                Vec2::splat(s.s(16.0))
+                Vec2::splat(s.s(16.0)),
             );
             painter.rect_filled(indicator_rect, s.s(2.0), COLOR_TEXT_DARK);
             painter.text(
@@ -511,7 +636,7 @@ impl<'a> Widget for SpeakerBox<'a> {
         if self.is_muted {
             let indicator_rect = Rect::from_min_size(
                 box_rect.right_top() + Vec2::new(-s.s(22.0), s.s(6.0)),
-                Vec2::splat(s.s(16.0))
+                Vec2::splat(s.s(16.0)),
             );
             painter.rect_filled(indicator_rect, s.s(2.0), COLOR_MUTE_INDICATOR);
             painter.text(
@@ -547,7 +672,7 @@ impl<'a> Widget for SpeakerBox<'a> {
         if let Some(label_text) = self.label {
             let label_rect = Rect::from_min_size(
                 box_rect.left_bottom() + Vec2::new(0.0, s.s(4.0)),
-                Vec2::new(box_size.x, s.s(14.0))
+                Vec2::new(box_size.x, s.s(14.0)),
             );
             // Label background tag
             let tag_width = s.s(40.0); // 稍微加宽以容纳 "CH XX"
@@ -584,7 +709,7 @@ impl<'a> SubButton<'a> {
             name,
             is_solo: false,
             is_muted: false,
-            diameter: scale.s(32.0),  // 默认直径 32px
+            diameter: scale.s(32.0), // 默认直径 32px
             scale,
             is_locked: false,
             is_enabled: false,
@@ -629,7 +754,11 @@ impl<'a> Widget for SubButton<'a> {
 
         let (rect, response) = ui.allocate_exact_size(
             size,
-            if self.is_locked { Sense::hover() } else { Sense::click() }
+            if self.is_locked {
+                Sense::hover()
+            } else {
+                Sense::click()
+            },
         );
         let painter = ui.painter();
         let center = rect.center();
@@ -638,35 +767,65 @@ impl<'a> Widget for SubButton<'a> {
         let is_hovered = response.hovered();
 
         // 颜色逻辑
-        const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59);  // 深色背景
-        const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85);  // 悬停时稍亮
+        const COLOR_IDLE_BG: Color32 = Color32::from_rgb(30, 41, 59); // 深色背景
+        const COLOR_IDLE_HOVER: Color32 = Color32::from_rgb(51, 65, 85); // 悬停时稍亮
 
         let (mut bg_color, mut text_color, border_color) = if self.is_locked {
             // 锁定模式：使用 is_enabled 决定颜色
             if self.is_enabled {
-                (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+                (
+                    COLOR_CHANNEL_ACTIVE,
+                    Color32::WHITE,
+                    Color32::from_rgb(22, 163, 74),
+                )
             } else {
-                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+                (
+                    COLOR_IDLE_BG,
+                    Color32::from_rgb(148, 163, 184),
+                    Color32::from_rgb(51, 65, 85),
+                )
             }
         } else if self.is_muted {
             // Mute 状态：红色
-            (COLOR_CHANNEL_MUTED, Color32::WHITE, Color32::from_rgb(185, 28, 28))
+            (
+                COLOR_CHANNEL_MUTED,
+                Color32::WHITE,
+                Color32::from_rgb(185, 28, 28),
+            )
         } else if self.is_solo {
             // Solo 状态：绿色
-            (COLOR_CHANNEL_ACTIVE, Color32::WHITE, Color32::from_rgb(22, 163, 74))
+            (
+                COLOR_CHANNEL_ACTIVE,
+                Color32::WHITE,
+                Color32::from_rgb(22, 163, 74),
+            )
         } else {
             // 无状态：深色
             if is_hovered {
-                (COLOR_IDLE_HOVER, Color32::WHITE, Color32::from_rgb(71, 85, 105))
+                (
+                    COLOR_IDLE_HOVER,
+                    Color32::WHITE,
+                    Color32::from_rgb(71, 85, 105),
+                )
             } else {
-                (COLOR_IDLE_BG, Color32::from_rgb(148, 163, 184), Color32::from_rgb(51, 65, 85))
+                (
+                    COLOR_IDLE_BG,
+                    Color32::from_rgb(148, 163, 184),
+                    Color32::from_rgb(51, 65, 85),
+                )
             }
         };
 
         // 锁定模式：降低不透明度
         if self.is_locked {
-            bg_color = Color32::from_rgba_unmultiplied(bg_color.r(), bg_color.g(), bg_color.b(), 128);
-            text_color = Color32::from_rgba_unmultiplied(text_color.r(), text_color.g(), text_color.b(), 128);
+            bg_color =
+                Color32::from_rgba_unmultiplied(bg_color.r(), bg_color.g(), bg_color.b(), 128);
+            text_color = Color32::from_rgba_unmultiplied(
+                text_color.r(),
+                text_color.g(),
+                text_color.b(),
+                128,
+            );
         }
 
         // 绘制圆形背景

@@ -1,111 +1,120 @@
 #![allow(non_snake_case)]
 
 use nih_plug::prelude::*;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-pub mod Components;
-mod Editor;
-mod Audio;
-mod Params;
-mod Scale;
-mod Config_Manager;
-mod Config_File;
-mod Keyboard_Polling;
+// Modules within Plugin crate
+pub mod components;
+pub mod editor;
+pub mod keyboard_polling;
+pub mod scale;
 
-mod Network;
-mod Network_Protocol;
-mod Channel_Logic;
-mod Logger;
-mod Interaction;
-mod Osc;
-
-// Web 控制器模块
-mod Web;
-mod Web_Protocol;
-mod Web_Assets;
+// Workspace Crates
+use mcm_core::audio::{self, GainSmoothingState};
+use mcm_core::config_manager::{ConfigManager, Layout};
+use mcm_core::interaction::InteractionManager;
+use mcm_core::osc_state::OscSharedState;
+use mcm_core::params::MonitorParams;
+use mcm_infra::config_loader;
+use mcm_infra::logger::InstanceLogger;
+use mcm_protocol::config::AppConfig;
+use mcm_protocol::web_structs::WebSharedState;
+use mcm_reactor::{Reactor, ReactorCommand};
 
 // Include auto-generated audio layouts from build.rs
-mod Audio_Layouts {
+mod audio_layouts {
     include!(concat!(env!("OUT_DIR"), "/Audio_Layouts.rs"));
 }
-
-use Params::MonitorParams;
-use Network::NetworkManager;
-use Osc::OscManager;
-use Audio::GainSmoothingState;
-use Interaction::InteractionManager;
-use Logger::InstanceLogger;
-use Config_File::AppConfig;
-use Config_Manager::{ConfigManager, Layout};
-use Web::WebManager;
+use audio_layouts::GENERATED_AUDIO_IO_LAYOUTS;
 
 pub struct MonitorControllerMax {
     params: Arc<MonitorParams>,
-    network: NetworkManager,
-    osc: OscManager,
-    web: WebManager,  // Web 控制器
+
+    // The Reactor (manages Web, OSC, Network)
+    reactor: Arc<Reactor>,
+
     gain_state: GainSmoothingState,
     interaction: Arc<InteractionManager>,
-    /// 输出通道数（在 initialize 中记录，延迟初始化时使用）
+
+    // Shared OSC State (accessible by Audio Thread and Reactor)
+    // Shared OSC State (accessible by Audio Thread and Reactor)
+    osc_state: Arc<OscSharedState>,
+
+    // Web State
+    web_state: Arc<WebSharedState>,
+
+    // Network Status (ZMQ)
+    network_connected: Arc<AtomicBool>,
+
+    /// 输出通道数
     output_channels: usize,
-    /// 是否需要延迟初始化
-    needs_deferred_init: bool,
-    /// 延迟初始化是否已完成
-    deferred_init_done: bool,
-    /// 上次的 Role（用于检测运行时切换）
-    last_role: Option<Params::PluginRole>,
+
     /// 实例ID
     #[allow(dead_code)]
     instance_id: String,
+
     /// 实例级日志器
     logger: Arc<InstanceLogger>,
+
     /// 实例级用户配置
     app_config: AppConfig,
+
     /// 实例级布局配置
     layout_config: Arc<ConfigManager>,
-    /// C4: 初始化进行中标志（防止 reset() 重入）
-    init_in_progress: AtomicBool,
+
     /// P8: Layout 缓存（避免每帧堆分配）
     layout_cache: Option<Layout>,
-    /// P8: Layout 缓存键（layout_idx, sub_layout_idx）
     layout_cache_key: (i32, i32),
-    /// 自动检测的布局索引（仅当 DAW 提供更多通道且用户未手动选择时使用）
+
+    /// 自动检测的布局索引
     auto_detected_layout: Option<i32>,
 }
 
 impl Default for MonitorControllerMax {
     fn default() -> Self {
         // Generate unique instance ID
-        let instance_id = Logger::generate_instance_id();
+        let instance_id = mcm_infra::logger::generate_instance_id();
 
         // Create instance-specific logger
         let logger = InstanceLogger::new(&instance_id);
 
         // Load instance-specific configs
-        let app_config = AppConfig::load_from_disk();
+        let app_config = config_loader::load_from_disk();
         let layout_config = Arc::new(ConfigManager::new());
 
         logger.info("monitor_controller_max", "Plugin instance created");
 
+        let params = Arc::new(MonitorParams::default());
+        let interaction = Arc::new(InteractionManager::new(Arc::clone(&logger)));
+        let osc_state = Arc::new(OscSharedState::new());
+        let web_state = Arc::new(WebSharedState::new());
+        let network_connected = Arc::new(AtomicBool::new(false));
+
+        // Initialize Reactor
+        let reactor = Arc::new(Reactor::new(
+            Arc::clone(&logger),
+            Arc::clone(&interaction),
+            Arc::clone(&params),
+            Arc::clone(&osc_state),
+            Arc::clone(&web_state),
+        ));
+
         Self {
-            params: Arc::new(MonitorParams::default()),
-            network: NetworkManager::new(),
-            osc: OscManager::new(),
-            web: WebManager::new(),  // Web 控制器
+            params,
+            reactor,
             gain_state: GainSmoothingState::new(),
-            interaction: Arc::new(InteractionManager::new(Arc::clone(&logger))),
+            interaction,
+            osc_state,
+            web_state,
+            network_connected,
             output_channels: 2,
-            needs_deferred_init: false,
-            deferred_init_done: false,
-            last_role: None,
             instance_id,
             logger,
             app_config,
             layout_config,
-            init_in_progress: AtomicBool::new(false),
             layout_cache: None,
-            layout_cache_key: (-1, -1),  // -1 表示未初始化
+            layout_cache_key: (-1, -1),
             auto_detected_layout: None,
         }
     }
@@ -119,8 +128,7 @@ impl Plugin for MonitorControllerMax {
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // Audio IO layouts are auto-generated from Speaker_Config.json by build.rs
-    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = Audio_Layouts::GENERATED_AUDIO_IO_LAYOUTS;
+    const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = GENERATED_AUDIO_IO_LAYOUTS;
 
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
@@ -134,16 +142,20 @@ impl Plugin for MonitorControllerMax {
         self.params.clone()
     }
 
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn nih_plug::editor::Editor>> {
-        Editor::create_editor(
+    fn editor(
+        &mut self,
+        _async_executor: AsyncExecutor<Self>,
+    ) -> Option<Box<dyn nih_plug::editor::Editor>> {
+        // TODO: Update Editor::create_editor signature to accept new types
+        editor::create_editor(
             self.params.clone(),
             self.interaction.clone(),
-            self.osc.get_state(),
-            self.network.get_connection_status(),
+            self.osc_state.clone(),
+            self.network_connected.clone(),
             Arc::clone(&self.logger),
             self.app_config.clone(),
             Arc::clone(&self.layout_config),
-            Arc::clone(&self.web.state),  // 传递 Web 状态给 Editor
+            self.web_state.clone(),
         )
     }
 
@@ -153,122 +165,49 @@ impl Plugin for MonitorControllerMax {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        self.logger.info("monitor_controller_max", "Plugin initialize() called");
+        self.logger
+            .info("monitor_controller_max", "Plugin initialize() called");
 
-        // Debug: Log audio IO layout information
-        let input_channels = audio_io_layout.main_input_channels.map(|n| n.get()).unwrap_or(0);
-        let output_channels = audio_io_layout.main_output_channels.map(|n| n.get()).unwrap_or(0);
-        self.logger.info("monitor_controller_max", &format!("[AudioIO] Input channels: {}, Output channels: {}", input_channels, output_channels));
-        self.logger.info("monitor_controller_max", &format!("[AudioIO] Layout name: {}", audio_io_layout.name()));
-
-        // 记录输出通道数，用于延迟初始化
+        let output_channels = audio_io_layout
+            .main_output_channels
+            .map(|n| n.get())
+            .unwrap_or(0);
         self.output_channels = output_channels as usize;
 
-        // 自动检测布局：仅当 DAW 提供的通道数大于 2 时
-        // 这允许用户手动选择布局，但在新工程中自动匹配
         if output_channels > 2 {
-            if let Some(detected_idx) = self.layout_config.find_layout_for_channels(output_channels as usize) {
+            if let Some(detected_idx) = self
+                .layout_config
+                .find_layout_for_channels(output_channels as usize)
+            {
                 self.auto_detected_layout = Some(detected_idx);
-                self.logger.info("monitor_controller_max", &format!(
-                    "[AutoDetect] Found matching layout index {} for {} channels",
-                    detected_idx, output_channels
-                ));
-            } else {
-                self.auto_detected_layout = None;
-                self.logger.warn("monitor_controller_max", &format!(
-                    "[AutoDetect] No matching layout found for {} channels",
-                    output_channels
-                ));
             }
-        } else {
-            self.auto_detected_layout = None;
         }
 
-        // 延迟初始化：在 reset() 中执行 OSC/Network 初始化
-        self.needs_deferred_init = true;
-        self.deferred_init_done = false;
+        // Initialize OSC
+        self.reactor.send(ReactorCommand::InitOsc {
+            channel_count: self.output_channels,
+            current_cut: self.params.cut.value(),
+            config: self.app_config.clone(),
+        });
 
-        self.logger.info("monitor_controller_max", &format!("[Initialize] Deferred init scheduled, output_channels={}", self.output_channels));
+        // Start Web Server
+        let port = self.app_config.osc_receive_port; // Legacy logic, actually unused by WebManager logic
+        self.reactor.send(ReactorCommand::StartWeb { port });
 
         true
     }
 
     fn reset(&mut self) {
-        self.logger.info("monitor_controller_max", "Plugin reset() called");
+        self.logger
+            .info("monitor_controller_max", "Plugin reset() called");
 
-        // C4: 防止 reset() 重入
-        if self.init_in_progress.compare_exchange(
-            false, true, Ordering::Acquire, Ordering::Relaxed
-        ).is_err() {
-            self.logger.warn("monitor_controller_max", "[Reset] Already in progress, skipping");
-            return;
-        }
-
-        // 检测 Role 变化（DAW 恢复参数后可能改变）
-        let current_role = self.params.role.value();
-        let role_changed = self.last_role.map(|r| r != current_role).unwrap_or(false);
-
-        if role_changed {
-            self.logger.important("monitor_controller_max", &format!(
-                "[Reset] Role changed: {:?} -> {:?}, triggering re-init",
-                self.last_role, current_role
-            ));
-
-            // H4: 同步关闭旧资源（shutdown() 内部会等待线程结束）
-            self.osc.shutdown();
-            self.network.shutdown();
-
-            // 重置初始化标志，让后续逻辑重新初始化
-            self.deferred_init_done = false;
-            self.needs_deferred_init = true;
-        }
-
-        // 执行延迟初始化
-        if self.needs_deferred_init && !self.deferred_init_done {
-            self.perform_deferred_init();
-        }
-
-        // 广播当前参数状态
-        let role = self.params.role.value();
-        if role != Params::PluginRole::Slave && self.deferred_init_done {
-            // 初始化通道列表（确保 GUI 未打开时也能响应通道点击）
-            // 这是关键修复：通道列表初始化不应依赖 GUI
-
-            // 使用自动检测的布局（如果当前是默认布局且有自动检测结果）
-            let param_layout_idx = self.params.layout.value();
-            let layout_idx = if param_layout_idx == 0 && self.auto_detected_layout.is_some() {
-                // 用户未手动选择布局（仍为默认值），使用自动检测结果
-                let auto_idx = self.auto_detected_layout.unwrap();
-                self.logger.info("monitor_controller_max", &format!(
-                    "[Reset] Using auto-detected layout index {} (param was default 0)",
-                    auto_idx
-                ));
-                auto_idx as usize
-            } else {
-                param_layout_idx as usize
-            };
-
-            let sub_layout_idx = self.params.sub_layout.value() as usize;
-            let speaker_name = self.layout_config.get_speaker_name(layout_idx).unwrap_or("7.1.4");
-            let sub_name = self.layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");
-            let layout = self.layout_config.get_layout(speaker_name, sub_name);
-
-            // 更新 OSC 通道列表（使通道点击能正确反馈）
-            self.osc.state.update_layout_channels(&layout);
-
-            let channel_count = self.osc.state.channel_count.load(std::sync::atomic::Ordering::Relaxed);
-            let master_volume = self.params.master_gain.value();
-            let dim = self.params.dim.value();
-            let cut = self.params.cut.value();
-            self.logger.info("monitor_controller_max", &format!("[Reset] Broadcasting state: vol={:.4}, dim={}, cut={}", master_volume, dim, cut));
-            self.osc.broadcast_state(channel_count, master_volume, dim, cut);
-
-            // 广播通道 LED 状态
-            self.osc.state.broadcast_channel_states(&self.interaction);
-        }
-
-        // C4: 释放重入锁
-        self.init_in_progress.store(false, Ordering::Release);
+        // Broadcast state
+        self.reactor.send(ReactorCommand::BroadcastState {
+            channel_count: self.output_channels,
+            master_volume: self.params.master_gain.value(),
+            dim: self.params.dim.value(),
+            cut: self.params.cut.value(),
+        });
     }
 
     fn process(
@@ -277,210 +216,78 @@ impl Plugin for MonitorControllerMax {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // === Web 热重载检查 ===
-        if self.interaction.has_web_restart_pending() {
-            if let Some(action) = self.interaction.take_web_restart_request() {
-                match action {
-                    Web_Protocol::WebRestartAction::Start => {
-                        let role = self.params.role.value();
-                        if role != Params::PluginRole::Slave && !self.web.is_running() {
-                            self.web.init(
-                                Arc::clone(&self.logger),
-                                self.app_config.osc_receive_port,  // 插件 OSC 接收端口 (默认 7445)
-                            );
-                        }
-                    }
-                    Web_Protocol::WebRestartAction::Stop => {
-                        self.web.shutdown();
-                    }
-                }
-            }
-        }
-
-        // === Web 命令处理已移至 Tokio 线程（完全不占用音频 CPU）===
-        // 原代码: self.web.poll_commands(&self.interaction, &self.osc.state);
-        // 现在命令直接在 WebSocket 接收时处理，不经过音频线程
-
-        // 检查 OSC 热重载请求
-        // P1 优化：只在有 pending 请求时才获取锁
-        if self.interaction.has_osc_restart_pending() {
-            if let Some(new_config) = self.interaction.take_osc_restart_request() {
-                let role = self.params.role.value();
-                if role != Params::PluginRole::Slave {
-                    // P1 性能优化：移除 format! 分配，日志移到 reset() 中
-                    // 原代码: self.logger.info("monitor_controller_max", &format!(...))
-
-                    // 关闭当前 OSC
-                    self.osc.shutdown();
-
-                    // 使用新配置重新初始化
-                    let master_volume = self.params.master_gain.value();
-                    let dim = self.params.dim.value();
-                    let cut = self.params.cut.value();
-                    self.osc.init(
-                        self.output_channels,
-                        master_volume,
-                        dim,
-                        cut,
-                        self.interaction.clone(),
-                        self.params.clone(),
-                        Arc::clone(&self.logger),
-                        &new_config,
-                        Arc::clone(&self.web.state)
-                    );
-
-                    // 更新保存的配置
-                    self.app_config = new_config;
-
-                    // P1 性能优化：移除 format! 分配
-                    // 原代码: self.logger.info("monitor_controller_max", "[Hot Reload] OSC restart complete");
-                }
-            }
-        }
-
-        // 检查 Network 热重载请求
-        // P1 优化：只在有 pending 请求时才获取锁
-        if self.interaction.has_network_restart_pending() {
-            if let Some(new_config) = self.interaction.take_network_restart_request() {
-                let role = self.params.role.value();
-                match role {
-                    Params::PluginRole::Master => {
-                        // P1 性能优化：移除 format! 分配
-                        self.network.shutdown();
-                        self.network.init_master(
-                            new_config.network_port,
-                            self.interaction.clone(),
-                            self.params.clone(),
-                            Arc::clone(&self.logger)
-                        );
-                        self.app_config = new_config;
-                    }
-                    Params::PluginRole::Slave => {
-                        // P1 性能优化：移除 format! 分配
-                        self.network.shutdown();
-                        self.network.init_slave(
-                            &new_config.master_ip,
-                            new_config.network_port,
-                            self.interaction.clone(),
-                            self.params.clone(),
-                            Arc::clone(&self.logger),
-                            new_config.clone()
-                        );
-                        self.app_config = new_config;
-                    }
-                    Params::PluginRole::Standalone => {
-                        // Standalone 不需要 Network，忽略
-                    }
-                }
-            }
-        }
-
-        // === C1 修复：获取 OSC 状态用于覆盖 DAW 参数 ===
-        // 这样即使 Editor 关闭，OSC 控制仍能工作
-        let osc_state = self.osc.get_state();
-
-        // === P8: Layout 缓存 - 避免每帧堆分配 ===
+        // Prepare layout
         let layout_idx = self.params.layout.value();
         let sub_layout_idx = self.params.sub_layout.value();
         let cache_key = (layout_idx, sub_layout_idx);
 
-        // 只在布局参数变化时重建 Layout
         if cache_key != self.layout_cache_key || self.layout_cache.is_none() {
-            let speaker_name = self.layout_config.get_speaker_name(layout_idx as usize).unwrap_or("7.1.4");
-            let sub_name = self.layout_config.get_sub_name(sub_layout_idx as usize).unwrap_or("None");
+            let speaker_name = self
+                .layout_config
+                .get_speaker_name(layout_idx as usize)
+                .unwrap_or("7.1.4");
+            let sub_name = self
+                .layout_config
+                .get_sub_name(sub_layout_idx as usize)
+                .unwrap_or("None");
             self.layout_cache = Some(self.layout_config.get_layout(speaker_name, sub_name));
             self.layout_cache_key = cache_key;
+
+            // Layout changed, update OSC state
+            self.osc_state
+                .update_layout_channels(self.layout_cache.as_ref().unwrap());
         }
 
-        // 安全获取 layout，如果意外为 None 则跳过音频处理
         let layout = match self.layout_cache.as_ref() {
             Some(l) => l,
-            None => {
-                self.logger.error("monitor_controller_max", "[Process] layout_cache is None, skipping audio processing");
-                return ProcessStatus::Normal;
-            }
+            None => return ProcessStatus::Normal,
         };
 
-        Audio::process_audio_with_layout(
+        // Call Core Audio Processor
+        audio::process_audio_with_layout(
             buffer,
             &self.params,
             &self.gain_state,
             &self.interaction,
             layout,
-            Some(&osc_state),  // 传递 OSC 状态用于覆盖
+            Some(&self.osc_state),
         );
+
         ProcessStatus::Normal
     }
 }
 
-impl MonitorControllerMax {
-    /// 执行延迟初始化
-    fn perform_deferred_init(&mut self) {
-        let role = self.params.role.value();
-
-        self.logger.info("monitor_controller_max", &format!("[DeferredInit] Role={:?}, output_channels={}", role, self.output_channels));
-
-        // 根据 role 初始化网络
-        match role {
-            Params::PluginRole::Master => {
-                self.network.init_master(self.app_config.network_port, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger));
-                let master_volume = self.params.master_gain.value();
-                let dim = self.params.dim.value();
-                let cut = self.params.cut.value();
-                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config, Arc::clone(&self.web.state));
-                self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Master mode");
-            }
-            Params::PluginRole::Slave => {
-                self.network.init_slave(&self.app_config.master_ip, self.app_config.network_port, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), self.app_config.clone());
-                self.logger.info("monitor_controller_max", "[DeferredInit] OSC disabled for Slave mode");
-            }
-            Params::PluginRole::Standalone => {
-                let master_volume = self.params.master_gain.value();
-                let dim = self.params.dim.value();
-                let cut = self.params.cut.value();
-                self.osc.init(self.output_channels, master_volume, dim, cut, self.interaction.clone(), self.params.clone(), Arc::clone(&self.logger), &self.app_config, Arc::clone(&self.web.state));
-                self.logger.info("monitor_controller_max", "[DeferredInit] OSC initialized for Standalone mode");
-            }
-        }
-
-        self.last_role = Some(role);
-        self.deferred_init_done = true;
-        self.needs_deferred_init = false;
-
-        self.logger.info("monitor_controller_max", "[DeferredInit] Complete");
+impl Drop for MonitorControllerMax {
+    fn drop(&mut self) {
+        self.logger
+            .info("monitor_controller_max", "[Plugin] Shutting down...");
+        // Signal Web shutdown via state
+        self.web_state
+            .is_running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.reactor.send(ReactorCommand::Shutdown);
     }
 }
 
 impl ClapPlugin for MonitorControllerMax {
     const CLAP_ID: &'static str = "com.gohardsgg.monitor-controller-max";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("MonitorControllerMax Rust Edition");
-    const CLAP_MANUAL_URL: Option<&'static str> = None;
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Monitor Controller Max");
+    const CLAP_MANUAL_URL: Option<&'static str> = Some("https://github.com/GohardSGG");
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[
         ClapFeature::AudioEffect,
-        ClapFeature::Utility,
         ClapFeature::Stereo,
-        ClapFeature::Surround,
-        ClapFeature::Ambisonic,
+        ClapFeature::Utility,
     ];
 }
 
 impl Vst3Plugin for MonitorControllerMax {
-    const VST3_CLASS_ID: [u8; 16] = *b"MonitorContrlMax";
+    const VST3_CLASS_ID: [u8; 16] = *b"MonitorCtrlMaxSG";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
         Vst3SubCategory::Fx,
         Vst3SubCategory::Tools,
-        Vst3SubCategory::Spatial,
+        Vst3SubCategory::Stereo,
     ];
-}
-
-impl Drop for MonitorControllerMax {
-    fn drop(&mut self) {
-        self.logger.info("monitor_controller_max", "[Plugin] Shutting down...");
-        self.web.shutdown();  // 关闭 Web 服务器
-        self.osc.shutdown();
-        self.network.shutdown();
-    }
 }
 
 nih_export_clap!(MonitorControllerMax);

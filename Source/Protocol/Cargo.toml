@@ -1,0 +1,9 @@
+[package]
+name = "mcm_protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+parking_lot = { workspace = true }

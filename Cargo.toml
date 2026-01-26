@@ -1,48 +1,46 @@
 [workspace]
 members = [
+    "Source/Core",
+    "Source/Reactor",
+    "Source/Protocol",
+    "Source/Infra",
     "Source/Plugin",
-    "Source/Xtask"
+    "Source/xtask",
+]
+exclude = [
+    "Library"
 ]
 resolver = "2"
 
-# P0: 极致性能优化 - Release Profile
-[profile.release]
-opt-level = 3
-lto = "fat"           # 全程序 Link-Time Optimization
-codegen-units = 1     # 单代码生成单元，最大化优化机会
-panic = "abort"       # 移除 panic 展开代码，减小体积
-
 [workspace.dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
-nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
-egui = "0.28"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-lazy_static = "1.4"
-atomic_float = "0.1"
-crossbeam = "0.8"
-parking_lot = "0.12"
-log = "0.4"
-anyhow = "1.0"
-zeromq = "0.4.0"
-bincode = "1.3"
-rust-embed = "8.0"
-futures = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net", "time"] }
-wide = "0.7"  # P6: SIMD 优化
-# Web 控制器依赖
-axum = { version = "0.7", features = ["ws"] }
-tower-http = { version = "0.5", features = ["cors"] }
-local-ip-address = "0.6"
+# 内部依赖
+mcm_core = { path = "./Source/Core" }
+mcm_reactor = { path = "./Source/Reactor" }
+mcm_protocol = { path = "./Source/Protocol" }
+mcm_infra = { path = "./Source/Infra" }
 
-[patch."https://github.com/robbert-vdh/nih-plug.git"]
-nih_plug = { path = "Library/nih-plug" }
-nih_plug_egui = { path = "Library/nih-plug/nih_plug_egui" }
+# NIH-Plug 生态 (Usage of local modified library)
+nih_plug = { path = "./Library/nih-plug" }
+nih_plug_egui = { path = "./Library/nih-plug/nih_plug_egui" }
+
+# 常用工具
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-lazy_static = "1.4"
-atomic_float = "0.1"
+log = "0.4"
 crossbeam = "0.8"
 parking_lot = "0.12"
-log = "0.4"
+atomic_float = "0.1"
+lazy_static = "1.4"
+chrono = "0.4"
 anyhow = "1.0"
+thiserror = "1.0"
+
+# 异步运行环境 (Reactor)
+tokio = { version = "1.0", features = ["full"] }
+axum = "0.7"
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+rosc = "0.10"
+local-ip-address = "0.5"
+
+# 优化
+wide = "0.7" # SIMD

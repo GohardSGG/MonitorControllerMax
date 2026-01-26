@@ -9,15 +9,16 @@ use nih_plug_egui::egui::{
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
-use crate::Components::{self, *};
-use crate::Scale::ScaleContext;
-use crate::Config_Manager::ConfigManager;
-use crate::Config_File::AppConfig;
-use crate::Logger::InstanceLogger;
-use crate::Interaction::{SubClickType, ChannelMarker, InteractionManager};
-use crate::Osc::OscSharedState;
-use crate::Web_Protocol::{WebSharedState, WebRestartAction};
+use mcm_core::params::{MonitorParams, PluginRole, MAX_CHANNELS};
+use crate::components::*;
+use crate::components as Components;
+use crate::scale::ScaleContext;
+use mcm_core::config_manager::ConfigManager;
+use mcm_protocol::config::AppConfig;
+use mcm_infra::logger::InstanceLogger;
+use mcm_core::interaction::{SubClickType, ChannelMarker, InteractionManager};
+use mcm_core::osc_state::OscSharedState;
+use mcm_protocol::web_structs::{WebSharedState, WebRestartAction};
 
 // --- 窗口尺寸常量 (1:1 正方形) ---
 const BASE_WIDTH: f32 = 720.0;
@@ -692,11 +693,11 @@ fn custom_button(ui: &mut egui::Ui, primary: &str, secondary: &str, active: bool
         let is_hovered = response.hovered();
         
         let (bg_color, text_color, border_color) = if active {
-            (crate::Components::COLOR_ACTIVE_YELLOW_BG, crate::Components::COLOR_TEXT_DARK, Color32::from_rgb(100, 116, 139))
+            (crate::components::COLOR_ACTIVE_YELLOW_BG, crate::components::COLOR_TEXT_DARK, Color32::from_rgb(100, 116, 139))
         } else if is_hovered {
-            (crate::Components::COLOR_BG_SIDEBAR, crate::Components::COLOR_TEXT_DARK, crate::Components::COLOR_BORDER_DARK)
+            (crate::components::COLOR_BG_SIDEBAR, crate::components::COLOR_TEXT_DARK, crate::components::COLOR_BORDER_DARK)
         } else {
-            (Color32::WHITE, crate::Components::COLOR_TEXT_MEDIUM, crate::Components::COLOR_BORDER_MEDIUM)
+            (Color32::WHITE, crate::components::COLOR_TEXT_MEDIUM, crate::components::COLOR_BORDER_MEDIUM)
         };
 
         // Shadow
@@ -1270,7 +1271,7 @@ fn draw_grid_background(ui: &mut egui::Ui, rect: egui::Rect, scale: &ScaleContex
 fn render_sub_row_dynamic(
     ui: &mut egui::Ui,
     scale: &ScaleContext,
-    layout: &crate::Config_Manager::Layout,
+    layout: &mcm_core::config_manager::Layout,
     pos_range: std::ops::RangeInclusive<u32>,
     sub_diameter: f32,
     container_width: f32,
@@ -1365,7 +1366,7 @@ fn render_sub_row_dynamic(
 fn render_main_grid_dynamic(
     ui: &mut egui::Ui,
     scale: &ScaleContext,
-    layout: &crate::Config_Manager::Layout,
+    layout: &mcm_core::config_manager::Layout,
     box_size: f32,
     grid_spacing: f32,
     label_height: f32,
@@ -1541,7 +1542,7 @@ fn render_settings_content(
 
     let role = params.role.value();
     let is_automation = interaction.is_automation_mode();
-    let can_use_automation = role == crate::Params::PluginRole::Standalone;
+    let can_use_automation = role == mcm_core::params::PluginRole::Standalone;
 
     ui.add_enabled_ui(can_use_automation, |ui| {
         let button_text = if is_automation { "Exit Automation" } else { "Enable Automation" };
@@ -1593,7 +1594,7 @@ fn render_settings_content(
         }
         // Poll keyboard when TextEdit has focus
         if response.has_focus() {
-            if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_send_port) {
+            if crate::keyboard_polling::poll_and_apply(&mut state.osc_send_port) {
                 state.dirty = true;
             }
         }
@@ -1613,7 +1614,7 @@ fn render_settings_content(
         }
         // Poll keyboard when TextEdit has focus
         if response.has_focus() {
-            if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_receive_port) {
+            if crate::keyboard_polling::poll_and_apply(&mut state.osc_receive_port) {
                 state.dirty = true;
             }
         }
@@ -1631,7 +1632,7 @@ fn render_settings_content(
     ui.add_space(scale.s(12.0));
 
     // Master IP - 仅 Slave 模式可编辑
-    let is_slave = role == crate::Params::PluginRole::Slave;
+    let is_slave = role == mcm_core::params::PluginRole::Slave;
     ui.horizontal(|ui| {
         ui.add_sized([label_width, scale.s(20.0)],
             egui::Label::new(RichText::new("Master IP:").font(scale.font(14.0))));
@@ -1645,7 +1646,7 @@ fn render_settings_content(
             }
             // Poll keyboard when TextEdit has focus
             if response.has_focus() {
-                if crate::Keyboard_Polling::poll_and_apply(&mut state.master_ip) {
+                if crate::keyboard_polling::poll_and_apply(&mut state.master_ip) {
                     state.dirty = true;
                 }
             }
@@ -1673,7 +1674,7 @@ fn render_settings_content(
         }
         // Poll keyboard when TextEdit has focus
         if response.has_focus() {
-            if crate::Keyboard_Polling::poll_and_apply(&mut state.network_port) {
+            if crate::keyboard_polling::poll_and_apply(&mut state.network_port) {
                 state.dirty = true;
             }
         }
@@ -1689,7 +1690,7 @@ fn render_settings_content(
     ui.add_space(scale.s(16.0));
 
     // ========== Config Path ==========
-    let config_path = crate::Config_File::AppConfig::config_path();
+    let config_path = mcm_infra::config_loader::config_path();
     let path_str = config_path.display().to_string();
 
     ui.horizontal(|ui| {
@@ -1731,7 +1732,7 @@ fn render_settings_content(
             let master_ip = state.master_ip.clone();
 
             // Create new config
-            let new_config = crate::Config_File::AppConfig {
+            let new_config = mcm_protocol::config::AppConfig {
                 osc_send_port: osc_send,
                 osc_receive_port: osc_recv,
                 network_port: net_port,
@@ -1742,7 +1743,7 @@ fn render_settings_content(
             };
 
             // Save to disk
-            match new_config.save_to_disk() {
+            match mcm_infra::config_loader::save_to_disk(&new_config) {
                 Ok(_) => {
                     logger.info("editor", &format!(
                         "[Settings] Saved: osc_send={}, osc_recv={}, net_port={}, master_ip={}",
@@ -1754,7 +1755,7 @@ fn render_settings_content(
                     interaction.request_osc_restart(new_config.clone());
 
                     // Trigger Network hot reload (only for Master/Slave modes)
-                    if role != crate::Params::PluginRole::Standalone {
+                    if role != mcm_core::params::PluginRole::Standalone {
                         interaction.request_network_restart(new_config.clone());
                     }
 
@@ -1820,8 +1821,8 @@ fn render_settings_content_v2(
 
     let role = params.role.value();
     let is_automation = interaction.is_automation_mode();
-    let can_use_automation = role == crate::Params::PluginRole::Standalone;
-    let is_slave = role == crate::Params::PluginRole::Slave;
+    let can_use_automation = role == mcm_core::params::PluginRole::Standalone;
+    let is_slave = role == mcm_core::params::PluginRole::Slave;
 
     // Darker text colors for better readability
     let text_dark = Color32::from_rgb(30, 41, 59);      // slate-800
@@ -1983,7 +1984,7 @@ fn render_settings_content_v2(
                                 state.dirty = true;
                             }
                             if response.has_focus() {
-                                if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_send_port) {
+                                if crate::keyboard_polling::poll_and_apply(&mut state.osc_send_port) {
                                     state.dirty = true;
                                 }
                             }
@@ -2018,7 +2019,7 @@ fn render_settings_content_v2(
                                 state.dirty = true;
                             }
                             if response.has_focus() {
-                                if crate::Keyboard_Polling::poll_and_apply(&mut state.osc_receive_port) {
+                                if crate::keyboard_polling::poll_and_apply(&mut state.osc_receive_port) {
                                     state.dirty = true;
                                 }
                             }
@@ -2081,7 +2082,7 @@ fn render_settings_content_v2(
                                         state.dirty = true;
                                     }
                                     if response.has_focus() {
-                                        if crate::Keyboard_Polling::poll_and_apply(&mut state.master_ip) {
+                                        if crate::keyboard_polling::poll_and_apply(&mut state.master_ip) {
                                             state.dirty = true;
                                         }
                                     }
@@ -2121,7 +2122,7 @@ fn render_settings_content_v2(
                                     state.dirty = true;
                                 }
                                 if response.has_focus() {
-                                    if crate::Keyboard_Polling::poll_and_apply(&mut state.network_port) {
+                                    if crate::keyboard_polling::poll_and_apply(&mut state.network_port) {
                                         state.dirty = true;
                                     }
                                 }
@@ -2149,7 +2150,7 @@ fn render_settings_content_v2(
             ui.add_space(scale.s(16.0));
 
             // === Section D: Config Path ===
-            let config_path = crate::Config_File::AppConfig::config_path();
+            let config_path = mcm_infra::config_loader::config_path();
             let path_str = config_path.display().to_string();
             let display_path = if path_str.len() > 40 {
                 format!("...{}", &path_str[path_str.len()-37..])
@@ -2186,7 +2187,7 @@ fn render_settings_content_v2(
 
                         if response.clicked() {
                             if let Some(parent) = config_path.parent() {
-                                let _ = open::that(parent);
+                               if open::that(parent).is_err() { }
                             }
                         }
                     });
@@ -2206,7 +2207,7 @@ fn render_settings_content_v2(
                     ui.add_space(scale.s(4.0));
 
                     // 显示当前状态：运行中时显示访问地址，否则显示说明
-                    let web_running = web_state.is_running();
+                    let web_running = web_state.is_running.load(Ordering::Relaxed);
                     if web_running {
                         if let Some(addr) = web_state.get_address() {
                             ui.label(RichText::new(format!("Running at: http://{}", addr))
@@ -2219,7 +2220,7 @@ fn render_settings_content_v2(
                 });
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let web_running = web_state.is_running();
+                    let web_running = web_state.is_running.load(Ordering::Relaxed);
                     let mut toggle_state = web_running;
 
                     // Slave 模式下禁用 Web 控制器
@@ -2341,7 +2342,7 @@ fn render_settings_content_v2(
                     let master_ip = state.master_ip.clone();
 
                     // Create new config
-                    let new_config = crate::Config_File::AppConfig {
+                    let new_config = mcm_protocol::config::AppConfig {
                         osc_send_port: osc_send,
                         osc_receive_port: osc_recv,
                         network_port: net_port,
@@ -2352,7 +2353,7 @@ fn render_settings_content_v2(
                     };
 
                     // Save to disk
-                    match new_config.save_to_disk() {
+                    match mcm_infra::config_loader::save_to_disk(&new_config) {
                         Ok(_) => {
                             logger.info("editor", &format!(
                                 "[Settings] Saved: osc_send={}, osc_recv={}, net_port={}, master_ip={}",
@@ -2364,7 +2365,7 @@ fn render_settings_content_v2(
                             interaction.request_osc_restart(new_config.clone());
 
                             // Trigger Network hot reload (only for Master/Slave modes)
-                            if role != crate::Params::PluginRole::Standalone {
+                            if role != mcm_core::params::PluginRole::Standalone {
                                 interaction.request_network_restart(new_config.clone());
                             }
 

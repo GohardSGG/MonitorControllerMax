@@ -1,10 +1,4 @@
-//! Web 控制器协议定义
-//!
-//! 定义 WebSocket 消息格式和共享状态结构
-
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use parking_lot::RwLock;
 
 // ============================================================================
 // WebSocket 命令（客户端 → 服务器）
@@ -88,69 +82,6 @@ pub struct ChannelState {
 }
 
 // ============================================================================
-// Web 共享状态
-// ============================================================================
-
-/// Web 服务器共享状态（线程安全）
-pub struct WebSharedState {
-    // ===== 服务器状态 =====
-    /// HTTP 服务器端口（0 表示未启动）
-    pub port: AtomicU16,
-    /// 服务器是否运行中
-    pub is_running: AtomicBool,
-    /// 本机 IP 地址
-    pub local_ip: RwLock<String>,
-
-    // ===== OSC 通信端口 =====
-    /// Web OSC 接收端口（动态分配，0 表示未启动）
-    /// 插件 Osc.rs 发送线程会检查此端口，如果 > 0 则同时发送到此端口
-    pub osc_recv_port: AtomicU16,
-
-    // ===== 当前布局 =====
-    /// 当前通道列表
-    pub channel_names: RwLock<Vec<String>>,
-}
-
-impl WebSharedState {
-    pub fn new() -> Self {
-        Self {
-            port: AtomicU16::new(0),
-            is_running: AtomicBool::new(false),
-            local_ip: RwLock::new(String::from("127.0.0.1")),
-            osc_recv_port: AtomicU16::new(0),
-            channel_names: RwLock::new(Vec::new()),
-        }
-    }
-
-    /// 获取服务器地址
-    pub fn get_address(&self) -> Option<String> {
-        if self.is_running.load(Ordering::Acquire) {
-            let port = self.port.load(Ordering::Relaxed);
-            let ip = self.local_ip.read().clone();
-            Some(format!("{}:{}", ip, port))
-        } else {
-            None
-        }
-    }
-
-    /// 检查服务器是否运行中
-    pub fn is_running(&self) -> bool {
-        self.is_running.load(Ordering::Acquire)
-    }
-
-    /// 更新通道列表
-    pub fn update_channels(&self, channels: Vec<String>) {
-        *self.channel_names.write() = channels;
-    }
-}
-
-impl Default for WebSharedState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ============================================================================
 // Web 重启动作
 // ============================================================================
 
@@ -161,4 +92,72 @@ pub enum WebRestartAction {
     Start,
     /// 停止服务器
     Stop,
+}
+
+// ============================================================================
+// WebSharedState (Shared between Reactor and Editor)
+// ============================================================================
+
+use parking_lot::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+
+/// Web 服务器共享状态（线程安全）
+pub struct WebSharedState {
+    // ... (fields)
+    // ===== 服务器状态 =====
+    /// HTTP 服务器端口（0 表示未启动）
+    pub port: AtomicU16,
+    /// 服务器是否运行中
+    pub is_running: AtomicBool,
+    /// 本机 IP 地址
+    pub local_ip: RwLock<String>,
+
+    // ===== OSC 通信端口 =====
+    /// Web OSC 接收端口（动态分配，0 表示未启动）
+    pub osc_recv_port: AtomicU16,
+
+    // ===== 当前布局 =====
+    /// 当前通道列表
+    pub channel_names: RwLock<Vec<String>>,
+
+    // ===== 状态标志 =====
+    /// OSC 接收端口是否绑定成功
+    pub osc_recv_port_bound: AtomicBool,
+    /// 当前连接的客户端数量
+    pub clients_count: AtomicU16,
+}
+
+impl WebSharedState {
+    pub fn new() -> Self {
+        Self {
+            port: AtomicU16::new(0),
+            is_running: AtomicBool::new(false),
+            local_ip: RwLock::new(String::new()),
+            osc_recv_port: AtomicU16::new(0),
+            channel_names: RwLock::new(Vec::new()),
+            osc_recv_port_bound: AtomicBool::new(false),
+            clients_count: AtomicU16::new(0),
+        }
+    }
+
+    /// 获取服务器地址
+    pub fn get_address(&self) -> Option<String> {
+        if self.is_running.load(Ordering::Relaxed) {
+            let port = self.port.load(Ordering::Relaxed);
+            let ip = self.local_ip.read().clone();
+            // 如果 ip 为空，默认为 localhost? 或者显示 IP unknown
+            if ip.is_empty() {
+                Some(format!("127.0.0.1:{}", port))
+            } else {
+                Some(format!("{}:{}", ip, port))
+            }
+        } else {
+            None
+        }
+    }
+}
+impl Default for WebSharedState {
+    fn default() -> Self {
+        Self::new()
+    }
 }

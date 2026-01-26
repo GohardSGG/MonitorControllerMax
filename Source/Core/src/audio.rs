@@ -1,14 +1,14 @@
 #![allow(non_snake_case)]
 
-use nih_plug::prelude::*;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use crate::channel_logic::{ChannelLogic, OscOverride};
+use crate::config_manager::Layout;
+use crate::interaction::InteractionManager;
+use crate::osc_state::OscSharedState;
+use crate::params::{MonitorParams, PluginRole, MAX_CHANNELS};
 use atomic_float::AtomicF32;
-use crate::Params::{MonitorParams, PluginRole, MAX_CHANNELS};
-use crate::Channel_Logic::{ChannelLogic, OscOverride};
-use crate::Config_Manager::Layout;
-use crate::Interaction::InteractionManager;
-use crate::Osc::OscSharedState;
+use nih_plug::prelude::*;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 // ==================== P2 优化：批量增益平滑 ====================
 
@@ -22,7 +22,7 @@ const SMOOTHING_UPDATE_INTERVAL: usize = 8;
 
 /// 增益平滑状态结构体（每个插件实例拥有独立的状态）
 /// P7: 使用 AtomicF32（无位转换开销）
-#[repr(align(64))]  // P3: 缓存行对齐，避免 false sharing
+#[repr(align(64))] // P3: 缓存行对齐，避免 false sharing
 pub struct GainSmoothingState {
     /// 每通道当前增益状态（用于平滑过渡）
     /// P7: 直接使用 AtomicF32，消除 to_bits/from_bits 转换
@@ -72,7 +72,7 @@ pub fn process_audio(
     params: &MonitorParams,
     gain_state: &GainSmoothingState,
     interaction: &Arc<InteractionManager>,
-    layout_config: &crate::Config_Manager::ConfigManager,
+    layout_config: &crate::config_manager::ConfigManager,
     osc_state: Option<&Arc<OscSharedState>>,
 ) {
     let role = params.role.value();
@@ -82,28 +82,29 @@ pub fn process_audio(
     let sub_layout_idx = params.sub_layout.value() as usize;
 
     // 无分配：直接获取 &str 引用
-    let speaker_name = layout_config.get_speaker_name(layout_idx).unwrap_or("7.1.4");
+    let speaker_name = layout_config
+        .get_speaker_name(layout_idx)
+        .unwrap_or("7.1.4");
     let sub_name = layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");
 
     let layout = layout_config.get_layout(speaker_name, sub_name);
 
     // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
     let osc_override = osc_state.and_then(|osc| {
-        osc.get_override_snapshot().map(|(vol, dim, cut)| OscOverride {
-            master_volume: Some(vol),
-            dim: Some(dim),
-            cut: Some(cut),
-        })
+        osc.get_override_snapshot()
+            .map(|(vol, dim, cut)| OscOverride {
+                master_volume: Some(vol),
+                dim: Some(dim),
+                cut: Some(cut),
+            })
     });
 
     // 计算 RenderState
     let render_state = match role {
         PluginRole::Master | PluginRole::Standalone => {
             ChannelLogic::compute(params, &layout, None, interaction, osc_override)
-        },
-        PluginRole::Slave => {
-            ChannelLogic::compute(params, &layout, None, interaction, None)
         }
+        PluginRole::Slave => ChannelLogic::compute(params, &layout, None, interaction, None),
     };
 
     // P2/P3 优化：使用本地增益缓存（栈上，无堆分配）
@@ -120,9 +121,8 @@ pub fn process_audio(
         let is_muted_bit = ((render_state.channel_mute_mask >> ch_idx) & 1) as f32;
         let muted_multiplier = 1.0 - is_muted_bit;
 
-        target_gains[ch_idx] = render_state.master_gain
-            * render_state.channel_gains[ch_idx]
-            * muted_multiplier;
+        target_gains[ch_idx] =
+            render_state.master_gain * render_state.channel_gains[ch_idx] * muted_multiplier;
     }
 
     // P6: 通道优先处理 - 使用 as_slice() 获取连续内存访问
@@ -183,21 +183,20 @@ pub fn process_audio_with_layout(
 
     // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
     let osc_override = osc_state.and_then(|osc| {
-        osc.get_override_snapshot().map(|(vol, dim, cut)| OscOverride {
-            master_volume: Some(vol),
-            dim: Some(dim),
-            cut: Some(cut),
-        })
+        osc.get_override_snapshot()
+            .map(|(vol, dim, cut)| OscOverride {
+                master_volume: Some(vol),
+                dim: Some(dim),
+                cut: Some(cut),
+            })
     });
 
     // 计算 RenderState
     let render_state = match role {
         PluginRole::Master | PluginRole::Standalone => {
             ChannelLogic::compute(params, layout, None, interaction, osc_override)
-        },
-        PluginRole::Slave => {
-            ChannelLogic::compute(params, layout, None, interaction, None)
         }
+        PluginRole::Slave => ChannelLogic::compute(params, layout, None, interaction, None),
     };
 
     // P2/P3 优化：使用本地增益缓存（栈上，无堆分配）
@@ -214,9 +213,8 @@ pub fn process_audio_with_layout(
         let is_muted_bit = ((render_state.channel_mute_mask >> ch_idx) & 1) as f32;
         let muted_multiplier = 1.0 - is_muted_bit;
 
-        target_gains[ch_idx] = render_state.master_gain
-            * render_state.channel_gains[ch_idx]
-            * muted_multiplier;
+        target_gains[ch_idx] =
+            render_state.master_gain * render_state.channel_gains[ch_idx] * muted_multiplier;
     }
 
     // P6: 通道优先处理 - 使用 as_slice() 获取连续内存访问
