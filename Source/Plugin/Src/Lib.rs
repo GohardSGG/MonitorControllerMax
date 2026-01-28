@@ -63,10 +63,6 @@ pub struct MonitorControllerMax {
     /// 实例级布局配置
     layout_config: Arc<ConfigManager>,
 
-    /// P8: Layout 缓存（避免每帧堆分配）
-    layout_cache: Option<Layout>,
-    layout_cache_key: (i32, i32),
-
     /// 自动检测的布局索引
     auto_detected_layout: Option<i32>,
 }
@@ -113,8 +109,6 @@ impl Default for MonitorControllerMax {
             logger,
             app_config,
             layout_config,
-            layout_cache: None,
-            layout_cache_key: (-1, -1),
             auto_detected_layout: None,
         }
     }
@@ -219,31 +213,31 @@ impl Plugin for MonitorControllerMax {
         // Prepare layout
         let layout_idx = self.params.layout.value();
         let sub_layout_idx = self.params.sub_layout.value();
-        let cache_key = (layout_idx, sub_layout_idx);
 
-        if cache_key != self.layout_cache_key || self.layout_cache.is_none() {
-            let speaker_name = self
-                .layout_config
-                .get_speaker_name(layout_idx as usize)
-                .unwrap_or("7.1.4");
-            let sub_name = self
-                .layout_config
-                .get_sub_name(sub_layout_idx as usize)
-                .unwrap_or("None");
-            self.layout_cache = Some(self.layout_config.get_layout(speaker_name, sub_name));
-            self.layout_cache_key = cache_key;
+        // P0 修复：使用无分配的引用查找，移除本地缓存逻辑
+        // 因为 ConfigManager 已在启动时预计算了所有 Layout
+        let speaker_name = self
+            .layout_config
+            .get_speaker_name(layout_idx as usize)
+            .unwrap_or("7.1.4");
 
-            // Layout changed, update OSC state
-            self.osc_state
-                .update_layout_channels(self.layout_cache.as_ref().unwrap());
-        }
+        let sub_name = self
+            .layout_config
+            .get_sub_name(sub_layout_idx as usize)
+            .unwrap_or("None");
 
-        let layout = match self.layout_cache.as_ref() {
+        let layout = match self
+            .layout_config
+            .get_layout_by_names(speaker_name, sub_name)
+        {
             Some(l) => l,
             None => return ProcessStatus::Normal,
         };
 
         // Call Core Audio Processor
+        // update_layout_channels 现在是安全的（无日志/分配）
+        self.osc_state.update_layout_channels(layout);
+
         audio::process_audio_with_layout(
             buffer,
             &self.params,

@@ -87,7 +87,9 @@ pub fn process_audio(
         .unwrap_or("7.1.4");
     let sub_name = layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");
 
-    let layout = layout_config.get_layout(speaker_name, sub_name);
+    let layout = layout_config
+        .get_layout_by_names(speaker_name, sub_name)
+        .expect("Layout should be pre-computed");
 
     // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
     let osc_override = osc_state.and_then(|osc| {
@@ -102,9 +104,9 @@ pub fn process_audio(
     // 计算 RenderState
     let render_state = match role {
         PluginRole::Master | PluginRole::Standalone => {
-            ChannelLogic::compute(params, &layout, None, interaction, osc_override)
+            ChannelLogic::compute(params, layout, None, interaction, osc_override)
         }
-        PluginRole::Slave => ChannelLogic::compute(params, &layout, None, interaction, None),
+        PluginRole::Slave => ChannelLogic::compute(params, layout, None, interaction, None),
     };
 
     // P2/P3 优化：使用本地增益缓存（栈上，无堆分配）
@@ -161,8 +163,13 @@ pub fn process_audio(
     }
 
     // P2: 只在 block 结束时写回原子状态
+    // P2: 只在 block 结束时写回原子状态
+    // P0 修复：脏检查优化原子写入，减少总线流量
     for ch_idx in 0..num_channels {
-        gain_state.store_gain(ch_idx, local_gains[ch_idx]);
+        let new_val = local_gains[ch_idx];
+        if (gain_state.load_gain(ch_idx) - new_val).abs() > 1e-5 {
+            gain_state.store_gain(ch_idx, new_val);
+        }
     }
 }
 
@@ -249,7 +256,12 @@ pub fn process_audio_with_layout(
     }
 
     // P2: 只在 block 结束时写回原子状态
+    // P2: 只在 block 结束时写回原子状态
+    // P0 修复：脏检查优化原子写入，减少总线流量
     for ch_idx in 0..num_channels {
-        gain_state.store_gain(ch_idx, local_gains[ch_idx]);
+        let new_val = local_gains[ch_idx];
+        if (gain_state.load_gain(ch_idx) - new_val).abs() > 1e-5 {
+            gain_state.store_gain(ch_idx, new_val);
+        }
     }
 }

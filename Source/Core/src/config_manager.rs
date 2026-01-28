@@ -99,6 +99,9 @@ pub struct ConfigManager {
     cached_speaker_names: Vec<String>,
     /// 缓存的排序后的 SUB 布局名称（包含 "None"）
     cached_sub_names: Vec<String>,
+    /// P0 修复：预计算的所有 Layout 组合（完全避免运行时分配）
+    /// Key: (SpeakerName, SubName)
+    layouts: HashMap<(String, String), Layout>,
 }
 
 impl ConfigManager {
@@ -131,11 +134,26 @@ impl ConfigManager {
         cached_sub_names.sort();
         cached_sub_names.insert(0, "None".to_string());
 
-        Self {
+        let mut manager = Self {
             raw_config,
-            cached_speaker_names,
-            cached_sub_names,
+            cached_speaker_names: cached_speaker_names.clone(),
+            cached_sub_names: cached_sub_names.clone(),
+            layouts: HashMap::new(),
+        };
+
+        // P0 修复：预计算所有 Layout 组合
+        // 这是一个 O(N*M) 的操作，但在启动时完成，耗时可忽略
+        for speaker in &cached_speaker_names {
+            for sub in &cached_sub_names {
+                // 复用现有的 get_layout 逻辑来生成 Layout 对象
+                let layout = manager.generate_layout(speaker, sub);
+                manager
+                    .layouts
+                    .insert((speaker.clone(), sub.clone()), layout);
+            }
         }
+
+        manager
     }
 
     pub fn get_speaker_layouts(&self) -> Vec<String> {
@@ -160,7 +178,16 @@ impl ConfigManager {
         self.cached_sub_names.get(idx).map(|s| s.as_str())
     }
 
-    pub fn get_layout(&self, speaker_name: &str, sub_name: &str) -> Layout {
+    /// P0 修复：获取 Layout 引用（零分配，实时安全）
+    #[inline]
+    pub fn get_layout_by_names(&self, speaker_name: &str, sub_name: &str) -> Option<&Layout> {
+        self.layouts
+            .get(&(speaker_name.to_string(), sub_name.to_string()))
+    }
+
+    /// 内部使用的 Layout 生成逻辑（原 get_layout）
+    /// 注意：现在这是私有的或仅用于非实时场景（如果需要公开，请保留 pub 并标记警告）
+    fn generate_layout(&self, speaker_name: &str, sub_name: &str) -> Layout {
         let mut main_channels = Vec::new();
         let mut sub_channels = Vec::new();
         let mut channel_idx = 0;

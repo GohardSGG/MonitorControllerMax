@@ -84,6 +84,12 @@ pub fn create_editor(
                 ctx.request_repaint();
             }
 
+            // P0: 异步日志检查（从音频线程接收 Layout 变化通知）
+            if osc_state_clone.take_layout_change_pending() {
+                // 安全地在 UI 线程打印日志
+                logger_clone.info("osc", "[OSC] Layout channels updated (Deferred)");
+            }
+
             // 获取 params 的引用供渲染函数使用
             let params = &params_clone;
 
@@ -119,8 +125,10 @@ pub fn create_editor(
                     let curr_sub_name = sub_layouts.get(current_sub_layout as usize)
                         .cloned().unwrap_or_else(|| "?".to_string());
 
-                    let prev_total = layout_config_clone.get_layout(&prev_speaker_name, &prev_sub_name).total_channels;
-                    let curr_layout = layout_config_clone.get_layout(&curr_speaker_name, &curr_sub_name);
+                    let prev_total = layout_config_clone.get_layout_by_names(&prev_speaker_name, &prev_sub_name)
+                        .map(|l| l.total_channels).unwrap_or(0);
+                    let curr_layout = layout_config_clone.get_layout_by_names(&curr_speaker_name, &curr_sub_name)
+                        .expect("Layout should exist");
                     let curr_total = curr_layout.total_channels;
 
                     logger_clone.important("editor", &format!("[LAYOUT] {}+{} -> {}+{} ({}ch->{}ch), sync triggered",
@@ -134,7 +142,8 @@ pub fn create_editor(
                     }
 
                     // 更新 OSC 通道信息（KISS 方案：动态从布局获取通道名称）
-                    osc_state_clone.update_layout_channels(&curr_layout);
+                    // curr_layout 是 &Layout，直接传递
+                    osc_state_clone.update_layout_channels(curr_layout);
 
                     sync_all_channel_params(params, setter, &interaction_clone, &layout_config_clone, &logger_clone);
 
@@ -403,7 +412,8 @@ fn sync_all_channel_params(params: &Arc<MonitorParams>, setter: &ParamSetter, in
         .cloned()
         .unwrap_or_else(|| "None".to_string());
 
-    let layout = layout_config.get_layout(&speaker_name, &sub_name);
+    let layout = layout_config.get_layout_by_names(&speaker_name, &sub_name)
+        .expect("Layout should exist");
 
     // 同步所有通道并生成摘要
     let mut on_mask: u32 = 0;
@@ -1032,7 +1042,8 @@ fn render_speaker_matrix(ui: &mut egui::Ui, scale: &ScaleContext, params: &Arc<M
         .cloned()
         .unwrap_or_else(|| "None".to_string());
 
-    let layout = layout_config.get_layout(&speaker_name, &sub_name);
+    let layout = layout_config.get_layout_by_names(&speaker_name, &sub_name)
+        .expect("Layout should exist");
 
     // === 动态计算尺寸 ===
     let grid_w = layout.width as f32;

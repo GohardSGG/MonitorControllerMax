@@ -54,6 +54,8 @@ pub struct OscSharedState {
     logger: RwLock<Option<Arc<InstanceLogger>>>,
     /// GUI 重绘请求标志（OSC 参数变化时设置，Editor 检测后清除）
     pub repaint_requested: AtomicBool,
+    /// P0: Layout 变化标志（用于异步日志，避免音频线程 I/O）
+    pub layout_change_pending: AtomicBool,
 }
 
 impl OscSharedState {
@@ -80,6 +82,7 @@ impl OscSharedState {
             recv_port_bound: AtomicBool::new(false),
             logger: RwLock::new(None),
             repaint_requested: AtomicBool::new(false),
+            layout_change_pending: AtomicBool::new(false),
         }
     }
 
@@ -287,6 +290,11 @@ impl OscSharedState {
         }
     }
 
+    /// P0: 获取并清除 Layout 变化标志（用于异步日志）
+    pub fn take_layout_change_pending(&self) -> bool {
+        self.layout_change_pending.swap(false, Ordering::Acquire)
+    }
+
     /// 同步 Cut 状态
     pub fn sync_cut_state(&self, cut: bool) {
         self.current_cut.store(cut, Ordering::Relaxed);
@@ -309,15 +317,14 @@ impl OscSharedState {
             names.push(ch.name.clone());
         }
 
-        self.log_info(&format!(
-            "[OSC] Layout channels updated: {} → {} channels",
-            prev.len(),
-            names.len()
-        ));
-
         *curr = names;
         self.channel_count
             .store(layout.total_channels, Ordering::Relaxed);
+
+        // P0: 仅设置标志，不打印日志（由 Editor 在 UI 线程打印）
+        self.layout_change_pending.store(true, Ordering::Release);
+        // 请求重绘以确保 Editor 能即使在 idle 时也能唤醒处理日志
+        self.repaint_requested.store(true, Ordering::Release);
     }
 
     /// 广播所有通道的 LED 状态
