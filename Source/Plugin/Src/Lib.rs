@@ -12,7 +12,7 @@ pub mod scale;
 
 // Workspace Crates
 use mcm_core::audio::{self, GainSmoothingState};
-use mcm_core::config_manager::{ConfigManager, Layout};
+use mcm_core::config_manager::ConfigManager;
 use mcm_core::interaction::InteractionManager;
 use mcm_core::osc_state::OscSharedState;
 use mcm_core::params::MonitorParams;
@@ -214,24 +214,13 @@ impl Plugin for MonitorControllerMax {
         let layout_idx = self.params.layout.value();
         let sub_layout_idx = self.params.sub_layout.value();
 
-        // P0 修复：使用无分配的引用查找，移除本地缓存逻辑
-        // 因为 ConfigManager 已在启动时预计算了所有 Layout
-        let speaker_name = self
-            .layout_config
-            .get_speaker_name(layout_idx as usize)
-            .unwrap_or("7.1.4");
-
-        let sub_name = self
-            .layout_config
-            .get_sub_name(sub_layout_idx as usize)
-            .unwrap_or("None");
-
+        // P0 Real Fix: Use index-based lookup (Zero Alloc, O(1))
         let layout = match self
             .layout_config
-            .get_layout_by_names(speaker_name, sub_name)
+            .get_layout_by_indices(layout_idx as usize, sub_layout_idx as usize)
         {
             Some(l) => l,
-            None => return ProcessStatus::Normal,
+            None => return ProcessStatus::Normal, // Safe fallback (Silence)
         };
 
         // Call Core Audio Processor

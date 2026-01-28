@@ -243,16 +243,16 @@ impl WebManager {
         interaction: Arc<InteractionManager>,
         _params: Arc<MonitorParams>,
         _web_shared_state: Arc<WebSharedState>,
-        broadcast_tx: broadcast::Sender<String>,
+        _broadcast_tx: broadcast::Sender<String>,
     ) {
         let interval = std::time::Duration::from_millis(1000 / STATE_PUSH_HZ);
 
         while is_running.load(Ordering::Acquire) {
             // 直接从 InteractionManager 和 Params 构建状态
-            let primary_mode = interaction.get_primary();
-            let compare_mode = interaction.get_compare();
-            let solo_set = interaction.get_solo_set();
-            let mute_set = interaction.get_mute_set();
+            let _primary_mode = interaction.get_primary();
+            let _compare_mode = interaction.get_compare();
+            let _solo_set = interaction.get_solo_set();
+            let _mute_set = interaction.get_mute_set();
             // user_mute_sub field is private. We need a getter in InteractionManager.
             // Assumption: InteractionManager is being refactored or has public means.
             // For now, I'll access public methods if available. If `user_mute_sub` is private, I can't access it here.
@@ -280,7 +280,7 @@ impl WebManager {
             // Actually, `InteractionManager` has `user_mute_sub: RwLock<HashSet<String>>`.
             // I'll try to use it directly, and make it public in `interaction.rs` in next step.
 
-            let user_mute_sub: HashSet<String> = {
+            let _user_mute_sub: HashSet<String> = {
                 // Temporary hack: Just empty hashset if I can't access it.
                 // But better to fail compile than silent bug.
                 // interaction.user_mute_sub.read().clone() // Will fail if private.
@@ -431,7 +431,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 fn handle_command_direct(
     cmd: WebCommand,
     interaction: &InteractionManager,
-    params: &MonitorParams,
+    _params: &MonitorParams,
     logger: &InstanceLogger,
 ) {
     match cmd {

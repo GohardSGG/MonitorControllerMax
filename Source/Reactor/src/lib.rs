@@ -47,6 +47,7 @@ pub struct Reactor {
     /// Channel to send commands to Reactor
     tx: Sender<ReactorCommand>,
     /// Thread handle
+    #[allow(dead_code)]
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 

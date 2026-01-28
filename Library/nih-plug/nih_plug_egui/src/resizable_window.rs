@@ -1,9 +1,9 @@
 //! Resizable window wrapper for Egui editor.
 
 use egui_baseview::egui::emath::GuiRounding;
-use egui_baseview::egui::{InnerResponse, UiBuilder};
+// use egui_baseview::egui::UiBuilder;
 
-use crate::egui::{pos2, Area, CentralPanel, Context, Id, Order, Rect, Response, Sense, Ui, Vec2};
+use crate::egui::{pos2, Area, Context, Id, Order, Response, Sense, Ui, Vec2};
 use crate::EguiState;
 
 /// Adds a corner to the plugin window that can be dragged in order to resize it.
@@ -43,8 +43,8 @@ impl ResizableWindow {
     fn apply_aspect_ratio(&self, raw_size: Vec2) -> Vec2 {
         if let Some(ratio) = self.aspect_ratio {
             // Calculate what width and height "would be" if we used each as the basis
-            let w_based_h = raw_size.x / ratio;  // height if we use width as basis
-            let h_based_w = raw_size.y * ratio;  // width if we use height as basis
+            let w_based_h = raw_size.x / ratio; // height if we use width as basis
+            let h_based_w = raw_size.y * ratio; // width if we use height as basis
 
             // Pick the larger resulting size (so dragging in any direction = enlarging)
             if raw_size.x >= h_based_w {
@@ -72,18 +72,16 @@ impl ResizableWindow {
         let ret = add_contents(context);
 
         // 2. Draw the floating resize handle in the bottom-right corner using Area
-        let screen_rect = context.screen_rect();
+        let screen_rect = context.content_rect();
         let corner_size = 16.0;
         let corner_pos = screen_rect.max - Vec2::splat(corner_size);
 
         Area::new(self.id.with("resize_corner"))
             .fixed_pos(corner_pos)
-            .order(Order::Foreground)  // Ensure it's on top
+            .order(Order::Foreground) // Ensure it's on top
             .show(context, |ui| {
-                let (rect, response) = ui.allocate_exact_size(
-                    Vec2::splat(corner_size),
-                    Sense::drag()
-                );
+                let (_rect, response) =
+                    ui.allocate_exact_size(Vec2::splat(corner_size), Sense::drag());
 
                 if let Some(pointer_pos) = response.interact_pointer_pos() {
                     // Calculate new size (reuse existing aspect ratio logic)

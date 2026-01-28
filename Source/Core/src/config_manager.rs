@@ -99,9 +99,9 @@ pub struct ConfigManager {
     cached_speaker_names: Vec<String>,
     /// 缓存的排序后的 SUB 布局名称（包含 "None"）
     cached_sub_names: Vec<String>,
-    /// P0 修复：预计算的所有 Layout 组合（完全避免运行时分配）
-    /// Key: (SpeakerName, SubName)
-    layouts: HashMap<(String, String), Layout>,
+    // P0 Rework: Flattened storage for O(1) index access
+    // Index = speaker_idx * num_subs + sub_idx
+    pub layouts: Vec<Layout>,
 }
 
 impl ConfigManager {
@@ -138,18 +138,18 @@ impl ConfigManager {
             raw_config,
             cached_speaker_names: cached_speaker_names.clone(),
             cached_sub_names: cached_sub_names.clone(),
-            layouts: HashMap::new(),
+            layouts: Vec::new(),
         };
 
-        // P0 修复：预计算所有 Layout 组合
-        // 这是一个 O(N*M) 的操作，但在启动时完成，耗时可忽略
-        for speaker in &cached_speaker_names {
-            for sub in &cached_sub_names {
-                // 复用现有的 get_layout 逻辑来生成 Layout 对象
-                let layout = manager.generate_layout(speaker, sub);
-                manager
-                    .layouts
-                    .insert((speaker.clone(), sub.clone()), layout);
+        // P0 修复：预计算所有 Layout 组合 (Linear Order)
+        // Outer loop: Speaker, Inner loop: Sub
+        manager
+            .layouts
+            .reserve_exact(cached_speaker_names.len() * cached_sub_names.len());
+        for speaker_name in &cached_speaker_names {
+            for sub_name in &cached_sub_names {
+                let layout = manager.generate_layout(speaker_name, sub_name);
+                manager.layouts.push(layout);
             }
         }
 
@@ -178,11 +178,26 @@ impl ConfigManager {
         self.cached_sub_names.get(idx).map(|s| s.as_str())
     }
 
-    /// P0 修复：获取 Layout 引用（零分配，实时安全）
-    #[inline]
+    /// 获取 Layout（基于索引，O(1)，零分配，音频线程专用）
+    pub fn get_layout_by_indices(&self, speaker_idx: usize, sub_idx: usize) -> Option<&Layout> {
+        let num_subs = self.cached_sub_names.len();
+        if num_subs == 0 {
+            return None;
+        }
+
+        // Calculate linear index
+        let index = speaker_idx * num_subs + sub_idx;
+        self.layouts.get(index)
+    }
+
+    /// 获取 Layout（基于名称，兼容旧接口，UI 使用）
     pub fn get_layout_by_names(&self, speaker_name: &str, sub_name: &str) -> Option<&Layout> {
-        self.layouts
-            .get(&(speaker_name.to_string(), sub_name.to_string()))
+        let speaker_idx = self
+            .cached_speaker_names
+            .iter()
+            .position(|s| s == speaker_name)?;
+        let sub_idx = self.cached_sub_names.iter().position(|s| s == sub_name)?;
+        self.get_layout_by_indices(speaker_idx, sub_idx)
     }
 
     /// 内部使用的 Layout 生成逻辑（原 get_layout）

@@ -12,13 +12,11 @@ use std::sync::Arc;
 
 // ==================== P2 优化：批量增益平滑 ====================
 
-/// 平滑系数：α = 0.1
-/// 在 48kHz 下，约 50 采样（~1ms）达到 99% 目标值
-const SMOOTHING_ALPHA: f32 = 0.1;
+/// 平滑系数：α = 0.005
+/// 在 48kHz 下，约 500 采样（~10ms）达到 99% 目标值
+const SMOOTHING_ALPHA: f32 = 0.005;
 
-/// P2 优化：批量更新间隔
-/// 每 8 个样本更新一次增益（而非每样本），减少 87% 的平滑计算
-const SMOOTHING_UPDATE_INTERVAL: usize = 8;
+// const SMOOTHING_UPDATE_INTERVAL: usize = 8; // Deprecated by Real P0 Fix
 
 /// 增益平滑状态结构体（每个插件实例拥有独立的状态）
 /// P7: 使用 AtomicF32（无位转换开销）
@@ -81,15 +79,22 @@ pub fn process_audio(
     let layout_idx = params.layout.value() as usize;
     let sub_layout_idx = params.sub_layout.value() as usize;
 
-    // 无分配：直接获取 &str 引用
-    let speaker_name = layout_config
-        .get_speaker_name(layout_idx)
-        .unwrap_or("7.1.4");
-    let sub_name = layout_config.get_sub_name(sub_layout_idx).unwrap_or("None");
+    // P0: Removed name lookups here as we use indices directly
 
     let layout = layout_config
-        .get_layout_by_names(speaker_name, sub_name)
-        .expect("Layout should be pre-computed");
+        .get_layout_by_indices(layout_idx, sub_layout_idx)
+        .or_else(|| {
+            // Safe Fallback: Try to get default 7.1.4 index or purely implicit fallback
+            // Since we can't easily find "7.1.4" index without searching, and we want 0-alloc,
+            // let's try index 0, 0 if current fails.
+            layout_config.get_layout_by_indices(0, 0)
+        });
+
+    // Check if we still have no layout (e.g. config empty)
+    let layout = match layout {
+        Some(l) => l,
+        None => return, // Silent return, do not process
+    };
 
     // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
     let osc_override = osc_state.and_then(|osc| {
@@ -132,30 +137,21 @@ pub fn process_audio(
     // 1. 连续内存访问更好的 L1 缓存命中率
     // 2. LLVM 可以对内层循环自动向量化
     let channel_slices = buffer.as_slice();
-    let block_len = channel_slices.first().map(|s| s.len()).unwrap_or(0);
+    // let block_len = ... (Unused)
 
-    // P2: 计算平滑更新次数（每 8 样本更新一次）
-    let num_updates = (block_len + SMOOTHING_UPDATE_INTERVAL - 1) / SMOOTHING_UPDATE_INTERVAL;
+    // P2: REVERTED Block smoothing (Zipper Noise) -> Per-sample smoothing
 
     for ch_idx in 0..num_channels.min(channel_slices.len()) {
         let samples = &mut channel_slices[ch_idx];
         let mut current_gain = local_gains[ch_idx];
         let target = target_gains[ch_idx];
 
-        // P2/P6: 分块处理 - 每 8 样本更新一次增益
-        for update_idx in 0..num_updates {
-            // 更新平滑值（每块开始时）
+        // P2/P6 Real Fix: Per-sample smoothing (High Fidelity)
+        // Reverted 8-sample block optimization to eliminate Zipper Noise.
+        // Modern CPUs can easily handle this multiplication per sample.
+        for sample in samples.iter_mut() {
             current_gain += (target - current_gain) * SMOOTHING_ALPHA;
-
-            // 计算本块的样本范围
-            let start = update_idx * SMOOTHING_UPDATE_INTERVAL;
-            let end = (start + SMOOTHING_UPDATE_INTERVAL).min(block_len);
-
-            // P6: 内层循环 - 连续内存访问，LLVM 可自动向量化
-            // 注意：这个循环处理连续的 8 个样本，编译器会优化为 SIMD
-            for sample in &mut samples[start..end] {
-                *sample *= current_gain;
-            }
+            *sample *= current_gain;
         }
 
         // 保存最终增益值
@@ -226,29 +222,19 @@ pub fn process_audio_with_layout(
 
     // P6: 通道优先处理 - 使用 as_slice() 获取连续内存访问
     let channel_slices = buffer.as_slice();
-    let block_len = channel_slices.first().map(|s| s.len()).unwrap_or(0);
+    // let block_len = ... (Unused)
 
-    // P2: 计算平滑更新次数（每 8 样本更新一次）
-    let num_updates = (block_len + SMOOTHING_UPDATE_INTERVAL - 1) / SMOOTHING_UPDATE_INTERVAL;
+    // P2: REVERTED Block smoothing (Zipper Noise) -> Per-sample smoothing
 
     for ch_idx in 0..num_channels.min(channel_slices.len()) {
         let samples = &mut channel_slices[ch_idx];
         let mut current_gain = local_gains[ch_idx];
         let target = target_gains[ch_idx];
 
-        // P2/P6: 分块处理 - 每 8 样本更新一次增益
-        for update_idx in 0..num_updates {
-            // 更新平滑值（每块开始时）
+        // P2/P6 Real Fix: Per-sample smoothing (High Fidelity)
+        for sample in samples.iter_mut() {
             current_gain += (target - current_gain) * SMOOTHING_ALPHA;
-
-            // 计算本块的样本范围
-            let start = update_idx * SMOOTHING_UPDATE_INTERVAL;
-            let end = (start + SMOOTHING_UPDATE_INTERVAL).min(block_len);
-
-            // P6: 内层循环 - 连续内存访问，LLVM 可自动向量化
-            for sample in &mut samples[start..end] {
-                *sample *= current_gain;
-            }
+            *sample *= current_gain;
         }
 
         // 保存最终增益值

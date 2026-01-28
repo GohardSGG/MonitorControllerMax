@@ -33,9 +33,9 @@ const SETTINGS_SLATE_50: Color32 = Color32::from_rgb(248, 250, 252);
 const SETTINGS_SLATE_100: Color32 = Color32::from_rgb(241, 245, 249);
 const SETTINGS_SLATE_200: Color32 = Color32::from_rgb(226, 232, 240);
 const SETTINGS_SLATE_300: Color32 = Color32::from_rgb(203, 213, 225);
-const SETTINGS_SLATE_400: Color32 = Color32::from_rgb(148, 163, 184);
-const SETTINGS_SLATE_500: Color32 = Color32::from_rgb(100, 116, 139);
-const SETTINGS_SLATE_600: Color32 = Color32::from_rgb(71, 85, 105);
+const _SETTINGS_SLATE_400: Color32 = Color32::from_rgb(148, 163, 184);
+const _SETTINGS_SLATE_500: Color32 = Color32::from_rgb(100, 116, 139);
+const _SETTINGS_SLATE_600: Color32 = Color32::from_rgb(71, 85, 105);
 const SETTINGS_SLATE_700: Color32 = Color32::from_rgb(51, 65, 85);
 const SETTINGS_SLATE_800: Color32 = Color32::from_rgb(30, 41, 59);
 const SETTINGS_AMBER_600: Color32 = Color32::from_rgb(217, 119, 6);
@@ -264,7 +264,7 @@ pub fn create_editor(
             // --- FIX 1: Global Background Fill (The Ultimate Gap Killer) ---
             // Paint a solid rectangle over the entire screen area before any panels.
             // This ensures that any sub-pixel gaps between panels reveal this color, not black.
-            let screen = ctx.screen_rect();
+            let screen = ctx.content_rect();
             ctx.layer_painter(LayerId::background())
                 .rect_filled(screen, 0.0, COLOR_BG_SIDEBAR); // Use sidebar color as base
 
@@ -351,7 +351,7 @@ pub fn create_editor(
 
                     if show_settings {
                         // 绘制半透明背景遮罩（增强模态感）
-                        let screen_rect = ctx.screen_rect();
+                        let screen_rect = ctx.content_rect();
                         ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, dialog_id.with("overlay")))
                             .rect_filled(screen_rect, 0.0, Color32::from_black_alpha(80));
 
@@ -1985,7 +1985,7 @@ fn render_settings_content_v2(
                     ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), Color32::WHITE);
 
                     // Put input inside
-                    ui.allocate_ui_at_rect(rect.shrink(scale.s(8.0)), |ui| {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(scale.s(8.0))), |ui| {
                         ui.centered_and_justified(|ui| {
                             let response = ui.add(egui::TextEdit::singleline(&mut state.osc_send_port)
                                 .font(scale.font(14.0))
@@ -2020,7 +2020,7 @@ fn render_settings_content_v2(
                     ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), Color32::WHITE);
 
                     // Put input inside
-                    ui.allocate_ui_at_rect(rect.shrink(scale.s(8.0)), |ui| {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(scale.s(8.0))), |ui| {
                         ui.centered_and_justified(|ui| {
                             let response = ui.add(egui::TextEdit::singleline(&mut state.osc_receive_port)
                                 .font(scale.font(14.0))
@@ -2082,7 +2082,7 @@ fn render_settings_content_v2(
                         ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
                         ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), input_bg);
 
-                        ui.allocate_ui_at_rect(rect.shrink(scale.s(10.0)), |ui| {
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(scale.s(10.0))), |ui| {
                             ui.add_enabled_ui(is_slave, |ui| {
                                 ui.centered_and_justified(|ui| {
                                     let response = ui.add(egui::TextEdit::singleline(&mut state.master_ip)
@@ -2123,7 +2123,7 @@ fn render_settings_content_v2(
                         ui.painter().rect_stroke(rect, scale.s(4.0), Stroke::new(scale.s(1.0), border_color), StrokeKind::Inside);
                         ui.painter().rect_filled(rect.shrink(scale.s(1.0)), scale.s(3.0), Color32::WHITE);
 
-                        ui.allocate_ui_at_rect(rect.shrink(scale.s(10.0)), |ui| {
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(scale.s(10.0))), |ui| {
                             ui.centered_and_justified(|ui| {
                                 let response = ui.add(egui::TextEdit::singleline(&mut state.network_port)
                                     .font(scale.font(14.0))
