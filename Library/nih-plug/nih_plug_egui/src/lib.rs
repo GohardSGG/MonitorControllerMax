@@ -72,6 +72,26 @@ pub struct EguiState {
     #[serde(skip)]
     requested_size: AtomicCell<Option<(u32, u32)>>,
 
+    /// Host-confirmed size callback to apply to the native viewport on the next frame.
+    #[serde(skip)]
+    pub(crate) host_confirmed_size: AtomicCell<Option<(u32, u32)>>,
+
+    /// Whether a resize request has been submitted and we're waiting for host confirmation.
+    #[serde(skip)]
+    pub(crate) resize_in_flight: AtomicBool,
+
+    /// Last resize size submitted to the host while waiting for on-size confirmation.
+    #[serde(skip)]
+    pub(crate) in_flight_resize_size: AtomicCell<Option<(u32, u32)>>,
+
+    /// Drag-end urgent commit flag to bypass submit throttling when needed.
+    #[serde(skip)]
+    resize_commit_urgent: AtomicBool,
+
+    /// Minimum size hint exposed to wrappers for host-side constraints.
+    #[serde(skip)]
+    min_size_hint: AtomicCell<(u32, u32)>,
+
     /// Whether the editor's window is currently open.
     #[serde(skip)]
     open: AtomicBool,
@@ -97,6 +117,11 @@ impl EguiState {
         Arc::new(EguiState {
             size: AtomicCell::new((width, height)),
             requested_size: Default::default(),
+            host_confirmed_size: AtomicCell::new(None),
+            resize_in_flight: AtomicBool::new(false),
+            in_flight_resize_size: AtomicCell::new(None),
+            resize_commit_urgent: AtomicBool::new(false),
+            min_size_hint: AtomicCell::new((16, 16)),
             open: AtomicBool::new(false),
         })
     }
@@ -112,8 +137,35 @@ impl EguiState {
         self.open.load(Ordering::Acquire)
     }
 
+    /// Pending resize request size, if any.
+    pub fn requested_size_hint(&self) -> Option<(u32, u32)> {
+        self.requested_size.load()
+    }
+
+    /// Current minimum size hint.
+    pub fn min_size_hint(&self) -> (u32, u32) {
+        self.min_size_hint.load()
+    }
+
     /// Set the new size that will be used to resize the window if the host allows.
     pub(crate) fn set_requested_size(&self, new_size: (u32, u32)) {
         self.requested_size.store(Some(new_size));
+    }
+
+    /// Set minimum size hint (logical pixels), clamped to at least 1x1.
+    pub(crate) fn set_min_size_hint(&self, min_size: (u32, u32)) {
+        let min_w = min_size.0.max(1);
+        let min_h = min_size.1.max(1);
+        self.min_size_hint.store((min_w, min_h));
+    }
+
+    /// Mark resize submission as urgent (typically at drag-end).
+    pub(crate) fn mark_resize_commit_urgent(&self) {
+        self.resize_commit_urgent.store(true, Ordering::Release);
+    }
+
+    /// Consume urgent commit flag.
+    pub(crate) fn take_resize_commit_urgent(&self) -> bool {
+        self.resize_commit_urgent.swap(false, Ordering::AcqRel)
     }
 }

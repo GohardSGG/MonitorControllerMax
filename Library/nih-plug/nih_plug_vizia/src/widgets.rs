@@ -161,22 +161,44 @@ impl Model for WindowModel {
         event.map(|window_event, _| {
             if let WindowEvent::GeometryChanged { .. } = window_event {
                 let logical_size = (cx.window_size().width, cx.window_size().height);
-                // `self.vizia_state.inner_logical_size()` should match `logical_size`. Since it's
-                // computed we need to store the last logical size on this object.
-                nih_debug_assert_eq!(
-                    logical_size,
-                    self.vizia_state.inner_logical_size(),
-                    "The window size set on the vizia context does not match the size returned by \
-                     'ViziaState::size_fn'"
-                );
-                let old_logical_size @ (old_logical_width, old_logical_height) =
-                    self.last_inner_window_size.load();
+                let target_size = self.vizia_state.inner_logical_size();
+
                 let scale_factor = cx.user_scale_factor();
                 let old_user_scale_factor = self.vizia_state.scale_factor.load();
 
+                // --- Vizia Scaling Patch ---
+                // Instead of asserting that logical_size == target_size, we detect deviation
+                // and update the scale factor to compensate. This allows "Stretching" (Auto-Scaling).
+
+                // If logical width mismatches target (and target is valid)
+                if target_size.0 > 0 && logical_size.0 != target_size.0 {
+                    // Calculate new scale needed to restore strictly logical width
+                    // NewScale = Physical / Target = (Logical * OldScale) / Target
+                    let new_scale = (logical_size.0 as f64 * scale_factor) / target_size.0 as f64;
+
+                    // Clamp to reasonable limits (0.25x to 4.0x) to prevent degenerate values
+                    let new_scale = new_scale.max(0.25).min(4.0);
+
+                    if (new_scale - scale_factor).abs() > 0.001 {
+                        cx.set_user_scale_factor(new_scale);
+                        self.vizia_state.scale_factor.store(new_scale);
+                        // We handled the resize by scaling, no need to revert or assert.
+                        self.last_inner_window_size.store(target_size);
+                        return;
+                    }
+                }
+                // ---------------------------
+
+                // `self.vizia_state.inner_logical_size()` should match `logical_size`. Since it's
+                // computed we need to store the last logical size on this object.
+                // NOTE: With the patch above, this assertion is less likely to trigger, but we keep the logic
+                // for standard user_scale updates triggering resizing.
+
                 // Don't do anything if the current size already matches the new size, this could
                 // otherwise also cause a feedback loop on resize failure
-                if logical_size == old_logical_size && scale_factor == old_user_scale_factor {
+                if logical_size == self.last_inner_window_size.load()
+                    && scale_factor == old_user_scale_factor
+                {
                     return;
                 }
 
@@ -185,11 +207,14 @@ impl Model for WindowModel {
                 self.last_inner_window_size.store(logical_size);
                 self.vizia_state.scale_factor.store(scale_factor);
                 if !self.context.request_resize() {
-                    self.last_inner_window_size.store(old_logical_size);
+                    let (old_logical_width, old_logical_height) =
+                        self.last_inner_window_size.load();
+
+                    self.last_inner_window_size
+                        .store((old_logical_width, old_logical_height));
                     self.vizia_state.scale_factor.store(old_user_scale_factor);
 
                     // This will cause the window's size to be reverted on the next event loop
-                    // NOTE: Is resizing back the correct behavior now that the size is computed?
                     cx.set_window_size(WindowSize {
                         width: old_logical_width,
                         height: old_logical_height,

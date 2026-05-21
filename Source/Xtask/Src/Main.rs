@@ -1,16 +1,79 @@
 #![allow(non_snake_case)]
 
+use anyhow::{anyhow, Context};
 use std::env;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Command;
-use anyhow::Context;
 
-/// 获取平台特定的 bundled 目录名称
-/// Windows: Windows_X86-64
-/// macOS ARM: MacOS_AArch64
-/// macOS Intel: MacOS_X86-64
-/// Linux: Linux_X86-64
+// ---------------------------------------------------------------------------
+// Build Variant
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BuildVariant {
+    Dev,
+    Release,
+    Production,
+}
+
+impl BuildVariant {
+    fn suffix(self) -> &'static str {
+        match self {
+            BuildVariant::Dev => "dev",
+            BuildVariant::Release => "release",
+            BuildVariant::Production => "production",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            BuildVariant::Dev => "Dev",
+            BuildVariant::Release => "Release",
+            BuildVariant::Production => "Production",
+        }
+    }
+
+    fn needs_release_flag(self) -> bool {
+        matches!(self, BuildVariant::Release | BuildVariant::Production)
+    }
+
+    fn is_production(self) -> bool {
+        matches!(self, BuildVariant::Production)
+    }
+}
+
+fn parse_build_variant(args: &[String]) -> anyhow::Result<BuildVariant> {
+    let has_dev = args.iter().any(|arg| arg == "--dev");
+    let has_release = args.iter().any(|arg| arg == "--release");
+    let has_production = args.iter().any(|arg| arg == "--production");
+
+    if has_production {
+        if has_dev {
+            return Err(anyhow!("--dev and --production cannot be used together"));
+        }
+        return Ok(BuildVariant::Production);
+    }
+
+    if has_dev {
+        if has_release {
+            return Err(anyhow!("--dev and --release cannot be used together"));
+        }
+        return Ok(BuildVariant::Dev);
+    }
+
+    if has_release {
+        Ok(BuildVariant::Release)
+    } else {
+        Ok(BuildVariant::Dev)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Platform helpers
+// ---------------------------------------------------------------------------
+
 fn get_platform_bundle_dir() -> &'static str {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     return "Windows_X86-64";
@@ -30,45 +93,109 @@ fn get_platform_bundle_dir() -> &'static str {
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     return "Linux_AArch64";
 
-    // Fallback
     #[allow(unreachable_code)]
     "Unknown"
 }
 
-/// 清理默认的 bundled 目录（解决 Mac/Windows 格式冲突）
+fn get_build_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+fn format_archive_dir_name(platform_label: &str, variant: BuildVariant) -> String {
+    format!(
+        "MCM_{}_v{}-{}",
+        platform_label,
+        get_build_version(),
+        variant.display_name()
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Build flow helpers
+// ---------------------------------------------------------------------------
+
 fn clean_default_bundled_dir(workspace_root: &Path) -> anyhow::Result<()> {
     let bundled_dir = workspace_root.join("target/bundled");
     if bundled_dir.exists() {
         println!("[Pre-Clean] Removing target/bundled to avoid platform conflicts...");
-        fs::remove_dir_all(&bundled_dir)
-            .context("Failed to remove target/bundled directory")?;
+        fs::remove_dir_all(&bundled_dir).context("Failed to remove target/bundled directory")?;
     }
     Ok(())
 }
 
-/// 将 bundled 目录内容移动到平台特定目录
-fn move_to_platform_dir(workspace_root: &Path) -> anyhow::Result<PathBuf> {
-    let src_dir = workspace_root.join("target/bundled");
-    let platform_dir_name = get_platform_bundle_dir();
-    let dst_dir = workspace_root.join("target/bundled").with_file_name(format!("bundled_{}", platform_dir_name));
+fn prepare_bundle_args(
+    raw_args: &[String],
+    should_copy: bool,
+    variant: BuildVariant,
+) -> Vec<String> {
+    let mut forwarded: Vec<String> = raw_args
+        .iter()
+        .skip(1)
+        .filter(|arg| *arg != "--dev" && *arg != "--production")
+        .cloned()
+        .collect();
 
-    if !src_dir.exists() {
-        return Err(anyhow::anyhow!("target/bundled not found after build"));
+    if should_copy {
+        if forwarded.is_empty() || forwarded[0].starts_with('-') {
+            forwarded.insert(0, "bundle".to_string());
+        }
+
+        if !forwarded.iter().any(|arg| arg == "monitor_controller_max") {
+            if forwarded
+                .first()
+                .map(|cmd| cmd == "bundle")
+                .unwrap_or(false)
+            {
+                forwarded.insert(1, "monitor_controller_max".to_string());
+            } else {
+                forwarded.insert(0, "monitor_controller_max".to_string());
+            }
+        }
     }
 
-    // 确保目标目录存在
+    if variant.needs_release_flag() && !forwarded.iter().any(|arg| arg == "--release") {
+        forwarded.push("--release".to_string());
+    }
+
+    if variant.is_production() {
+        let has_production_feature = forwarded.windows(2).any(|pair| {
+            pair[0] == "--features" && pair[1].contains("monitor_controller_max/production")
+        });
+
+        if !has_production_feature {
+            forwarded.push("--features".to_string());
+            forwarded.push("monitor_controller_max/production".to_string());
+        }
+    }
+
+    forwarded
+}
+
+fn move_to_platform_dir(
+    workspace_root: &Path,
+    variant: BuildVariant,
+) -> anyhow::Result<PathBuf> {
+    let src_dir = workspace_root.join("target/bundled");
+    let dst_dir = workspace_root.join("target").join(format!(
+        "bundled_{}-{}",
+        get_platform_bundle_dir(),
+        variant.suffix()
+    ));
+
+    if !src_dir.exists() {
+        return Err(anyhow!("target/bundled not found after build"));
+    }
+
     if dst_dir.exists() {
         fs::remove_dir_all(&dst_dir)?;
     }
     fs::create_dir_all(&dst_dir)?;
 
-    // 移动所有内容
     for entry in fs::read_dir(&src_dir)? {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst_dir.join(entry.file_name());
 
-        // 如果目标已存在，先删除
         if dst_path.exists() {
             if dst_path.is_dir() {
                 fs::remove_dir_all(&dst_path)?;
@@ -77,314 +204,272 @@ fn move_to_platform_dir(workspace_root: &Path) -> anyhow::Result<PathBuf> {
             }
         }
 
-        // 移动（重命名）
         fs::rename(&src_path, &dst_path)
             .with_context(|| format!("Failed to move {:?} to {:?}", src_path, dst_path))?;
     }
 
-    // 删除空的 src_dir
     let _ = fs::remove_dir(&src_dir);
-
     println!("[Platform Bundle] Moved to: {}", dst_dir.display());
     Ok(dst_dir)
 }
 
-fn main() -> anyhow::Result<()> {
-    // 1. 检查命令参数
-    let args: Vec<String> = env::args().collect();
-    let should_copy = args.iter().any(|arg| arg == "bundle");
-    let is_production = args.iter().any(|arg| arg == "--production");
+fn find_first_bundle_with_ext(bundled_dir: &Path, ext: &str) -> anyhow::Result<PathBuf> {
+    let entry = fs::read_dir(bundled_dir)
+        .context("Failed to read bundled directory")?
+        .filter_map(|entry| entry.ok())
+        .find(|entry| entry.path().extension().map_or(false, |e| e == ext))
+        .with_context(|| format!("No .{} bundle found", ext))?;
 
-    // 获取 workspace 根目录
-    let workspace_root = env::current_dir()?;
-
-    // 2. 如果是 production 模式，需要设置环境变量传递 feature
-    if is_production && should_copy {
-        println!("\n[Production Build] Starting production build with --features production...");
-        println!("[Platform] Target: {}", get_platform_bundle_dir());
-
-        // 清理默认 bundled 目录（避免 Mac/Windows 格式冲突）
-        clean_default_bundled_dir(&workspace_root)?;
-
-        // 方法：直接设置 CARGO_FEATURE_PRODUCTION 环境变量
-        // 然后调用标准的 xtask bundle 流程
-        env::set_var("CARGO_FEATURE_PRODUCTION", "1");
-
-        // 调用 nih_plug_xtask（它会使用当前环境变量）
-        // 但这不会工作，因为 nih_plug_xtask 内部调用 cargo build 不会传递这个变量
-
-        // 更好的方法：直接使用 cargo build + 手动 bundle
-        // Step 1: 带 feature 构建
-        println!("[Production Build] Step 1: Building with production feature...");
-        let build_status = Command::new("cargo")
-            .args([
-                "build", "-p", "monitor_controller_max",
-                "--lib",
-                "--release",
-                "--features", "monitor_controller_max/production"
-            ])
-            .current_dir(&workspace_root)
-            .status()
-            .context("Failed to execute cargo build")?;
-
-        if !build_status.success() {
-            return Err(anyhow::anyhow!("Production build failed"));
-        }
-
-        // Step 2: 调用 nih_plug_xtask bundle（它会使用已编译的库）
-        println!("[Production Build] Step 2: Bundling...");
-
-        // 过滤掉 --production 参数，并确保添加 --release
-        // 跳过第一个参数（程序路径），从第二个开始
-        let mut filtered_args: Vec<String> = args.iter()
-            .skip(1)  // 跳过程序路径
-            .filter(|arg| *arg != "--production")
-            .cloned()
-            .collect();
-
-        // 确保有 --release 标志（production 模式必须是 release 构建）
-        if !filtered_args.iter().any(|a| a == "--release") {
-            filtered_args.push("--release".to_string());
-        }
-
-        // 调用 nih_plug_xtask bundle（它会使用已编译的库）
-        // main_with_args 需要 command_name 和 args
-        let result = nih_plug_xtask::main_with_args(
-            "xtask",
-            filtered_args.into_iter()
-        );
-
-        if let Err(e) = result {
-            return Err(e);
-        }
-
-        // 给文件系统一点喘息时间
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        // 移动到平台特定目录
-        let platform_dir = move_to_platform_dir(&workspace_root)?;
-
-        // 执行 production 拷贝（部署到系统 VST3 目录）
-        post_build_copy_production(&platform_dir)?;
-
-        return Ok(());
-    }
-
-    // 3. 标准构建流程（非 production）
-    println!("[Platform] Target: {}", get_platform_bundle_dir());
-
-    // 清理默认 bundled 目录（避免 Mac/Windows 格式冲突）
-    if should_copy {
-        clean_default_bundled_dir(&workspace_root)?;
-    }
-
-    let result = nih_plug_xtask::main();
-
-    // 4. 只有构建成功才尝试拷贝
-    if let Err(e) = result {
-        return Err(e);
-    }
-
-    if should_copy {
-        // 给文件系统一点喘息时间
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        // 移动到平台特定目录
-        let platform_dir = move_to_platform_dir(&workspace_root)?;
-
-        // 尝试执行拷贝
-        post_build_copy(&args, &platform_dir)?;
-    }
-
-    Ok(())
+    Ok(entry.path())
 }
 
-/// 构建后自动拷贝任务（开发模式）
-fn post_build_copy(args: &[String], bundled_dir: &Path) -> anyhow::Result<()> {
-    // 判断构建模式
-    let is_release = args.iter().any(|arg| arg == "--release");
-    let profile = if is_release { "Release" } else { "Debug" };
+fn find_optional_bundle_with_ext(bundled_dir: &Path, ext: &str) -> Option<PathBuf> {
+    fs::read_dir(bundled_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .find(|entry| entry.path().extension().map_or(false, |e| e == ext))
+        .map(|entry| entry.path())
+}
 
-    println!("\n[Auto-Copy] Starting post-build copy for {} profile...", profile);
+// ---------------------------------------------------------------------------
+// run_bundle_build — the core build + deploy pipeline
+// ---------------------------------------------------------------------------
 
-    // 获取 workspace 根目录 (假设在项目根目录下运行 cargo xtask)
-    let workspace_root = env::current_dir()?;
+fn run_bundle_build(
+    raw_args: &[String],
+    variant: BuildVariant,
+    workspace_root: &Path,
+    deploy_after_build: bool,
+) -> anyhow::Result<PathBuf> {
+    clean_default_bundled_dir(workspace_root)?;
 
-    // 查找生成的 VST3 目录
-    if !bundled_dir.exists() {
-        println!("[Auto-Copy] Warning: bundled directory not found. Skipping copy.");
-        return Err(anyhow::anyhow!("bundled directory not found after successful build"));
+    let forwarded_args = prepare_bundle_args(raw_args, true, variant);
+    nih_plug_xtask::main_with_args("xtask", forwarded_args.into_iter())?;
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let platform_dir = move_to_platform_dir(workspace_root, variant)?;
+
+    if deploy_after_build {
+        post_build_copy_mode(variant, &platform_dir)?;
     }
 
-    let vst3_entry = fs::read_dir(bundled_dir)
-        .context("Failed to read bundled directory")?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            e.path().extension().map_or(false, |ext| ext == "vst3")
-        })
-        .context("No .vst3 bundle found in bundled directory. Did the build succeed?")?;
+    Ok(platform_dir)
+}
 
-    let src_path = vst3_entry.path();
+// ---------------------------------------------------------------------------
+// Post-build deploy
+// ---------------------------------------------------------------------------
+
+fn post_build_copy_mode(
+    variant: BuildVariant,
+    bundled_dir: &Path,
+) -> anyhow::Result<()> {
+    println!(
+        "\n[Auto-Copy] Starting post-build copy for {} mode...",
+        variant.display_name()
+    );
+    let workspace_root = env::current_dir()?;
+
+    if !bundled_dir.exists() {
+        return Err(anyhow!("bundled directory not found"));
+    }
+
+    let src_path = find_first_bundle_with_ext(bundled_dir, "vst3")?;
     let dir_name = src_path.file_name().context("Invalid source filename")?;
 
-    // ---------------------------------------------------------
-    // 目标 1: 项目内部归档目录 (Build/Debug 或 Build/Release)
-    // ---------------------------------------------------------
-    let internal_build_dir = workspace_root.join("Build").join(profile);
+    // Archive to Build/<label>/
+    let archive_dir_name = format_archive_dir_name(get_platform_bundle_dir(), variant);
+    let internal_build_dir = workspace_root.join("Build").join(&archive_dir_name);
+    if internal_build_dir.exists() {
+        fs::remove_dir_all(&internal_build_dir)?;
+    }
+    fs::create_dir_all(&internal_build_dir)?;
 
-    // 确保目录存在
-    if !internal_build_dir.exists() {
-        fs::create_dir_all(&internal_build_dir)?;
+    let archived_bundle_path = internal_build_dir.join(dir_name);
+    copy_dir_recursive(&src_path, &archived_bundle_path)?;
+    println!(
+        "[Auto-Copy] Archived to: {}",
+        archived_bundle_path.display()
+    );
+
+    // Also archive CLAP if present
+    if let Some(clap_src) = find_optional_bundle_with_ext(bundled_dir, "clap") {
+        if let Some(clap_name) = clap_src.file_name() {
+            let clap_dst = internal_build_dir.join(clap_name);
+            if let Err(error) = copy_path(&clap_src, &clap_dst) {
+                println!(
+                    "[Auto-Copy] Warning: Failed to archive CLAP: {}",
+                    error
+                );
+            } else {
+                println!("[Auto-Copy] Archived CLAP to: {}", clap_dst.display());
+            }
+        }
     }
 
-    let dest_path_1 = internal_build_dir.join(dir_name);
-
-    // 执行递归拷贝
-    copy_dir_recursive(&src_path, &dest_path_1)?;
-    println!("[Auto-Copy] Archived to: {}", dest_path_1.display());
-
-    // ---------------------------------------------------------
-    // 目标 2: 系统 VST 开发目录
-    // Windows: C:\Plugins\VST Dev
-    // macOS: ~/Library/Audio/Plug-Ins/VST3
-    // ---------------------------------------------------------
+    // Deploy to plugin directories
     #[cfg(target_os = "windows")]
-    let external_dev_dir = Path::new(r"C:\Plugins\VST Dev").to_path_buf();
+    {
+        let deploy_targets: Vec<(PathBuf, bool)> = match variant {
+            BuildVariant::Dev => vec![(Path::new(r"C:\Plugins\VST Dev").to_path_buf(), false)],
+            BuildVariant::Release => vec![
+                (Path::new(r"C:\Plugins\VST Dev").to_path_buf(), false),
+                (
+                    Path::new(r"C:\Program Files\Common Files\VST3").to_path_buf(),
+                    true,
+                ),
+            ],
+            BuildVariant::Production => {
+                vec![(
+                    Path::new(r"C:\Program Files\Common Files\VST3").to_path_buf(),
+                    true,
+                )]
+            }
+        };
 
-    #[cfg(target_os = "macos")]
-    let external_dev_dir = {
-        let home = env::var("HOME").context("Failed to get HOME env var")?;
-        Path::new(&home).join("Library/Audio/Plug-Ins/VST3")
-    };
-    
-    // 如果目录不存在，自动创建
-    if !external_dev_dir.exists() {
-        fs::create_dir_all(&external_dev_dir)?;
+        for (deploy_dir, best_effort) in deploy_targets {
+            if !deploy_dir.exists() {
+                if best_effort {
+                    let _ = fs::create_dir_all(&deploy_dir);
+                } else {
+                    fs::create_dir_all(&deploy_dir)?;
+                }
+            }
+
+            let deployed_bundle_path = deploy_dir.join(dir_name);
+            let copy_result = copy_dir_recursive(&src_path, &deployed_bundle_path);
+            if best_effort {
+                if let Err(error) = copy_result {
+                    println!(
+                        "[Auto-Copy] Warning: Failed to deploy to {} (permission issue?): {:?}",
+                        deploy_dir.display(),
+                        error
+                    );
+                    continue;
+                }
+            } else {
+                copy_result?;
+            }
+
+            println!(
+                "[Auto-Copy] Deployed to: {}",
+                deployed_bundle_path.display()
+            );
+        }
+
+        println!("[Auto-Copy] {} mode complete!\n", variant.display_name());
+        Ok(())
     }
 
-    let dest_path_2 = external_dev_dir.join(dir_name);
-
-    // 执行递归拷贝
-    copy_dir_recursive(&src_path, &dest_path_2)?;
-    println!("[Auto-Copy] Deployed to: {}", dest_path_2.display());
-
-    // macOS: 执行代码签名
     #[cfg(target_os = "macos")]
-    sign_vst3_bundle_macos(&dest_path_2)?;
+    {
+        let deploy_dirs: Vec<PathBuf> = if matches!(variant, BuildVariant::Dev) {
+            vec![Path::new("/Plugins/VST Dev").to_path_buf()]
+        } else {
+            let home = env::var("HOME").context("HOME is not set")?;
+            vec![
+                Path::new("/Library/Audio/Plug-Ins/VST3").to_path_buf(),
+                Path::new(&home).join("Library/Audio/Plug-Ins/VST3"),
+            ]
+        };
 
-    println!("[Auto-Copy] Success!\n");
-    Ok(())
+        if matches!(variant, BuildVariant::Dev) {
+            let system_bundle = Path::new("/Library/Audio/Plug-Ins/VST3").join(dir_name);
+            if system_bundle.exists() {
+                println!(
+                    "[Auto-Copy] Notice: System bundle also exists at {}.",
+                    system_bundle.display()
+                );
+            }
+        }
+
+        for deploy_dir in deploy_dirs {
+            fs::create_dir_all(&deploy_dir).with_context(|| {
+                format!(
+                    "Failed to create deploy directory: {}",
+                    deploy_dir.display()
+                )
+            })?;
+
+            let deployed_bundle_path = deploy_dir.join(dir_name);
+            copy_dir_recursive(&src_path, &deployed_bundle_path).with_context(|| {
+                format!(
+                    "Failed to deploy bundle to {}",
+                    deployed_bundle_path.display()
+                )
+            })?;
+            println!(
+                "[Auto-Copy] Deployed to: {}",
+                deployed_bundle_path.display()
+            );
+            sign_vst3_bundle_macos(&deployed_bundle_path)?;
+        }
+
+        println!("[Auto-Copy] {} mode complete!\n", variant.display_name());
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        println!("[Auto-Copy] {} mode complete!\n", variant.display_name());
+        Ok(())
+    }
 }
 
-/// 构建后自动拷贝任务（生产模式）
-fn post_build_copy_production(bundled_dir: &Path) -> anyhow::Result<()> {
-    println!("\n[Auto-Copy] Starting post-build copy for Production profile...");
+// ---------------------------------------------------------------------------
+// File system helpers
+// ---------------------------------------------------------------------------
 
-    // 获取 workspace 根目录
-    let workspace_root = env::current_dir()?;
-
-    // 查找生成的 VST3 目录
-    if !bundled_dir.exists() {
-        println!("[Auto-Copy] Warning: bundled directory not found. Skipping copy.");
-        return Err(anyhow::anyhow!("bundled directory not found after successful build"));
-    }
-
-    let vst3_entry = fs::read_dir(bundled_dir)
-        .context("Failed to read bundled directory")?
-        .filter_map(|e| e.ok())
-        .find(|e| {
-            e.path().extension().map_or(false, |ext| ext == "vst3")
-        })
-        .context("No .vst3 bundle found in bundled directory. Did the build succeed?")?;
-
-    let src_path = vst3_entry.path();
-    let dir_name = src_path.file_name().context("Invalid source filename")?;
-
-    // ---------------------------------------------------------
-    // 目标 1: 项目内部归档目录 (Build/Production)
-    // ---------------------------------------------------------
-    let internal_build_dir = workspace_root.join("Build").join("Production");
-
-    // 确保目录存在
-    if !internal_build_dir.exists() {
-        fs::create_dir_all(&internal_build_dir)?;
-    }
-
-    let dest_path_1 = internal_build_dir.join(dir_name);
-
-    // 执行递归拷贝
-    copy_dir_recursive(&src_path, &dest_path_1)?;
-    println!("[Auto-Copy] Archived to: {}", dest_path_1.display());
-
-    // ---------------------------------------------------------
-    // 目标 2: 系统 VST3 目录
-    // Windows: C:\Program Files\Common Files\VST3
-    // macOS: /Library/Audio/Plug-Ins/VST3 (Root)
-    // ---------------------------------------------------------
-    #[cfg(target_os = "windows")]
-    let system_vst3_dir = Path::new(r"C:\Program Files\Common Files\VST3").to_path_buf();
-
-    #[cfg(target_os = "macos")]
-    let system_vst3_dir = Path::new("/Library/Audio/Plug-Ins/VST3").to_path_buf();
-
-    // 如果目录不存在，自动创建（需要管理员权限）
-    if !system_vst3_dir.exists() {
-        fs::create_dir_all(&system_vst3_dir)
-            .context("Failed to create system VST3 directory. Run as Administrator/Root?")?;
-    }
-
-    let dest_path_2 = system_vst3_dir.join(dir_name);
-
-    // 执行递归拷贝
-    copy_dir_recursive(&src_path, &dest_path_2)
-        .context("Failed to copy to system VST3 directory. Run as Administrator/Root?")?;
-    println!("[Auto-Copy] Deployed to: {}", dest_path_2.display());
-
-    // macOS: 执行代码签名
-    #[cfg(target_os = "macos")]
-    sign_vst3_bundle_macos(&dest_path_2)?;
-
-    println!("[Auto-Copy] Production build complete!\n");
-    Ok(())
-}
-
-/// 递归拷贝目录的辅助函数 (类似 cp -r)
-/// Windows 下 std::fs::copy 不支持目录，需要手动递归
 fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    // 如果目标目录已存在，先删除（确保干净的拷贝）
     if dst.exists() {
         fs::remove_dir_all(dst)?;
     }
-
-    // 创建目标目录
     fs::create_dir_all(dst)?;
 
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
         let dest_path = dst.join(entry.file_name());
-
         if file_type.is_dir() {
             copy_dir_recursive(&entry.path(), &dest_path)?;
         } else {
-            // 如果是文件，直接拷贝 (覆盖模式)
             fs::copy(entry.path(), &dest_path)?;
         }
     }
+
     Ok(())
 }
 
-/// macOS Ad-hoc 签名
+fn copy_path(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    if src.is_dir() {
+        copy_dir_recursive(src, dst)
+    } else {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(src, dst).with_context(|| {
+            format!(
+                "Failed to copy file from {} to {}",
+                src.display(),
+                dst.display()
+            )
+        })?;
+        Ok(())
+    }
+}
+
+/// macOS Ad-hoc signing
 #[cfg(target_os = "macos")]
 fn sign_vst3_bundle_macos(bundle_path: &Path) -> anyhow::Result<()> {
     println!("[Auto-Copy] Signing VST3 bundle for macOS (Ad-hoc)...");
-    
+
     let status = Command::new("codesign")
         .args([
             "--force",
             "--deep",
-            "--sign", "-",
-            bundle_path.to_str().unwrap()
+            "--sign",
+            "-",
+            bundle_path.to_str().unwrap(),
         ])
         .status()
         .context("Failed to execute codesign")?;
@@ -392,8 +477,37 @@ fn sign_vst3_bundle_macos(bundle_path: &Path) -> anyhow::Result<()> {
     if status.success() {
         println!("[Auto-Copy] Signing successful.");
     } else {
-        println!("[Auto-Copy] Warning: Signing failed. Logic Pro might not load the plugin.");
+        println!("[Auto-Copy] Warning: Signing failed.");
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
+fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    let should_bundle = args.iter().any(|arg| arg == "bundle");
+    let variant = parse_build_variant(&args)?;
+    let workspace_root = env::current_dir()?;
+
+    println!("[Platform] Target: {}", get_platform_bundle_dir());
+    println!("[Mode] Build variant: {}", variant.display_name());
+    println!("[Version] Package version: {}", get_build_version());
+
+    if should_bundle {
+        println!("[Command] bundle");
+        println!(
+            "[Archive Layout] Build/{}/",
+            format_archive_dir_name(get_platform_bundle_dir(), variant)
+        );
+        let _platform_dir = run_bundle_build(&args, variant, &workspace_root, true)?;
+        Ok(())
+    } else {
+        // Passthrough to nih_plug_xtask for any non-bundle commands
+        let forwarded_args = prepare_bundle_args(&args, false, variant);
+        nih_plug_xtask::main_with_args("xtask", forwarded_args.into_iter())
+    }
 }

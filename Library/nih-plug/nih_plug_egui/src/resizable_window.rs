@@ -1,10 +1,23 @@
 //! Resizable window wrapper for Egui editor.
 
 use egui_baseview::egui::emath::GuiRounding;
-// use egui_baseview::egui::UiBuilder;
 
-use crate::egui::{pos2, Area, Context, Id, Order, Response, Sense, Ui, Vec2};
+use crate::egui::{pos2, Area, Context, Id, Order, Pos2, Response, Sense, Ui, Vec2};
 use crate::EguiState;
+
+#[derive(Debug, Clone, Copy)]
+struct ResizeDragState {
+    last_sent_size: (u32, u32),
+    drag_start_pointer: Option<Pos2>,
+    drag_start_size: Option<(u32, u32)>,
+}
+
+#[inline]
+fn rounded_size(size: Vec2) -> (u32, u32) {
+    let width = size.x.max(1.0).round() as u32;
+    let height = size.y.max(1.0).round() as u32;
+    (width, height)
+}
 
 /// Adds a corner to the plugin window that can be dragged in order to resize it.
 /// Resizing happens through plugin API, hence a custom implementation is needed.
@@ -39,24 +52,35 @@ impl ResizableWindow {
         self
     }
 
-    /// Apply aspect ratio constraint to a raw size
-    fn apply_aspect_ratio(&self, raw_size: Vec2) -> Vec2 {
+    /// Apply aspect ratio constraint by projecting to a 1D scale axis.
+    ///
+    /// This guarantees that while dragging, width/height always move on the same
+    /// proportional line instead of switching between width-driven and height-driven
+    /// branches, eliminating ratio jitter.
+    fn apply_aspect_ratio_from_drag(&self, start_size: (u32, u32), delta: Vec2) -> Vec2 {
         if let Some(ratio) = self.aspect_ratio {
-            // Calculate what width and height "would be" if we used each as the basis
-            let w_based_h = raw_size.x / ratio; // height if we use width as basis
-            let h_based_w = raw_size.y * ratio; // width if we use height as basis
+            let axis = Vec2::new(ratio, 1.0);
+            let axis_len_sq = axis.x * axis.x + axis.y * axis.y;
 
-            // Pick the larger resulting size (so dragging in any direction = enlarging)
-            if raw_size.x >= h_based_w {
-                // Width is the driving dimension
-                Vec2::new(raw_size.x, w_based_h)
+            let scale_delta = if axis_len_sq > 0.0 {
+                (delta.x * axis.x + delta.y * axis.y) / axis_len_sq
             } else {
-                // Height is the driving dimension
-                Vec2::new(h_based_w, raw_size.y)
-            }
-            .max(self.min_size)
+                0.0
+            };
+
+            let start_h = start_size.1 as f32;
+            let mut next_h = start_h + scale_delta;
+
+            let min_h_by_size = self.min_size.y;
+            let min_h_by_width = self.min_size.x / ratio;
+            let min_h = min_h_by_size.max(min_h_by_width).max(1.0);
+            next_h = next_h.max(min_h);
+
+            let next_w = (next_h * ratio).max(self.min_size.x).max(1.0);
+            Vec2::new(next_w, next_h)
         } else {
-            raw_size.max(self.min_size)
+            Vec2::new(start_size.0 as f32 + delta.x, start_size.1 as f32 + delta.y)
+                .max(self.min_size)
         }
     }
 
@@ -71,10 +95,20 @@ impl ResizableWindow {
         // 1. Let the user add their panels first
         let ret = add_contents(context);
 
+        // Keep the wrapper-side constraint in sync with the UI-side minimum size.
+        egui_state.set_min_size_hint(rounded_size(self.min_size));
+
         // 2. Draw the floating resize handle in the bottom-right corner using Area
-        let screen_rect = context.content_rect();
+        let fallback_screen_rect = context.viewport_rect();
+        let screen_rect = context.input(|input| {
+            input
+                .viewport()
+                .inner_rect
+                .unwrap_or(fallback_screen_rect)
+        });
         let corner_size = 16.0;
         let corner_pos = screen_rect.max - Vec2::splat(corner_size);
+        let drag_state_id = self.id.with("resize_drag_state");
 
         Area::new(self.id.with("resize_corner"))
             .fixed_pos(corner_pos)
@@ -83,17 +117,71 @@ impl ResizableWindow {
                 let (_rect, response) =
                     ui.allocate_exact_size(Vec2::splat(corner_size), Sense::drag());
 
-                if let Some(pointer_pos) = response.interact_pointer_pos() {
-                    // Calculate new size (reuse existing aspect ratio logic)
-                    let raw_desired_size = pointer_pos - screen_rect.min;
-                    let desired_size = self.apply_aspect_ratio(raw_desired_size);
+                let pointer_pos = response
+                    .interact_pointer_pos()
+                    .or_else(|| context.input(|input| input.pointer.latest_pos()));
+
+                if let Some(pointer_pos) = pointer_pos {
+                    let mut drag_state = context
+                        .memory(|mem| mem.data.get_temp::<ResizeDragState>(drag_state_id))
+                        .unwrap_or(ResizeDragState {
+                            last_sent_size: egui_state.size.load(),
+                            drag_start_pointer: None,
+                            drag_start_size: None,
+                        });
+
+                    if response.drag_started() {
+                        drag_state.last_sent_size = (0, 0);
+                        drag_state.drag_start_pointer = Some(pointer_pos);
+                        drag_state.drag_start_size = Some(egui_state.size.load());
+                    }
+
+                    let (start_pointer, start_size) = match (
+                        drag_state.drag_start_pointer,
+                        drag_state.drag_start_size,
+                    ) {
+                        (Some(p), Some(s)) => (p, s),
+                        _ => {
+                            let fallback_size = egui_state.size.load();
+                            drag_state.drag_start_pointer = Some(pointer_pos);
+                            drag_state.drag_start_size = Some(fallback_size);
+                            (pointer_pos, fallback_size)
+                        }
+                    };
+
+                    // Stable drag calculation: use delta from drag-start + start window size,
+                    // instead of recomputing from current pointer-to-screen min every frame.
+                    let delta = pointer_pos - start_pointer;
+                    let desired_size = self.apply_aspect_ratio_from_drag(start_size, delta);
+                    let desired_size_rounded = rounded_size(desired_size);
 
                     if response.dragged() {
-                        egui_state.set_requested_size((
-                            desired_size.x.round() as u32,
-                            desired_size.y.round() as u32,
-                        ));
+                        // Only update the requested size; keep host handshake state intact.
+                        if desired_size_rounded != egui_state.size.load()
+                            && drag_state.last_sent_size != desired_size_rounded
+                        {
+                            egui_state.set_requested_size(desired_size_rounded);
+                            drag_state.last_sent_size = desired_size_rounded;
+                            context.request_repaint();
+                        }
                     }
+
+                    if response.drag_stopped() {
+                        // Always send the final exact size once at the end of drag to guarantee convergence.
+                        if desired_size_rounded != egui_state.size.load()
+                            && drag_state.last_sent_size != desired_size_rounded
+                        {
+                            egui_state.set_requested_size(desired_size_rounded);
+                            egui_state.mark_resize_commit_urgent();
+                        }
+                        drag_state.last_sent_size = desired_size_rounded;
+                        drag_state.drag_start_pointer = None;
+                        drag_state.drag_start_size = None;
+                    }
+
+                    context.memory_mut(|mem| {
+                        mem.data.insert_temp(drag_state_id, drag_state);
+                    });
                 }
 
                 // Draw the resize corner pattern

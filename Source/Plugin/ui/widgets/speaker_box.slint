@@ -1,0 +1,85 @@
+import { ThemeTokens } from "../globals/theme.slint";
+
+export component SpeakerBox inherits Rectangle {
+    in property <float> uiscale: 1.0;
+    in property <string> text;
+    in property <string> sub-text;
+    in property <bool> is-sub: false;
+    in property <bool> is-solo: false;
+    in property <bool> is-mute: false;
+    in property <bool> is-blinking: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    property <bool> hovered: touch.has-hover && root.enabled;
+
+    width: is-sub ? 40px * root.uiscale : 56px * root.uiscale;
+    height: is-sub ? 40px * root.uiscale : 56px * root.uiscale;
+    border-radius: is-sub ? 20px * root.uiscale : 4px * root.uiscale;
+
+    // Background: hover brightens all states
+    background: is-solo
+        ? (is-blinking
+            ? ThemeTokens.panel
+            : (root.hovered ? #34d399 : ThemeTokens.speaker-solo))
+        : (is-mute
+            ? (is-blinking
+                ? ThemeTokens.panel
+                : (root.hovered ? #f87171 : ThemeTokens.speaker-mute))
+            : (root.hovered
+                ? ThemeTokens.speaker-bg-hover
+                : ThemeTokens.speaker-bg));
+
+    // Border: fixed width, visibility controlled by color
+    border-width: (is-solo || is-mute) && is-blinking ? 2px * root.uiscale : 1px * root.uiscale;
+    border-color: (is-solo || is-mute) && is-blinking
+        ? (is-solo ? ThemeTokens.speaker-solo : ThemeTokens.speaker-mute)
+        : (root.hovered
+            ? (is-solo ? ThemeTokens.speaker-solo : (is-mute ? ThemeTokens.speaker-mute : ThemeTokens.border-medium))
+            : transparent);
+
+    // Shadow on hover
+    drop-shadow-offset-x: 0;
+    drop-shadow-offset-y: root.hovered ? 3px * root.uiscale : 0;
+    drop-shadow-blur: root.hovered ? 10px * root.uiscale : 0;
+    drop-shadow-color: root.hovered
+        ? (is-solo ? #10b98160 : (is-mute ? #ef444460 : #00000040))
+        : transparent;
+
+    animate background { duration: ThemeTokens.hover-fade-duration; }
+    animate border-color { duration: ThemeTokens.hover-fade-duration; }
+    animate drop-shadow-offset-y { duration: ThemeTokens.hover-fade-duration; }
+    animate drop-shadow-blur { duration: ThemeTokens.hover-fade-duration; }
+    animate drop-shadow-color { duration: ThemeTokens.hover-fade-duration; }
+
+    Text {
+        text: root.text;
+        color: (root.is-solo || root.is-mute) && root.is-blinking
+            ? (root.is-solo ? ThemeTokens.speaker-solo : ThemeTokens.speaker-mute)
+            : white;
+        font-size: root.is-sub ? 11px * root.uiscale : 14px * root.uiscale;
+        font-weight: ThemeTokens.font-weight-bold;
+        width: parent.width;
+        height: parent.height;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    if root.sub-text != "": Text {
+        text: root.sub-text;
+        color: ThemeTokens.text-light;
+        font-size: 10px * root.uiscale;
+        y: parent.height + 4px * root.uiscale;
+        x: (parent.width - self.width) / 2;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        pointer-event(event) => {
+            if (root.enabled && event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.clicked();
+            }
+        }
+    }
+}

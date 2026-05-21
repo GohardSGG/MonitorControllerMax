@@ -9,13 +9,17 @@ const DEFAULT_CONFIG_JSON: &str = include_str!("../../Resource/Speaker_Config.js
 const UTF8_BOM: &str = "\u{FEFF}";
 
 /// 标准通道顺序 - 唯一真实来源（Single Source of Truth）
-/// Main 通道 (0-11) + SUB 通道 (12-15)
+/// Main 通道 (0-11) + Bottom 通道 (12-15) + 兼容别名 + SUB 通道
 /// 注意：SUB 通道统一使用下划线格式 "SUB_F", "SUB_B" 等（不使用空格）
 pub const STANDARD_CHANNEL_ORDER: &[&str] = &[
-    // Main channels (7.1.4)
+    // Main channels (7.1.4 base)
     "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS", "LTF", "RTF", "LTB", "RTB",
-    // SUB channels (统一使用下划线格式)
-    "SUB_F", "SUB_B", "SUB_L", "SUB_R",
+    // Bottom channels (7.1.4.4 extension)
+    "LBF", "RBF", "LBB", "RBB",
+    // Legacy layout aliases (5.1 rear / 5.1.2 top)
+    "LR", "RR", "LT", "RT",
+    // SUB channels
+    "SUB", "SUB_F", "SUB_B", "SUB_L", "SUB_R",
 ];
 
 #[derive(Debug, Clone)]

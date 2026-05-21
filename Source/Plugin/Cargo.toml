@@ -1,6 +1,6 @@
 [package]
 name = "monitor_controller_max"
-version = "2.4.0"
+version = "2.4.2"
 edition = "2021"
 authors = ["GohardSGG"]
 description = "MonitorControllerMax Rust Edition"
@@ -10,12 +10,14 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [features]
-default = []
+default = ["gui-slint"]
+gui-slint = ["dep:nih_plug_slint", "dep:slint", "dep:slint-build"]
 production = []  # 生产模式：禁用文件日志
 
 [dependencies]
 nih_plug = { workspace = true, features = ["assert_process_allocs"] }
-nih_plug_egui = { workspace = true }
+nih_plug_slint = { path = "../../Library/nih-plug-slint", optional = true }
+slint = { version = "=1.14.1", default-features = false, features = ["std", "compat-1-2"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 atomic_float = { workspace = true }
@@ -38,3 +40,4 @@ open = "5.3.3"
 [build-dependencies]
 serde_json = "1.0"
 chrono = "0.4"
+slint-build = { version = "=1.14.1", optional = true }

@@ -69,6 +69,22 @@ pub trait Editor: Send {
     /// loaded.
     fn param_values_changed(&self);
 
+    /// Called when the host has accepted/applied a concrete editor size in logical pixels.
+    ///
+    /// The default implementation is a no-op so existing editors remain compatible.
+    fn host_resized(&self, _width: u32, _height: u32) {}
+
+    /// Optional logical minimum size hint for the editor. Used by wrappers to constrain host-side
+    /// resize operations when supported.
+    fn min_size(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    /// Optional width/height aspect ratio lock for the editor.
+    fn aspect_ratio(&self) -> Option<f32> {
+        None
+    }
+
     // TODO: Reconsider adding a tick function here for the Linux `IRunLoop`. To keep this platform
     //       and API agnostic, add a way to ask the GuiContext if the wrapper already provides a
     //       tick function. If it does not, then the Editor implementation must handle this by

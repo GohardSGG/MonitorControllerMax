@@ -44,14 +44,55 @@ pub struct RenderSnapshot {
 }
 
 impl RenderSnapshot {
-    /// 根据通道名获取显示状态（纯函数，无锁）
-    /// 返回 (has_sound, is_solo_marker, is_mute_marker)
+    /// 通道名称 → mask bit 位置（和 channel_set_to_mask 保持完全一致）
     #[inline]
-    pub fn get_channel_state(&self, ch_name: &str, ch_idx: usize) -> bool {
+    fn name_to_mask_bit(ch_name: &str) -> Option<u32> {
+        match ch_name {
+            "L" => Some(0),
+            "R" => Some(1),
+            "C" => Some(2),
+            "LFE" => Some(3),
+            "LSS" => Some(4),
+            "RSS" => Some(5),
+            "LRS" => Some(6),
+            "RRS" => Some(7),
+            "LTF" => Some(8),
+            "RTF" => Some(9),
+            "LTB" => Some(10),
+            "RTB" => Some(11),
+            "SUB_F" => Some(12),
+            "SUB_B" => Some(13),
+            "SUB_L" => Some(14),
+            "SUB_R" => Some(15),
+            // 兼容别名（5.1 的 LR/RR → LRS/RRS 位置，5.1.2 的 LT/RT → LTF/RTF 位置）
+            "LR" => Some(6),
+            "RR" => Some(7),
+            "LT" => Some(8),
+            "RT" => Some(9),
+            // 7.1.4.4 底层通道
+            "LBF" => Some(16),
+            "RBF" => Some(17),
+            "LBB" => Some(18),
+            "RBB" => Some(19),
+            // SUB（单个 SUB 配置）
+            "SUB" => Some(12),
+            _ => None,
+        }
+    }
+
+    /// 根据通道名获取音频状态（纯函数，无锁）
+    /// 返回 true = 有声音, false = 静音
+    #[inline]
+    pub fn get_channel_state(&self, ch_name: &str, _ch_idx: usize) -> bool {
         // Idle 状态 = 全通
         if self.primary == 0 {
             return true;
         }
+
+        let mask_bit = match Self::name_to_mask_bit(ch_name) {
+            Some(b) => b,
+            None => return true, // 未知通道名 = 全通
+        };
 
         let is_sub = ch_name.starts_with("SUB");
 
@@ -59,7 +100,7 @@ impl RenderSnapshot {
         if is_sub {
             // 检查 User Mute（优先级最高）
             let sub_bit = match ch_name {
-                "SUB_F" => 0,
+                "SUB_F" | "SUB" => 0,
                 "SUB_B" => 1,
                 "SUB_L" => 2,
                 "SUB_R" => 3,
@@ -76,10 +117,11 @@ impl RenderSnapshot {
                 (false, self.mute_mask)
             };
 
-            let is_in_set = (active_mask >> ch_idx) & 1 == 1;
-            let sub_mask = active_mask >> 12; // SUB 通道从索引 12 开始
-            let sub_set_has_any = sub_mask & 0xF != 0;
-            let main_set_has_any = active_mask & 0xFFF != 0;
+            let is_in_set = (active_mask >> mask_bit) & 1 == 1;
+            // SUB 通道在 mask 的 bit 12-15
+            let sub_mask = (active_mask >> 12) & 0xF;
+            let sub_set_has_any = sub_mask != 0;
+            let main_set_has_any = active_mask & 0x000F_0FFF != 0; // bit 0-11 + bit 16-19（Main 通道），跳过 bit 12-15（SUB）
 
             if !main_set_has_any && !sub_set_has_any {
                 return true; // 空集合 = 全通
@@ -111,8 +153,8 @@ impl RenderSnapshot {
                 (false, self.mute_mask)
             };
 
-            let is_in_set = (active_mask >> ch_idx) & 1 == 1;
-            let main_set_has_any = active_mask & 0xFFF != 0;
+            let is_in_set = (active_mask >> mask_bit) & 1 == 1;
+            let main_set_has_any = active_mask & 0x000F_0FFF != 0; // bit 0-11 + bit 16-19（Main 通道），跳过 bit 12-15（SUB）
 
             if !main_set_has_any {
                 return true; // 空集合 = 全通
@@ -468,8 +510,10 @@ impl InteractionManager {
     /// 通道名称集合转位掩码
     fn channel_set_to_mask(channels: &HashSet<String>) -> u32 {
         let channel_names = [
-            "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS", "LTF", "RTF", "LTB", "RTB", "SUB_F",
-            "SUB_B", "SUB_L", "SUB_R",
+            "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS", "LTF", "RTF", "LTB", "RTB",
+            "SUB_F", "SUB_B", "SUB_L", "SUB_R",
+            // 7.1.4.4 底层通道
+            "LBF", "RBF", "LBB", "RBB",
         ];
         let mut mask: u32 = 0;
         for (i, name) in channel_names.iter().enumerate() {
@@ -477,13 +521,20 @@ impl InteractionManager {
                 mask |= 1 << i;
             }
         }
+        // 兼容别名：5.1 的 LR/RR → bit 6/7 (LRS/RRS)，5.1.2 的 LT/RT → bit 8/9 (LTF/RTF)
+        if channels.contains("LR") { mask |= 1 << 6; }
+        if channels.contains("RR") { mask |= 1 << 7; }
+        if channels.contains("LT") { mask |= 1 << 8; }
+        if channels.contains("RT") { mask |= 1 << 9; }
+        // 单 SUB 配置 → bit 12 (SUB_F 位置)
+        if channels.contains("SUB") { mask |= 1 << 12; }
         mask
     }
 
     /// SUB 集合转位掩码
     fn sub_set_to_mask(subs: &HashSet<String>) -> u8 {
         let mut mask: u8 = 0;
-        if subs.contains("SUB_F") {
+        if subs.contains("SUB_F") || subs.contains("SUB") {
             mask |= 1 << 0;
         }
         if subs.contains("SUB_B") {

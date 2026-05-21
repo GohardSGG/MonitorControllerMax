@@ -1,4 +1,6 @@
 //! Documentation is still a work in progress. The best way to learn right now is to browse through
+#![allow(unexpected_cfgs)]
+
 //! the examples and to browse through these docs. There is no full guide yet, but here are some
 //! pointers to get started:
 //!

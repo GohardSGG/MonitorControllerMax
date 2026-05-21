@@ -5,10 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 // Modules within Plugin crate
-pub mod components;
 pub mod editor;
-pub mod keyboard_polling;
-pub mod scale;
 
 // Workspace Crates
 use mcm_core::audio::{self, GainSmoothingState};
@@ -19,7 +16,7 @@ use mcm_core::params::MonitorParams;
 use mcm_infra::config_loader;
 use mcm_infra::logger::InstanceLogger;
 use mcm_protocol::config::AppConfig;
-use mcm_protocol::web_structs::WebSharedState;
+use mcm_protocol::web_structs::{WebRestartAction, WebSharedState};
 use mcm_reactor::{Reactor, ReactorCommand};
 
 // Include auto-generated audio layouts from build.rs
@@ -184,6 +181,11 @@ impl Plugin for MonitorControllerMax {
             config: self.app_config.clone(),
         });
 
+        // Initialize Network (ZMQ Master/Slave sync)
+        self.reactor.send(ReactorCommand::InitNetwork {
+            config: self.app_config.clone(),
+        });
+
         // Start Web Server
         let port = self.app_config.osc_receive_port; // Legacy logic, actually unused by WebManager logic
         self.reactor.send(ReactorCommand::StartWeb { port });
@@ -210,6 +212,59 @@ impl Plugin for MonitorControllerMax {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        if self.interaction.has_osc_restart_pending() {
+            if let Some(new_config) = self.interaction.take_osc_restart_request() {
+                self.app_config = new_config.clone();
+                self.reactor.send(ReactorCommand::InitOsc {
+                    channel_count: self.output_channels,
+                    current_cut: self.params.cut.value(),
+                    config: new_config,
+                });
+            }
+        }
+
+        if self.interaction.has_network_restart_pending() {
+            if let Some(new_config) = self.interaction.take_network_restart_request() {
+                self.app_config = new_config.clone();
+
+                // 重新初始化 OSC
+                self.reactor.send(ReactorCommand::InitOsc {
+                    channel_count: self.output_channels,
+                    current_cut: self.params.cut.value(),
+                    config: new_config.clone(),
+                });
+
+                // 重新初始化 Network (ZMQ Master/Slave)
+                self.reactor.send(ReactorCommand::StopNetwork);
+                self.reactor.send(ReactorCommand::InitNetwork {
+                    config: new_config.clone(),
+                });
+
+                self.reactor.send(ReactorCommand::StopWeb);
+                if self.params.role.value() != mcm_core::params::PluginRole::Slave {
+                    self.reactor.send(ReactorCommand::StartWeb {
+                        port: new_config.osc_receive_port,
+                    });
+                }
+            }
+        }
+
+        if self.interaction.has_web_restart_pending() {
+            if let Some(action) = self.interaction.take_web_restart_request() {
+                match action {
+                    WebRestartAction::Start => {
+                        self.reactor.send(ReactorCommand::StopWeb);
+                        self.reactor.send(ReactorCommand::StartWeb {
+                            port: self.app_config.osc_receive_port,
+                        });
+                    }
+                    WebRestartAction::Stop => {
+                        self.reactor.send(ReactorCommand::StopWeb);
+                    }
+                }
+            }
+        }
+
         // Prepare layout
         let layout_idx = self.params.layout.value();
         let sub_layout_idx = self.params.sub_layout.value();

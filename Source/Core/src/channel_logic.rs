@@ -17,21 +17,29 @@ pub struct RenderState {
 impl Default for RenderState {
     fn default() -> Self {
         Self {
-            master_gain: 1.0,
+            master_gain: 0.0,   // 默认静音，compute() 会用实际值覆盖
             channel_mute_mask: 0,
             _padding: [0; 56],
-            channel_gains: [1.0; MAX_CHANNELS],
+            channel_gains: [0.0; MAX_CHANNELS], // 默认静音
         }
     }
 }
 
 /// OSC 覆盖值（用于 Editor 关闭时仍能响应 OSC 控制）
+/// 注意：只包含 volume/dim/cut，效果器开关通过 pending 机制同步到 params
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OscOverride {
     pub master_volume: Option<f32>,
     pub dim: Option<bool>,
     pub cut: Option<bool>,
 }
+
+/// +10dB 线性增益常量（10^(10/20) ≈ 3.16228）
+const LFE_PLUS_10DB: f32 = 3.16228;
+
+/// Low Boost 增益因子（1.5x ≈ +3.5dB，对 SUB 通道生效）
+/// 与旧版 JUCE MasterBusProcessor::LOW_BOOST_FACTOR 一致
+const LOW_BOOST_FACTOR: f32 = 1.5;
 
 pub struct ChannelLogic;
 
@@ -71,20 +79,15 @@ impl ChannelLogic {
         let mut state = RenderState::default();
 
         // P11 优化：Branchless 全局增益计算
-        // 原代码（有分支）：
-        // let global_gain = if cut_active { 0.0 }
-        //     else if dim_active { master_gain * 0.1 }
-        //     else { master_gain };
-        //
-        // 优化后（无分支）：
-        // cut_active -> cut_mul = 0.0, 否则 1.0
-        // dim_active -> dim_mul = 0.1, 否则 1.0
-        // global_gain = master_gain * cut_mul * dim_mul
         let cut_mul = 1.0 - (cut_active as u8 as f32); // cut=true -> 0.0, cut=false -> 1.0
         let dim_mul = 1.0 - 0.9 * (dim_active as u8 as f32); // dim=true -> 0.1, dim=false -> 1.0
         let global_gain = master_gain * cut_mul * dim_mul;
 
         state.master_gain = global_gain;
+
+        // 效果器开关状态（直接从 DAW 参数读取，OSC 通过 pending 机制已同步到 params）
+        let lfe_boost = params.lfe_add_10db.value();
+        let low_boost = params.low_boost.value();
 
         // 2. 获取 Lock-Free 快照（原子操作，无阻塞）
         let snapshot = interaction.get_snapshot();
@@ -98,7 +101,25 @@ impl ChannelLogic {
                 }
 
                 let enable = params.channels[i].enable.value();
-                state.channel_gains[i] = if enable { 1.0 } else { 0.0 };
+                let mut gain = if enable { 1.0 } else { 0.0 };
+
+                // 通道特殊增益处理
+                if lfe_boost || low_boost {
+                    let lookup = &layout.channel_by_index[i];
+                    if lookup.valid {
+                        let name = lookup.as_str();
+                        // LFE +10dB
+                        if lfe_boost && name == "LFE" {
+                            gain *= LFE_PLUS_10DB;
+                        }
+                        // Low Boost: SUB 通道 ×1.5
+                        if low_boost && name.starts_with("SUB") {
+                            gain *= LOW_BOOST_FACTOR;
+                        }
+                    }
+                }
+
+                state.channel_gains[i] = gain;
 
                 if !enable {
                     state.channel_mute_mask |= 1 << i;
@@ -117,7 +138,16 @@ impl ChannelLogic {
                     let ch_name = lookup.as_str();
                     // 核心：使用快照的纯函数计算（无锁！）
                     let has_sound = snapshot.get_channel_state(ch_name, i);
-                    let pass = if has_sound { 1.0 } else { 0.0 };
+                    let mut pass = if has_sound { 1.0 } else { 0.0 };
+
+                    // LFE +10dB
+                    if lfe_boost && ch_name == "LFE" {
+                        pass *= LFE_PLUS_10DB;
+                    }
+                    // Low Boost: SUB 通道 ×1.5
+                    if low_boost && ch_name.starts_with("SUB") {
+                        pass *= LOW_BOOST_FACTOR;
+                    }
 
                     state.channel_gains[i] = pass;
 

@@ -15,7 +15,6 @@ crossbeam = { workspace = true } # setup InteractionManager
 
 # NIH-Plug (数据定义需要)
 nih_plug = { workspace = true }
-nih_plug_egui = { workspace = true }
 
 # 引用其他内部库
 mcm_protocol = { workspace = true }

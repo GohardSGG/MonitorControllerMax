@@ -4,11 +4,10 @@
 //! with the appropriate AUDIO_IO_LAYOUTS constant.
 //! Also generates build timestamp for version tracking.
 
-use std::collections::HashMap;
+use chrono::Local;
 use std::env;
 use std::fs;
 use std::path::Path;
-use chrono::Local;
 
 fn main() {
     // Generate build timestamp
@@ -22,17 +21,18 @@ fn main() {
 
     // Read and parse the JSON config
     let config_path = Path::new("../Resource/Speaker_Config.json");
-    let config_content = fs::read_to_string(config_path)
-        .expect("Failed to read Speaker_Config.json");
+    let config_content =
+        fs::read_to_string(config_path).expect("Failed to read Speaker_Config.json");
 
     // Remove potential UTF-8 BOM
     let config_content = config_content.trim_start_matches('\u{FEFF}');
 
-    let config: serde_json::Value = serde_json::from_str(config_content)
-        .expect("Failed to parse Speaker_Config.json");
+    let config: serde_json::Value =
+        serde_json::from_str(config_content).expect("Failed to parse Speaker_Config.json");
 
     // Extract speaker layouts and their channel counts
-    let speakers = config.get("Speaker")
+    let speakers = config
+        .get("Speaker")
         .and_then(|v| v.as_object())
         .expect("Missing 'Speaker' section in config");
 
@@ -42,9 +42,7 @@ fn main() {
     for (name, layout_data) in speakers {
         if let Some(obj) = layout_data.as_object() {
             // Count channels (all keys except "Size")
-            let channel_count = obj.keys()
-                .filter(|k| *k != "Size")
-                .count();
+            let channel_count = obj.keys().filter(|k| *k != "Size").count();
             layouts.push((name.clone(), channel_count));
         }
     }
@@ -52,11 +50,7 @@ fn main() {
     // Sort by channel count for consistent ordering
     layouts.sort_by_key(|(_, count)| *count);
 
-    // Deduplicate channel counts (we only need unique counts for AUDIO_IO_LAYOUTS)
-    let mut seen_counts: HashMap<usize, String> = HashMap::new();
-    for (name, count) in &layouts {
-        seen_counts.entry(*count).or_insert_with(|| name.clone());
-    }
+
 
     // Build the generated code
     let mut code = String::new();
@@ -74,50 +68,101 @@ fn main() {
     }
     code.push_str("];\n\n");
 
-    // Generate AUDIO_IO_LAYOUTS
-    code.push_str("/// Audio IO layouts generated from Speaker_Config.json\n");
+    // Generate AUDIO_IO_LAYOUTS using even-step enumeration (2..32)
+    // Strategy from IRMax: enumerate all even channel counts so any Speaker+SUB
+    // combination can be matched by the DAW.
+    code.push_str("/// Audio IO layouts generated from even-step enumeration (2..32)\n");
     code.push_str("pub const GENERATED_AUDIO_IO_LAYOUTS: &[AudioIOLayout] = &[\n");
 
-    // First, add MAX_CHANNELS (32) as the primary layout
+    // Primary layout: MAX_CHANNELS (32) first — DAW tries layouts in order
     code.push_str("    // Maximum channel layout (32 channels)\n");
     code.push_str("    AudioIOLayout {\n");
     code.push_str("        main_input_channels: NonZeroU32::new(32),\n");
     code.push_str("        main_output_channels: NonZeroU32::new(32),\n");
-    code.push_str("        names: PortNames {\n");
-    code.push_str("            layout: Some(\"32ch\"),\n");
-    code.push_str("            main_input: Some(\"32ch In\"),\n");
-    code.push_str("            main_output: Some(\"32ch Out\"),\n");
-    code.push_str("            ..PortNames::const_default()\n");
-    code.push_str("        },\n");
     code.push_str("        ..AudioIOLayout::const_default()\n");
     code.push_str("    },\n");
 
-    // Collect unique channel counts and generate layouts in descending order
-    let mut unique_counts: Vec<usize> = seen_counts.keys().copied().collect();
-    unique_counts.sort_by(|a, b| b.cmp(a)); // Descending order
-
-    for count in unique_counts {
-        if count == 0 {
-            continue;
-        }
-        let name = seen_counts.get(&count).unwrap();
-
-        code.push_str(&format!("    // {} ({} channels)\n", name, count));
-        code.push_str("    AudioIOLayout {\n");
-        code.push_str(&format!("        main_input_channels: NonZeroU32::new({}),\n", count));
-        code.push_str(&format!("        main_output_channels: NonZeroU32::new({}),\n", count));
-        code.push_str("        names: PortNames {\n");
-        code.push_str(&format!("            layout: Some(\"{}\"),\n", name));
-        code.push_str(&format!("            main_input: Some(\"{} In\"),\n", name));
-        code.push_str(&format!("            main_output: Some(\"{} Out\"),\n", name));
-        code.push_str("            ..PortNames::const_default()\n");
-        code.push_str("        },\n");
+    // Descending even counts: 30, 28, 26, ..., 2
+    let mut ch = 30u32;
+    while ch >= 2 {
+        code.push_str(&format!("    AudioIOLayout {{\n"));
+        code.push_str(&format!(
+            "        main_input_channels: NonZeroU32::new({}),\n",
+            ch
+        ));
+        code.push_str(&format!(
+            "        main_output_channels: NonZeroU32::new({}),\n",
+            ch
+        ));
         code.push_str("        ..AudioIOLayout::const_default()\n");
         code.push_str("    },\n");
+        ch -= 2;
     }
 
     code.push_str("];\n");
 
     // Write the generated code
     fs::write(&dest_path, code).expect("Failed to write Audio_Layouts.rs");
+
+    // --- Git version injection (参考 IRMax) ---
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/index");
+
+    let git_sha = git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "nogit".into());
+    let git_branch = {
+        let branch = git_output(&["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_else(|| "nogit".into());
+        if branch == "HEAD" { "detached".into() } else { branch }
+    };
+    println!("cargo:rustc-env=MCM_GIT_SHA={git_sha}");
+    println!("cargo:rustc-env=MCM_GIT_BRANCH={git_branch}");
+
+    #[cfg(feature = "gui-slint")]
+    {
+        let config =
+            slint_build::CompilerConfiguration::new().with_include_paths(vec!["ui".into()]);
+        slint_build::compile_with_config("ui/main.slint", config)
+            .expect("Failed to compile Slint UI for monitor_controller_max");
+
+        // 递归监视 ui/ 目录下所有 .slint 文件，新增 widget 无需手动维护
+        for entry in walkdir("ui") {
+            if let Some(ext) = entry.extension() {
+                if ext == "slint" {
+                    println!("cargo:rerun-if-changed={}", entry.display());
+                }
+            }
+        }
+    }
+}
+
+/// 递归遍历目录，收集所有文件路径
+fn walkdir(root: &str) -> Vec<std::path::PathBuf> {
+    let mut result = Vec::new();
+    walkdir_inner(Path::new(root), &mut result);
+    result
+}
+
+fn walkdir_inner(dir: &Path, result: &mut Vec<std::path::PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walkdir_inner(&path, result);
+            } else {
+                result.push(path);
+            }
+        }
+    }
+}
+
+/// 执行 git 命令并返回 stdout（去尾换行）
+fn git_output(args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new("git").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(output.stdout).ok()?;
+    let trimmed = s.trim();
+    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }

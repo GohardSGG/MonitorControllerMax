@@ -48,6 +48,11 @@ pub struct OscSharedState {
     pub dim_pending: AtomicBool,
     /// Cut 是否有待处理的变化
     pub cut_pending: AtomicBool,
+    /// 效果器 pending 标志
+    pub low_boost_pending: AtomicBool,
+    pub high_boost_pending: AtomicBool,
+    pub lfe_add_10db_pending: AtomicBool,
+    pub mono_pending: AtomicBool,
     /// OSC 接收端口是否成功绑定（用于UI显示）
     pub recv_port_bound: AtomicBool,
     /// 实例级日志器（线程安全）
@@ -79,6 +84,10 @@ impl OscSharedState {
             volume_pending: AtomicBool::new(false),
             dim_pending: AtomicBool::new(false),
             cut_pending: AtomicBool::new(false),
+            low_boost_pending: AtomicBool::new(false),
+            high_boost_pending: AtomicBool::new(false),
+            lfe_add_10db_pending: AtomicBool::new(false),
+            mono_pending: AtomicBool::new(false),
             recv_port_bound: AtomicBool::new(false),
             logger: RwLock::new(None),
             repaint_requested: AtomicBool::new(false),
@@ -191,6 +200,7 @@ impl OscSharedState {
     /// 设置 Mono (从 OSC 接收)
     pub fn set_mono(&self, on: bool) {
         self.mono.store(on, Ordering::Relaxed);
+        self.mono_pending.store(true, Ordering::Release);
     }
 
     /// 获取 Mono 状态
@@ -201,6 +211,7 @@ impl OscSharedState {
     /// 设置 LFE +10dB (从 OSC 接收)
     pub fn set_lfe_add_10db(&self, on: bool) {
         self.lfe_add_10db.store(on, Ordering::Relaxed);
+        self.lfe_add_10db_pending.store(true, Ordering::Release);
     }
 
     /// 获取 LFE +10dB 状态
@@ -211,6 +222,7 @@ impl OscSharedState {
     /// 设置 Low Boost (从 OSC 接收)
     pub fn set_low_boost(&self, on: bool) {
         self.low_boost.store(on, Ordering::Relaxed);
+        self.low_boost_pending.store(true, Ordering::Release);
     }
 
     /// 获取 Low Boost 状态
@@ -221,6 +233,7 @@ impl OscSharedState {
     /// 设置 High Boost (从 OSC 接收)
     pub fn set_high_boost(&self, on: bool) {
         self.high_boost.store(on, Ordering::Relaxed);
+        self.high_boost_pending.store(true, Ordering::Release);
     }
 
     /// 获取 High Boost 状态
@@ -285,6 +298,42 @@ impl OscSharedState {
     pub fn take_pending_cut(&self) -> Option<bool> {
         if self.cut_pending.swap(false, Ordering::Acquire) {
             Some(self.cut.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    /// 获取并清除 Low Boost 变化
+    pub fn take_pending_low_boost(&self) -> Option<bool> {
+        if self.low_boost_pending.swap(false, Ordering::Acquire) {
+            Some(self.low_boost.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    /// 获取并清除 High Boost 变化
+    pub fn take_pending_high_boost(&self) -> Option<bool> {
+        if self.high_boost_pending.swap(false, Ordering::Acquire) {
+            Some(self.high_boost.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    /// 获取并清除 LFE +10dB 变化
+    pub fn take_pending_lfe_add_10db(&self) -> Option<bool> {
+        if self.lfe_add_10db_pending.swap(false, Ordering::Acquire) {
+            Some(self.lfe_add_10db.load(Ordering::Acquire))
+        } else {
+            None
+        }
+    }
+
+    /// 获取并清除 Mono 变化
+    pub fn take_pending_mono(&self) -> Option<bool> {
+        if self.mono_pending.swap(false, Ordering::Acquire) {
+            Some(self.mono.load(Ordering::Acquire))
         } else {
             None
         }

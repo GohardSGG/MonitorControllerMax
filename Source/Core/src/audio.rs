@@ -30,7 +30,7 @@ pub struct GainSmoothingState {
 impl GainSmoothingState {
     /// 创建新的增益平滑状态（初始增益为 1.0）
     pub fn new() -> Self {
-        const INIT: AtomicF32 = AtomicF32::new(1.0);
+        const INIT: AtomicF32 = AtomicF32::new(0.0); // 默认静音，避免启动爆音
         Self {
             current_gains: [INIT; MAX_CHANNELS],
         }
@@ -55,120 +55,6 @@ impl Default for GainSmoothingState {
     }
 }
 
-/// 音频处理核心逻辑 - P2/P3/P4/P6/P7 极致优化版本
-///
-/// 优化点：
-/// - P2: 批量增益平滑（每 8 样本更新，减少 87% 计算）
-/// - P3: 本地增益缓存（栈上数组，避免原子操作）
-/// - P4: Branchless 静音计算（消除分支预测失败）
-/// - P6: 通道优先处理（as_slice），连续内存访问，LLVM 自动向量化
-/// - P7: AtomicF32 无位转换
-/// - 无内存分配，纯栈操作
-#[allow(dead_code)]
-pub fn process_audio(
-    buffer: &mut Buffer,
-    params: &MonitorParams,
-    gain_state: &GainSmoothingState,
-    interaction: &Arc<InteractionManager>,
-    layout_config: &crate::config_manager::ConfigManager,
-    osc_state: Option<&Arc<OscSharedState>>,
-) {
-    let role = params.role.value();
-
-    // 获取布局信息（使用无分配方法）
-    let layout_idx = params.layout.value() as usize;
-    let sub_layout_idx = params.sub_layout.value() as usize;
-
-    // P0: Removed name lookups here as we use indices directly
-
-    let layout = layout_config
-        .get_layout_by_indices(layout_idx, sub_layout_idx)
-        .or_else(|| {
-            // Safe Fallback: Try to get default 7.1.4 index or purely implicit fallback
-            // Since we can't easily find "7.1.4" index without searching, and we want 0-alloc,
-            // let's try index 0, 0 if current fails.
-            layout_config.get_layout_by_indices(0, 0)
-        });
-
-    // Check if we still have no layout (e.g. config empty)
-    let layout = match layout {
-        Some(l) => l,
-        None => return, // Silent return, do not process
-    };
-
-    // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
-    let osc_override = osc_state.and_then(|osc| {
-        osc.get_override_snapshot()
-            .map(|(vol, dim, cut)| OscOverride {
-                master_volume: Some(vol),
-                dim: Some(dim),
-                cut: Some(cut),
-            })
-    });
-
-    // 计算 RenderState
-    let render_state = match role {
-        PluginRole::Master | PluginRole::Standalone => {
-            ChannelLogic::compute(params, layout, None, interaction, osc_override)
-        }
-        PluginRole::Slave => ChannelLogic::compute(params, layout, None, interaction, None),
-    };
-
-    // P2/P3 优化：使用本地增益缓存（栈上，无堆分配）
-    let mut local_gains = [0.0f32; MAX_CHANNELS];
-    let mut target_gains = [0.0f32; MAX_CHANNELS];
-
-    let num_channels = layout.total_channels.min(MAX_CHANNELS);
-
-    // 初始化本地增益 + P4: Branchless 预计算目标增益
-    for ch_idx in 0..num_channels {
-        local_gains[ch_idx] = gain_state.load_gain(ch_idx);
-
-        // P4: Branchless 目标增益计算
-        let is_muted_bit = ((render_state.channel_mute_mask >> ch_idx) & 1) as f32;
-        let muted_multiplier = 1.0 - is_muted_bit;
-
-        target_gains[ch_idx] =
-            render_state.master_gain * render_state.channel_gains[ch_idx] * muted_multiplier;
-    }
-
-    // P6: 通道优先处理 - 使用 as_slice() 获取连续内存访问
-    // 这比 iter_samples() 更高效，因为：
-    // 1. 连续内存访问更好的 L1 缓存命中率
-    // 2. LLVM 可以对内层循环自动向量化
-    let channel_slices = buffer.as_slice();
-    // let block_len = ... (Unused)
-
-    // P2: REVERTED Block smoothing (Zipper Noise) -> Per-sample smoothing
-
-    for ch_idx in 0..num_channels.min(channel_slices.len()) {
-        let samples = &mut channel_slices[ch_idx];
-        let mut current_gain = local_gains[ch_idx];
-        let target = target_gains[ch_idx];
-
-        // P2/P6 Real Fix: Per-sample smoothing (High Fidelity)
-        // Reverted 8-sample block optimization to eliminate Zipper Noise.
-        // Modern CPUs can easily handle this multiplication per sample.
-        for sample in samples.iter_mut() {
-            current_gain += (target - current_gain) * SMOOTHING_ALPHA;
-            *sample *= current_gain;
-        }
-
-        // 保存最终增益值
-        local_gains[ch_idx] = current_gain;
-    }
-
-    // P2: 只在 block 结束时写回原子状态
-    // P2: 只在 block 结束时写回原子状态
-    // P0 修复：脏检查优化原子写入，减少总线流量
-    for ch_idx in 0..num_channels {
-        let new_val = local_gains[ch_idx];
-        if (gain_state.load_gain(ch_idx) - new_val).abs() > 1e-5 {
-            gain_state.store_gain(ch_idx, new_val);
-        }
-    }
-}
-
 /// P8 优化版：使用预计算的 Layout 避免每帧堆分配
 ///
 /// 此函数与 process_audio 功能相同，但接收预计算的 Layout 引用
@@ -185,6 +71,7 @@ pub fn process_audio_with_layout(
     let role = params.role.value();
 
     // === P9 优化：使用合并的 get_override_snapshot（减少原子操作）===
+    // 注意：效果器开关（low_boost 等）通过 pending 机制同步到 params，不放在 OscOverride 里
     let osc_override = osc_state.and_then(|osc| {
         osc.get_override_snapshot()
             .map(|(vol, dim, cut)| OscOverride {

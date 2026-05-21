@@ -1,11 +1,15 @@
+#![allow(unused)]
 use atomic_float::AtomicF32;
+use crossbeam::atomic::AtomicCell;
 use parking_lot::{Mutex, RwLock};
 use std::any::Any;
 use std::ffi::{c_void, CStr};
 use std::mem;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use vst3_sys::base::{kInvalidArgument, kNotImplemented, kResultFalse, kResultOk, kResultTrue, tresult, TBool};
+use vst3_sys::base::{
+    kInvalidArgument, kNotImplemented, kResultFalse, kResultOk, kResultTrue, tresult, TBool,
+};
 use vst3_sys::gui::{IPlugFrame, IPlugView, IPlugViewContentScaleSupport, ViewRect};
 use vst3_sys::utils::SharedVstPtr;
 use vst3_sys::VST3;
@@ -78,6 +82,18 @@ pub(crate) struct WrapperView<P: Vst3Plugin> {
     /// APIs only deal in logical pixels.
     scaling_factor: AtomicF32,
 
+    /// Last host-confirmed editor size in logical pixels.
+    ///
+    /// This is used for `IPlugView::get_size()` so we report a stable, host-accepted size while a
+    /// resize request is in flight.
+    last_known_logical_size: AtomicCell<(u32, u32)>,
+
+    /// Pending resize request initiated by the plugin's own internal resize handle.
+    ///
+    /// When this is `None`, incoming `on_size()` callbacks are treated as host-initiated outer
+    /// frame resize attempts and will be rejected to keep the editor size host-locked.
+    pending_internal_resize_target: AtomicCell<Option<(u32, u32)>>,
+
     /// The parent window handle (HWND on Windows) for keyboard forwarding
     parent_hwnd: ParentHwndWrapper,
 }
@@ -113,6 +129,11 @@ struct RunLoopEventHandler<P: Vst3Plugin> {
 
 impl<P: Vst3Plugin> WrapperView<P> {
     pub fn new(inner: Arc<WrapperInner<P>>, editor: Arc<Mutex<Box<dyn Editor>>>) -> Box<Self> {
+        let initial_size = {
+            let (w, h) = editor.lock().size();
+            (w.max(1), h.max(1))
+        };
+
         Self::allocate(
             inner,
             editor,
@@ -123,6 +144,8 @@ impl<P: Vst3Plugin> WrapperView<P> {
             #[cfg(not(target_os = "linux"))]
             RunLoopEventHandlerWrapper(Default::default()),
             AtomicF32::new(1.0),
+            AtomicCell::new(initial_size),
+            AtomicCell::new(None),
             #[cfg(target_os = "windows")]
             ParentHwndWrapper(AtomicIsize::new(0)),
             #[cfg(not(target_os = "windows"))]
@@ -158,16 +181,39 @@ impl<P: Vst3Plugin> WrapperView<P> {
                     ..Default::default()
                 };
 
+                self.pending_internal_resize_target
+                    .store(Some((unscaled_width.max(1), unscaled_height.max(1))));
+
                 // The argument types are a bit wonky here because you can't construct a
                 // `SharedVstPtr`. This _should_ work however.
                 let plug_view: SharedVstPtr<dyn IPlugView> =
                     mem::transmute(&self.__iplugviewvptr as *const *const _);
                 let result = plug_frame.resize_view(plug_view, &mut size);
 
+                #[cfg(target_os = "macos")]
+                if result == kResultOk {
+                    // Some macOS hosts can resize the outer host frame first and delay/skip the
+                    // immediate `on_size()` callback. Optimistically mirror the accepted size into
+                    // the editor state so inner rendering and the resize handle stay in sync on the
+                    // first drag.
+                    let logical_width = unscaled_width.max(1);
+                    let logical_height = unscaled_height.max(1);
+                    self.last_known_logical_size
+                        .store((logical_width, logical_height));
+                    self.editor
+                        .lock()
+                        .host_resized(logical_width, logical_height);
+                    self.pending_internal_resize_target.store(None);
+                }
+
                 debug_assert_eq!(
                     result, kResultOk,
                     "The host denied the resize, we currently don't handle this for VST3 plugins"
                 );
+
+                if result != kResultOk {
+                    self.pending_internal_resize_target.store(None);
+                }
 
                 result == kResultOk
             }
@@ -192,6 +238,52 @@ impl<P: Vst3Plugin> WrapperView<P> {
     #[cfg(not(target_os = "linux"))]
     pub fn do_maybe_in_run_loop(&self, task: Task<P>) -> Result<(), Task<P>> {
         Err(task)
+    }
+
+    fn constrain_size_logical(
+        &self,
+        requested_width: u32,
+        requested_height: u32,
+        min_size: Option<(u32, u32)>,
+        aspect_ratio: Option<f32>,
+    ) -> (u32, u32) {
+        let mut width = requested_width.max(1);
+        let mut height = requested_height.max(1);
+
+        if let Some((min_w, min_h)) = min_size {
+            width = width.max(min_w.max(1));
+            height = height.max(min_h.max(1));
+        }
+
+        if let Some(ratio) = aspect_ratio {
+            let ratio = ratio.max(0.0001);
+            let current_ratio = (width as f32) / (height as f32);
+
+            if current_ratio > ratio {
+                width = ((height as f32) * ratio).round().max(1.0) as u32;
+            } else {
+                height = ((width as f32) / ratio).round().max(1.0) as u32;
+            }
+
+            if let Some((min_w, min_h)) = min_size {
+                if width < min_w || height < min_h {
+                    let min_width_from_height = ((min_h as f32) * ratio).ceil() as u32;
+                    let min_height_from_width = ((min_w as f32) / ratio).ceil() as u32;
+
+                    width = width.max(min_w).max(min_width_from_height);
+                    height = height.max(min_h).max(min_height_from_width);
+
+                    let corrected_ratio = (width as f32) / (height as f32);
+                    if corrected_ratio > ratio {
+                        width = ((height as f32) * ratio).round().max(1.0) as u32;
+                    } else {
+                        height = ((width as f32) / ratio).round().max(1.0) as u32;
+                    }
+                }
+            }
+        }
+
+        (width.max(1), height.max(1))
     }
 }
 
@@ -360,98 +452,23 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
 
     unsafe fn on_key_down(
         &self,
-        key: vst3_sys::base::char16,
-        key_code: i16,
+        _key: vst3_sys::base::char16,
+        _key_code: i16,
         _modifiers: i16,
     ) -> tresult {
-        #[cfg(target_os = "windows")]
-        {
-            // Forward keyboard events to our child window
-            let parent_hwnd = self.parent_hwnd.0.load(Ordering::SeqCst);
-            if parent_hwnd != 0 {
-                use windows::Win32::Foundation::{HWND, LPARAM, WPARAM, BOOL};
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    EnumChildWindows, PostMessageW, WM_CHAR, WM_KEYDOWN,
-                };
-
-                // Callback to find child window
-                unsafe extern "system" fn enum_child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-                    let child_ptr = lparam.0 as *mut isize;
-                    if !child_ptr.is_null() {
-                        let current = unsafe { *child_ptr };
-                        if current == 0 {
-                            unsafe { *child_ptr = hwnd.0 };
-                        }
-                    }
-                    BOOL::from(true)
-                }
-
-                let mut child_hwnd: isize = 0;
-                let _ = EnumChildWindows(
-                    HWND(parent_hwnd),
-                    Some(enum_child_proc),
-                    LPARAM(&mut child_hwnd as *mut isize as isize),
-                );
-
-                if child_hwnd != 0 {
-                    // Send WM_KEYDOWN with virtual key code
-                    if key_code > 0 {
-                        let _ = PostMessageW(HWND(child_hwnd), WM_KEYDOWN, WPARAM(key_code as usize), LPARAM(0));
-                    }
-                    // Send WM_CHAR with the character
-                    if key > 0 {
-                        let _ = PostMessageW(HWND(child_hwnd), WM_CHAR, WPARAM(key as usize), LPARAM(0));
-                    }
-                    return kResultTrue;
-                }
-            }
-        }
-        kResultFalse
+        // JUCE and upstream nih-plug both rely on native OS keyboard delivery for editor windows.
+        // Host-level VST3 key codes are not Win32 virtual-key values and should not be forwarded as
+        // WM_KEYDOWN/WM_KEYUP directly.
+        kNotImplemented
     }
 
     unsafe fn on_key_up(
         &self,
         _key: vst3_sys::base::char16,
-        key_code: i16,
+        _key_code: i16,
         _modifiers: i16,
     ) -> tresult {
-        #[cfg(target_os = "windows")]
-        {
-            // Forward keyboard events to our child window
-            let parent_hwnd = self.parent_hwnd.0.load(Ordering::SeqCst);
-            if parent_hwnd != 0 {
-                use windows::Win32::Foundation::{HWND, LPARAM, WPARAM, BOOL};
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    EnumChildWindows, PostMessageW, WM_KEYUP,
-                };
-
-                unsafe extern "system" fn enum_child_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-                    let child_ptr = lparam.0 as *mut isize;
-                    if !child_ptr.is_null() {
-                        let current = unsafe { *child_ptr };
-                        if current == 0 {
-                            unsafe { *child_ptr = hwnd.0 };
-                        }
-                    }
-                    BOOL::from(true)
-                }
-
-                let mut child_hwnd: isize = 0;
-                let _ = EnumChildWindows(
-                    HWND(parent_hwnd),
-                    Some(enum_child_proc),
-                    LPARAM(&mut child_hwnd as *mut isize as isize),
-                );
-
-                if child_hwnd != 0 {
-                    if key_code > 0 {
-                        let _ = PostMessageW(HWND(child_hwnd), WM_KEYUP, WPARAM(key_code as usize), LPARAM(0));
-                    }
-                    return kResultTrue;
-                }
-            }
-        }
-        kResultFalse
+        kNotImplemented
     }
 
     unsafe fn get_size(&self, size: *mut ViewRect) -> tresult {
@@ -459,10 +476,7 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
 
         *size = mem::zeroed();
 
-        // TODO: This is technically incorrect during resizing, this should still report the old
-        //       size until `.on_size()` has been called. We should probably only bother fixing this
-        //       if it turns out to be an issue.
-        let (unscaled_width, unscaled_height) = self.editor.lock().size();
+        let (unscaled_width, unscaled_height) = self.last_known_logical_size.load();
         let scaling_factor = self.scaling_factor.load(Ordering::Relaxed);
         let size = &mut *size;
         size.left = 0;
@@ -476,21 +490,84 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
     unsafe fn on_size(&self, new_size: *mut ViewRect) -> tresult {
         check_null_ptr!(new_size);
 
-        // TODO: Implement Host->Plugin resizing
-        let (unscaled_width, unscaled_height) = self.editor.lock().size();
-        let scaling_factor = self.scaling_factor.load(Ordering::Relaxed);
-        let (editor_width, editor_height) = (
-            (unscaled_width as f32 * scaling_factor).round() as i32,
-            (unscaled_height as f32 * scaling_factor).round() as i32,
+        let scaling_factor = self.scaling_factor.load(Ordering::Relaxed).max(0.0001);
+        let previous_logical = self.last_known_logical_size.load();
+        let pending_internal = self.pending_internal_resize_target.load();
+
+        if pending_internal.is_none() {
+            let enforced_width = (previous_logical.0 as f32 * scaling_factor).round().max(1.0) as i32;
+            let enforced_height = (previous_logical.1 as f32 * scaling_factor).round().max(1.0) as i32;
+
+            let requested_width = ((*new_size).right - (*new_size).left).max(1);
+            let requested_height = ((*new_size).bottom - (*new_size).top).max(1);
+
+            (*new_size).right = (*new_size).left + enforced_width;
+            (*new_size).bottom = (*new_size).top + enforced_height;
+
+            if (requested_width != enforced_width || requested_height != enforced_height)
+                && self.plug_frame.read().is_some()
+            {
+                if let Some(plug_frame) = &*self.plug_frame.read() {
+                    let mut corrected_rect = ViewRect {
+                        left: 0,
+                        top: 0,
+                        right: enforced_width,
+                        bottom: enforced_height,
+                    };
+
+                    let plug_view: SharedVstPtr<dyn IPlugView> =
+                        mem::transmute(&self.__iplugviewvptr as *const *const _);
+                    let _ = plug_frame.resize_view(plug_view, &mut corrected_rect);
+                }
+            }
+
+            return kResultOk;
+        }
+
+        // Accept host-confirmed size and push it back into the editor state as authoritative.
+        // This closes the host->editor size loop and avoids ending a drag with one-step mismatch.
+        let width = ((*new_size).right - (*new_size).left).max(1);
+        let height = ((*new_size).bottom - (*new_size).top).max(1);
+
+        let incoming_logical_width = ((width as f32) / scaling_factor).round().max(1.0) as u32;
+        let incoming_logical_height = ((height as f32) / scaling_factor).round().max(1.0) as u32;
+
+        let (min_size, aspect_ratio) = {
+            let editor = self.editor.lock();
+            (editor.min_size(), editor.aspect_ratio())
+        };
+        let (logical_width, logical_height) = self.constrain_size_logical(
+            incoming_logical_width,
+            incoming_logical_height,
+            min_size,
+            aspect_ratio,
         );
 
-        let width = (*new_size).right - (*new_size).left;
-        let height = (*new_size).bottom - (*new_size).top;
-        if width == editor_width && height == editor_height {
-            kResultOk
-        } else {
-            kResultFalse
+        // If host reports a size that does not match the editor constraints, request correction.
+        if logical_width != incoming_logical_width || logical_height != incoming_logical_height {
+            let corrected_width = (logical_width as f32 * scaling_factor).round().max(1.0) as i32;
+            let corrected_height = (logical_height as f32 * scaling_factor).round().max(1.0) as i32;
+            (*new_size).right = (*new_size).left + corrected_width;
+            (*new_size).bottom = (*new_size).top + corrected_height;
+
+            if let Some(plug_frame) = &*self.plug_frame.read() {
+                let mut corrected_rect = ViewRect {
+                    left: 0,
+                    top: 0,
+                    right: corrected_width,
+                    bottom: corrected_height,
+                };
+                let plug_view: SharedVstPtr<dyn IPlugView> =
+                    mem::transmute(&self.__iplugviewvptr as *const *const _);
+                let _ = plug_frame.resize_view(plug_view, &mut corrected_rect);
+            }
         }
+
+        self.last_known_logical_size
+            .store((logical_width, logical_height));
+        self.pending_internal_resize_target.store(None);
+        self.editor.lock().host_resized(logical_width, logical_height);
+        kResultOk
     }
 
     unsafe fn on_focus(&self, _state: TBool) -> tresult {
@@ -525,19 +602,42 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
     }
 
     unsafe fn can_resize(&self) -> tresult {
-        // TODO: Implement Host->Plugin resizing
-        kResultFalse
+        // Keep this enabled so plugin-initiated `request_resize()` is consistently honored by
+        // hosts. Host outer-drag attempts are filtered in `check_size_constraint()`.
+        kResultTrue
     }
 
     unsafe fn check_size_constraint(&self, rect: *mut ViewRect) -> tresult {
         check_null_ptr!(rect);
 
-        // TODO: Implement Host->Plugin resizing
-        if (*rect).right - (*rect).left > 0 && (*rect).bottom - (*rect).top > 0 {
-            kResultOk
-        } else {
-            kResultFalse
+        let left = (*rect).left;
+        let top = (*rect).top;
+
+        let scaling_factor = self.scaling_factor.load(Ordering::Relaxed).max(0.0001);
+
+        if let Some((pending_w, pending_h)) = self.pending_internal_resize_target.load() {
+            let (min_size, aspect_ratio) = {
+                let editor = self.editor.lock();
+                (editor.min_size(), editor.aspect_ratio())
+            };
+            let (logical_width, logical_height) =
+                self.constrain_size_logical(pending_w, pending_h, min_size, aspect_ratio);
+
+            let width = ((logical_width as f32) * scaling_factor).round().max(1.0) as i32;
+            let height = ((logical_height as f32) * scaling_factor).round().max(1.0) as i32;
+
+            (*rect).right = left + width;
+            (*rect).bottom = top + height;
+            return kResultOk;
         }
+
+        let (current_w, current_h) = self.last_known_logical_size.load();
+        let width = ((current_w.max(1) as f32) * scaling_factor).round().max(1.0) as i32;
+        let height = ((current_h.max(1) as f32) * scaling_factor).round().max(1.0) as i32;
+
+        (*rect).right = left + width;
+        (*rect).bottom = top + height;
+        kResultOk
     }
 }
 

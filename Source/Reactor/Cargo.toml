@@ -25,3 +25,7 @@ crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 rust-embed = "8.0"
 nih_plug = { workspace = true }
+
+# Network 同步 (Master/Slave ZMQ)
+zeromq = "0.6"
+bincode = "1.3"

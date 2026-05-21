@@ -1,0 +1,76 @@
+export global ThemeTokens {
+    in property <bool> dark-mode: false;
+
+    // 基础背景
+    in property <color> bg-app: ThemeTokens.dark-mode ? #111318 : #f1f5f9;
+    in property <color> bg-main: ThemeTokens.dark-mode ? #171b22 : #ffffff;
+    in property <color> bg-sidebar: ThemeTokens.dark-mode ? #1e242d : #f8fafc;
+    in property <color> panel: ThemeTokens.dark-mode ? #171b22 : #ffffff;
+    in property <color> panel-alt: ThemeTokens.dark-mode ? #1e242d : #f8fafc;
+
+    // 边框
+    in property <color> border: ThemeTokens.dark-mode ? #334155 : #e2e8f0;
+    in property <color> border-light: ThemeTokens.dark-mode ? #334155 : #e2e8f0;
+    in property <color> border-medium: ThemeTokens.dark-mode ? #475569 : #cbd5e1;
+    in property <color> border-dark: ThemeTokens.dark-mode ? #94a3b8 : #cbd5e1;
+
+    // 文本颜色
+    in property <color> text: ThemeTokens.dark-mode ? #f1f5f9 : #1e293b;
+    in property <color> text-dark: ThemeTokens.dark-mode ? #f1f5f9 : #1e293b;
+    in property <color> text-medium: ThemeTokens.dark-mode ? #cbd5e1 : #475569;
+    in property <color> text-muted: ThemeTokens.dark-mode ? #94a3b8 : #64748b;
+    in property <color> text-light: ThemeTokens.dark-mode ? #94a3b8 : #94a3b8;
+    in property <color> text-on-accent: #ffffff;
+    in property <color> text-disabled: ThemeTokens.dark-mode ? #73839a : #8a95a3;
+
+    // 按钮
+    in property <color> btn-active-bg: ThemeTokens.dark-mode ? #2a313c : #ffffff;
+    in property <color> btn-inactive-bg: ThemeTokens.dark-mode ? #1e242d : #ffffff;
+    in property <color> btn-hover-bg: ThemeTokens.dark-mode ? #2a3442 : #f1f5f9;
+    in property <color> button-disabled-bg: ThemeTokens.dark-mode ? #2a313c : #d9dde3;
+
+    // Surface 交互表面（3 态）
+    in property <color> surface-plain: ThemeTokens.dark-mode ? #1f2630 : #f7f7f7;
+    in property <color> surface-hover: ThemeTokens.dark-mode ? #2a3442 : #eef1f5;
+    in property <color> surface-active: ThemeTokens.dark-mode ? #222c38 : #f1f5f9;
+
+    // Shadow 阴影层次
+    in property <color> shadow-soft: ThemeTokens.dark-mode ? #00000045 : #00000020;
+    in property <color> shadow-medium: ThemeTokens.dark-mode ? #0000005a : #00000040;
+    in property <color> shadow-light: ThemeTokens.dark-mode ? #00000032 : #00000018;
+
+    // Overlay 遮罩
+    in property <color> overlay-soft: ThemeTokens.dark-mode ? #000000b0 : #00000080;
+    in property <color> overlay-medium: ThemeTokens.dark-mode ? #000000b0 : #00000088;
+    in property <color> overlay-strong: ThemeTokens.dark-mode ? #000000b8 : #00000099;
+
+    // Speaker Block
+    in property <color> speaker-bg: ThemeTokens.dark-mode ? #0f1319 : #1e293b;
+    in property <color> speaker-bg-hover: ThemeTokens.dark-mode ? #1a2332 : #334155;
+    in property <color> speaker-solo: #10b981;
+    in property <color> speaker-mute: #ef4444;
+    in property <color> speaker-label: ThemeTokens.dark-mode ? #f1f5f9 : #1e293b;
+    in property <color> speaker-sub-bg: ThemeTokens.dark-mode ? #1a202b : #334155;
+
+    // Accent / Semantic Colors
+    in property <color> accent: ThemeTokens.dark-mode ? #64748b : #1e293b;
+    in property <color> accent-hover: ThemeTokens.dark-mode ? #475569 : #334155;
+    in property <color> solo: #10b981;
+    in property <color> mute: #ef4444;
+    in property <color> warn: #f59e0b;
+
+    // Knob
+    in property <color> knob-arc: ThemeTokens.dark-mode ? #cbd5e1 : #334155;
+    in property <color> knob-diamond: ThemeTokens.dark-mode ? #94a3b8 : #7d8ca0;
+    in property <color> knob-needle: ThemeTokens.dark-mode ? #cbd5e1 : #2f3f57;
+
+    // Fonts
+    in property <length> main-font-size: 14px;
+    in property <length> title-font-size: 20px;
+    in property <int> font-weight-bold: 800;
+    in property <int> font-weight-medium: 700;
+    in property <int> font-weight-regular: 600;
+
+    // Animation
+    in property <duration> hover-fade-duration: 250ms;
+}

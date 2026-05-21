@@ -1,0 +1,89 @@
+import { ThemeTokens } from "../globals/theme.slint";
+
+export component OutlinedButton inherits Rectangle {
+    in property <float> uiscale: 1.0;
+    in property <string> text;
+    in property <string> sub_text: "";
+    in property <bool> active: false;
+    in property <bool> is-danger: false;
+    in property <bool> is-success: false;
+    in property <bool> is-warning: false;
+    callback clicked();
+
+    horizontal-stretch: 1;
+    border-radius: 2px * root.uiscale;
+    border-width: 1px * root.uiscale;
+    border-color: active
+        ? (is-danger ? ThemeTokens.mute
+            : (is-success ? ThemeTokens.solo
+                : (is-warning ? ThemeTokens.warn
+                    : ThemeTokens.border-dark)))
+        : (ta.has-hover ? ThemeTokens.border-dark : ThemeTokens.border-medium);
+    background: active
+        ? (is-danger ? ThemeTokens.mute
+            : (is-success ? ThemeTokens.solo
+                : (is-warning ? ThemeTokens.warn
+                    : ThemeTokens.surface-active)))
+        : (ta.has-hover ? ThemeTokens.surface-hover : ThemeTokens.surface-plain);
+
+    animate background { duration: ThemeTokens.hover-fade-duration; }
+    animate border-color { duration: ThemeTokens.hover-fade-duration; }
+
+    // TouchArea 作为唯一子元素，包裹所有内容
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+
+        // Single-line label (no sub-text)
+        if root.sub-text == "": Text {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            text: root.text;
+            color: active
+                ? (is-danger || is-success || is-warning ? white : ThemeTokens.text)
+                : (ta.has-hover ? ThemeTokens.text-dark : ThemeTokens.text-muted);
+            font-size: 15px * root.uiscale;
+            font-weight: ThemeTokens.font-weight-bold;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            animate color { duration: ThemeTokens.hover-fade-duration; }
+        }
+
+        // Two-line label (with sub-text)
+        if root.sub-text != "": VerticalLayout {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            alignment: center;
+            spacing: 1px * root.uiscale;
+            Text {
+                text: root.text;
+                color: active
+                    ? (is-danger || is-success || is-warning ? white : ThemeTokens.text)
+                    : (ta.has-hover ? ThemeTokens.text-dark : ThemeTokens.text-muted);
+                font-size: 15px * root.uiscale;
+                font-weight: ThemeTokens.font-weight-bold;
+                horizontal-alignment: center;
+                animate color { duration: ThemeTokens.hover-fade-duration; }
+            }
+
+            Text {
+                text: root.sub-text;
+                color: active
+                    ? (is-danger || is-success || is-warning ? #ffffffcc : ThemeTokens.text-muted)
+                    : ThemeTokens.text-light;
+                font-size: 10px * root.uiscale;
+                font-weight: ThemeTokens.font-weight-regular;
+                horizontal-alignment: center;
+                animate color { duration: ThemeTokens.hover-fade-duration; }
+            }
+        }
+    }
+}

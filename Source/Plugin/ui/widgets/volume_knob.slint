@@ -1,0 +1,294 @@
+import { ThemeTokens } from "../globals/theme.slint";
+
+export component VolumeKnob inherits Rectangle {
+    in property <float> uiscale: 1.0;
+    in property <string> label: "MASTER";
+    in property <string> value: "0%";
+    in property <bool> show_slider: false;
+    in-out property <float> slider_value: 1.0;
+    in property <float> slider_default_value: 1.0;
+    callback slider_start_change();
+    callback slider_changed(float);
+    callback slider_end_change();
+    width: 130px * root.uiscale;
+    height: 155px * root.uiscale;
+    background: transparent;
+    property <angle> start-angle: 135deg;
+    property <length> radius: 36px * root.uiscale;
+    property <length> stroke-width: 4px * root.uiscale;
+    // Interaction state
+    property <float> initial-value;
+    property <length> initial-y;
+    property <bool> ctrl-pressed: false;
+
+    // Knob Visual Group (centered in top 100px area)
+    Rectangle {
+        y: 0px;
+        width: 130px * root.uiscale;
+        height: 130px * root.uiscale;
+        background: transparent;
+
+        // Background Arc
+        Path {
+            width: parent.width;
+            height: parent.height;
+            stroke: touch.has-hover ? ThemeTokens.border-medium : ThemeTokens.border-light;
+            stroke-width: root.stroke-width;
+            fill: transparent;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            animate stroke { duration: 250ms; }
+            MoveTo {
+                x: 50 + 36 * cos(root.start-angle);
+                y: 50 + 36 * sin(root.start-angle);
+            }
+
+            ArcTo {
+                radius-x: 36;
+                radius-y: 36;
+                x: 50 + 36 * cos(root.start-angle + 270deg);
+                y: 50 + 36 * sin(root.start-angle + 270deg);
+                large-arc: true;
+                sweep: true;
+            }
+        }
+
+        // Active Arc Glow Layer 1 (soft)
+        Path {
+            width: parent.width;
+            height: parent.height;
+            stroke: touch.has-hover ? #33415550 : #33415500;
+            stroke-width: root.stroke-width + 6px * root.uiscale;
+            fill: transparent;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            animate stroke { duration: 250ms; }
+            MoveTo {
+                x: 50 + 36 * cos(root.start-angle);
+                y: 50 + 36 * sin(root.start-angle);
+            }
+
+            ArcTo {
+                radius-x: 36;
+                radius-y: 36;
+                x: 50 + 36 * cos(root.start-angle + root.slider_value * 270deg);
+                y: 50 + 36 * sin(root.start-angle + root.slider_value * 270deg);
+                large-arc: root.slider_value > 0.66;
+                sweep: true;
+            }
+        }
+
+        // Active Arc Glow Layer 2 (medium)
+        Path {
+            width: parent.width;
+            height: parent.height;
+            stroke: touch.has-hover ? #33415580 : #33415500;
+            stroke-width: root.stroke-width + 3px * root.uiscale;
+            fill: transparent;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            animate stroke { duration: 250ms; }
+            MoveTo {
+                x: 50 + 36 * cos(root.start-angle);
+                y: 50 + 36 * sin(root.start-angle);
+            }
+
+            ArcTo {
+                radius-x: 36;
+                radius-y: 36;
+                x: 50 + 36 * cos(root.start-angle + root.slider_value * 270deg);
+                y: 50 + 36 * sin(root.start-angle + root.slider_value * 270deg);
+                large-arc: root.slider_value > 0.66;
+                sweep: true;
+            }
+        }
+
+        // Active Arc (uses knob-arc token — dark blue-gray, not red)
+        Path {
+            width: parent.width;
+            height: parent.height;
+            stroke: ThemeTokens.knob-arc;
+            stroke-width: root.stroke-width;
+            fill: transparent;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            MoveTo {
+                x: 50 + 36 * cos(root.start-angle);
+                y: 50 + 36 * sin(root.start-angle);
+            }
+
+            ArcTo {
+                radius-x: 36;
+                radius-y: 36;
+                x: 50 + 36 * cos(root.start-angle + root.slider_value * 270deg);
+                y: 50 + 36 * sin(root.start-angle + root.slider_value * 270deg);
+                large-arc: root.slider_value > 0.66;
+                sweep: true;
+            }
+        }
+
+        // Rotated Square Shadow (SVG)
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: @image-url("../assets/shadow_square.svg");
+            transform-rotation: root.start-angle + (root.slider_value * 270deg);
+        }
+
+        // Rotated Diamond Cap (MCM signature)
+        Path {
+            width: parent.width;
+            height: parent.height;
+            fill: ThemeTokens.bg-main;
+            stroke: touch.has-hover ? ThemeTokens.knob-needle : ThemeTokens.knob-diamond;
+            stroke-width: 2px * root.uiscale;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            animate stroke { duration: 250ms; }
+            property <angle> square-angle: root.start-angle + (root.slider_value * 270deg);
+            MoveTo {
+                x: 50 + 34 * cos(square-angle + 45deg);
+                y: 50 + 34 * sin(square-angle + 45deg);
+            }
+
+            LineTo {
+                x: 50 + 34 * cos(square-angle + 135deg);
+                y: 50 + 34 * sin(square-angle + 135deg);
+            }
+
+            LineTo {
+                x: 50 + 34 * cos(square-angle + 225deg);
+                y: 50 + 34 * sin(square-angle + 225deg);
+            }
+
+            LineTo {
+                x: 50 + 34 * cos(square-angle + 315deg);
+                y: 50 + 34 * sin(square-angle + 315deg);
+            }
+
+            Close { }
+        }
+
+        // Needle (Tick Mark) on Diamond
+        Path {
+            width: parent.width;
+            height: parent.height;
+            stroke: ThemeTokens.text-dark;
+            stroke-width: 3px * root.uiscale;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            property <angle> needle-angle: root.start-angle + (root.slider_value * 270deg);
+            MoveTo {
+                x: 50 + 14 * cos(needle-angle);
+                y: 50 + 14 * sin(needle-angle);
+            }
+
+            LineTo {
+                x: 50 + 22 * cos(needle-angle);
+                y: 50 + 22 * sin(needle-angle);
+            }
+        }
+
+        // Centered percentage inside diamond (visible by default, hides on hover)
+        Text {
+            x: 0;
+            y: 0;
+            width: 100%;
+            height: 100%;
+            text: root.value;
+            color: ThemeTokens.text-dark;
+            font-size: 13px * root.uiscale;
+            font-weight: ThemeTokens.font-weight-bold;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            opacity: touch.has-hover || touch.pressed ? 0.0 : 1.0;
+            animate opacity {
+                duration: ThemeTokens.hover-fade-duration;
+                easing: ease-out;
+            }
+        }
+
+        // Interaction Area
+        touch := TouchArea {
+            width: 100%;
+            height: 100%;
+            mouse-cursor: ns-resize;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.ctrl-pressed = event.modifiers.control;
+                    root.initial-value = root.slider_value;
+                    root.initial-y = self.mouse-y;
+                    root.slider_start_change();
+                } else if (event.kind == PointerEventKind.move) {
+                    if (self.pressed && event.modifiers.control != root.ctrl-pressed) {
+                        root.ctrl-pressed = event.modifiers.control;
+                        root.initial-value = root.slider_value;
+                        root.initial-y = self.mouse-y;
+                    }
+                } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.ctrl-pressed = false;
+                    root.slider_end_change();
+                }
+            }
+            moved => {
+                if (self.pressed) {
+                    let base-limit = 200px * root.uiscale;
+                    let limit = root.ctrl-pressed ? base-limit * 5.0 : base-limit;
+                    let delta = (root.initial-y - self.mouse-y) / limit;
+                    root.slider_value = Math.max(0.0, Math.min(1.0, root.initial-value + delta));
+                    root.slider_changed(root.slider_value);
+                }
+            }
+            double-clicked => {
+                root.slider_start_change();
+                root.slider_value = root.slider_default_value;
+                root.slider_changed(root.slider_value);
+                root.slider_end_change();
+            }
+        }
+    }
+
+    // Label (default visible, fades out on hover/drag)
+    Text {
+        y: 108px * root.uiscale;
+        width: parent.width;
+        text: root.label;
+        color: ThemeTokens.text-dark;
+        font-size: 15px * root.uiscale;
+        font-weight: ThemeTokens.font-weight-bold;
+        horizontal-alignment: center;
+        opacity: touch.has-hover || touch.pressed ? 0.0 : 1.0;
+        animate opacity {
+            duration: ThemeTokens.hover-fade-duration;
+            easing: ease-out;
+        }
+    }
+
+    // Value readout (fades in on hover/drag — shows percentage)
+    Text {
+        y: 106px * root.uiscale;
+        width: parent.width;
+        text: root.value;
+        color: ThemeTokens.text-dark;
+        font-size: 16px * root.uiscale;
+        font-weight: ThemeTokens.font-weight-bold;
+        horizontal-alignment: center;
+        opacity: touch.has-hover || touch.pressed ? 1.0 : 0.0;
+        animate opacity {
+            duration: ThemeTokens.hover-fade-duration;
+            easing: ease-out;
+        }
+    }
+}

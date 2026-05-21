@@ -1,0 +1,47 @@
+import { ThemeTokens } from "../globals/theme.slint";
+
+export component DropdownButton inherits Rectangle {
+    in property <float> uiscale: 1.0;
+    in property <string> text;
+    in property <length> dd-width: 100px * root.uiscale;
+    in property <bool> enabled: true;
+    in property <bool> menu-open: false;
+    callback clicked();
+    width: root.dd-width;
+    height: 24px * root.uiscale;
+    background: !root.enabled ? ThemeTokens.panel-alt : (root.menu-open ? ThemeTokens.surface-hover : (ta-dd.has-hover ? ThemeTokens.surface-hover : ThemeTokens.surface-plain));
+    border-radius: 2px * root.uiscale;
+    border-width: 1px * root.uiscale;
+    border-color: !root.enabled ? ThemeTokens.border : (root.menu-open ? ThemeTokens.border-dark : (ta-dd.has-hover ? ThemeTokens.border-dark : ThemeTokens.border-medium));
+    animate background { duration: 250ms; }
+    animate border-color { duration: 250ms; }
+    HorizontalLayout {
+        padding-left: 8px * root.uiscale;
+        padding-right: 8px * root.uiscale;
+        Text {
+            text: root.text;
+            color: root.enabled ? ThemeTokens.text-dark : ThemeTokens.text-light;
+            font-size: 12px * root.uiscale;
+            font-weight: ThemeTokens.font-weight-medium;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        // ▼ solid indicator block (IRMax style)
+        Rectangle {
+            width: 8px * root.uiscale;
+            height: 6px * root.uiscale;
+            y: 9px * root.uiscale;
+            background: root.enabled ? ThemeTokens.text-dark : ThemeTokens.border-dark;
+            border-radius: 1px * root.uiscale;
+        }
+    }
+
+    ta-dd := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}

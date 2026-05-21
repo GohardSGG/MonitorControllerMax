@@ -1,8 +1,6 @@
 use nih_plug::formatters;
 use nih_plug::prelude::*;
-use nih_plug_egui::EguiState;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 // Define max channels constant. Must match array size.
 pub const MAX_CHANNELS: usize = 32;
@@ -47,9 +45,6 @@ impl Default for ChannelParams {
 
 #[derive(Params)]
 pub struct MonitorParams {
-    #[persist = "editor-state"]
-    pub editor_state: Arc<EguiState>,
-
     #[id = "master_gain"]
     pub master_gain: FloatParam,
 
@@ -94,11 +89,10 @@ pub struct MonitorParams {
 impl Default for MonitorParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(720, 720),
 
             master_gain: FloatParam::new(
                 "Master Gain",
-                util::db_to_gain(0.0), // 默认 0 dB (unity gain)
+                util::MINUS_INFINITY_GAIN, // 默认静音（-∞ dB），DAW 会立即恢复已保存的参数
                 FloatRange::Skewed {
                     min: util::MINUS_INFINITY_GAIN, // -∞ dB
                     max: util::db_to_gain(0.0),     // 0 dB (无增益)

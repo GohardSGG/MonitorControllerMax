@@ -5,10 +5,11 @@ use zeromq::{Socket, PubSocket, SubSocket, SocketSend, SocketRecv};
 use bincode;
 // P2 优化：使用 Builder 创建单线程 Runtime，不再需要直接 use Runtime
 
-use crate::Network_Protocol::NetworkInteractionState;
-use crate::Interaction::InteractionManager;
-use crate::Logger::InstanceLogger;
-use crate::Params::{MonitorParams, PluginRole};
+use mcm_protocol::network_structs::NetworkInteractionState;
+use mcm_core::interaction::InteractionManager;
+use mcm_infra::logger::InstanceLogger;
+use mcm_core::params::{MonitorParams, PluginRole};
+use mcm_protocol::config::AppConfig;
 
 pub struct NetworkManager {
     // 运行状态标志（线程退出控制）
@@ -147,7 +148,7 @@ impl NetworkManager {
     /// 网络线程收到数据后直接更新 InteractionManager
     /// 支持指数退避重连机制 + Role 参数检测 + 心跳超时
     /// D: 检测线程存活状态，死线程则允许重新初始化
-    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>, app_config: crate::Config_File::AppConfig) {
+    pub fn init_slave(&mut self, master_ip: &str, port: u16, interaction: Arc<InteractionManager>, params: Arc<MonitorParams>, logger: Arc<InstanceLogger>, app_config: AppConfig) {
         // D: 检查线程是否实际在运行（使用 is_finished() 检测）
         let thread_alive = self.thread_handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false);
 

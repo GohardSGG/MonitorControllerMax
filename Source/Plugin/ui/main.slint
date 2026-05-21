@@ -1,0 +1,252 @@
+import "fonts/Manrope-Regular.ttf";
+import "fonts/Manrope-Medium.ttf";
+import "fonts/Manrope-Bold.ttf";
+import "fonts/Manrope-ExtraBold.ttf";
+import "fonts/Manrope-SemiBold.ttf";
+import { HomePage, ChannelInfoUI } from "pages/home_page.slint";
+import { ThemeTokens } from "globals/theme.slint";
+
+export { ChannelInfoUI }
+
+export component AppWindow inherits Window {
+    title: "MonitorControllerMax";
+    default-font-family: "Manrope";
+    preferred-width: 980px;
+    preferred-height: 700px;
+    min-width: 760px;
+    min-height: 560px;
+    background: ThemeTokens.bg-app;
+
+    in-out property <string> role-text: "Standalone";
+    in-out property <string> solo-mode-text: "SIP";
+    in-out property <string> layout-text: "Layout";
+    in-out property <string> sub-layout-text: "Sub";
+    in-out property <[string]> role-options: ["Standalone", "Master (Source)", "Slave (Monitor)"];
+    in-out property <[string]> layout-options: ["7.1.4"];
+    in-out property <[string]> sub-layout-options: ["None"];
+    in-out property <int> role-index: 0;
+    in-out property <int> layout-index: 0;
+    in-out property <int> sub-layout-index: 0;
+    in-out property <bool> can-change-role: true;
+    in-out property <bool> can-change-layout: true;
+    in-out property <bool> controls-enabled: true;
+    in-out property <bool> channel-interaction-enabled: true;
+
+    in-out property <float> master-gain-slider: 1.0;
+    in-out property <string> master-gain-text: "0%";
+
+    in-out property <bool> dim-on: false;
+    in-out property <bool> cut-on: false;
+    in-out property <bool> mono-on: false;
+    in-out property <bool> low-boost-on: false;
+    in-out property <bool> high-boost-on: false;
+    in-out property <bool> lfe-add-10db-on: false;
+
+    in-out property <bool> solo-active: false;
+    in-out property <bool> mute-active: false;
+    in-out property <bool> solo-visible: false;
+    in-out property <bool> mute-visible: false;
+    in-out property <bool> automation-mode: false;
+    in-out property <bool> automation-toggle-enabled: true;
+
+    in-out property <bool> web-running: false;
+    in-out property <string> web-address: "not running";
+    in-out property <bool> osc-recv-bound: false;
+    in-out property <bool> network-connected: false;
+
+    in-out property <int> grid-width: 5;
+    in-out property <int> grid-height: 5;
+
+    in-out property <[ChannelInfoUI]> channels: [
+        // 7.1.4 (5x5 grid from Speaker_Config.json)
+        //  1(L)  .  3(C)  .  5(R)
+        //  .  7(LTF) . 9(RTF) .
+        // 11(LSS) .  .  . 15(RSS)
+        //  . 17(LTB) . 19(RTB) .
+        // 21(LRS) .  .  . 25(RRS)
+        { name: "L", state: 0, blinking: false, grid-pos: 1, is-sub: false, channel-index: 0, sub-relative-index: -1 },
+        { name: "C", state: 0, blinking: false, grid-pos: 3, is-sub: false, channel-index: 1, sub-relative-index: -1 },
+        { name: "R", state: 0, blinking: false, grid-pos: 5, is-sub: false, channel-index: 2, sub-relative-index: -1 },
+        { name: "LTF", state: 0, blinking: false, grid-pos: 7, is-sub: false, channel-index: 3, sub-relative-index: -1 },
+        { name: "RTF", state: 0, blinking: false, grid-pos: 9, is-sub: false, channel-index: 4, sub-relative-index: -1 },
+        { name: "LSS", state: 2, blinking: false, grid-pos: 11, is-sub: false, channel-index: 5, sub-relative-index: -1 },
+        { name: "RSS", state: 1, blinking: true, grid-pos: 15, is-sub: false, channel-index: 6, sub-relative-index: -1 },
+        { name: "LTB", state: 0, blinking: false, grid-pos: 17, is-sub: false, channel-index: 7, sub-relative-index: -1 },
+        { name: "RTB", state: 0, blinking: false, grid-pos: 19, is-sub: false, channel-index: 8, sub-relative-index: -1 },
+        { name: "LRS", state: 0, blinking: false, grid-pos: 21, is-sub: false, channel-index: 9, sub-relative-index: -1 },
+        { name: "RRS", state: 0, blinking: false, grid-pos: 25, is-sub: false, channel-index: 10, sub-relative-index: -1 },
+        { name: "LFE", state: 0, blinking: false, grid-pos: 3, is-sub: true, channel-index: 11, sub-relative-index: 0 },
+    ];
+
+    in-out property <string> osc-send-port-text: "7444";
+    in-out property <string> osc-receive-port-text: "7445";
+    in-out property <string> network-port-text: "9123";
+    in-out property <string> master-ip-text: "127.0.0.1";
+    in-out property <string> status-line: "Ready";
+    in-out property <string> build-version-text: "v--";
+    in-out property <string> event-log-text: "No events recorded.";
+    in-out property <bool> dark-mode-enabled: false;
+
+    callback toggle-theme-mode();
+
+    callback master-gain-changed(float);
+    callback cycle-role(int);
+    callback cycle-solo-mode(int);
+    callback cycle-layout(int);
+    callback cycle-sub-layout(int);
+    callback select-role(int);
+    callback select-layout(int);
+    callback select-sub-layout(int);
+    callback toggle-automation-mode(bool);
+
+    callback toggle-dim();
+    callback toggle-cut();
+    callback toggle-mono();
+    callback toggle-low-boost();
+    callback toggle-high-boost();
+    callback toggle-lfe-add-10db();
+
+    callback toggle-solo-mode();
+    callback toggle-mute-mode();
+    callback channel-click(int);
+    callback sub-channel-click(int, int);
+    callback sub-channel-secondary-click(int);
+
+    callback toggle-web();
+    callback save-settings();
+    callback open-config-folder();
+    callback handle-resize-request(float, float);
+
+    HomePage {
+        role-text <=> root.role-text;
+        solo-mode-text <=> root.solo-mode-text;
+        layout-text <=> root.layout-text;
+        sub-layout-text <=> root.sub-layout-text;
+        role-options <=> root.role-options;
+        layout-options <=> root.layout-options;
+        sub-layout-options <=> root.sub-layout-options;
+        role-index <=> root.role-index;
+        layout-index <=> root.layout-index;
+        sub-layout-index <=> root.sub-layout-index;
+        can-change-role <=> root.can-change-role;
+        can-change-layout <=> root.can-change-layout;
+        controls-enabled <=> root.controls-enabled;
+        channel-interaction-enabled <=> root.channel-interaction-enabled;
+
+        master-gain-slider <=> root.master-gain-slider;
+        master-gain-text <=> root.master-gain-text;
+
+        dim-on <=> root.dim-on;
+        cut-on <=> root.cut-on;
+        mono-on <=> root.mono-on;
+        low-boost-on <=> root.low-boost-on;
+        high-boost-on <=> root.high-boost-on;
+        lfe-add-10db-on <=> root.lfe-add-10db-on;
+
+        solo-active <=> root.solo-active;
+        mute-active <=> root.mute-active;
+        solo-visible <=> root.solo-visible;
+        mute-visible <=> root.mute-visible;
+        automation-mode <=> root.automation-mode;
+        automation-toggle-enabled <=> root.automation-toggle-enabled;
+
+        web-running <=> root.web-running;
+        web-address <=> root.web-address;
+        osc-recv-bound <=> root.osc-recv-bound;
+        network-connected <=> root.network-connected;
+
+        grid-width <=> root.grid-width;
+        grid-height <=> root.grid-height;
+
+        channels <=> root.channels;
+
+        osc-send-port-text <=> root.osc-send-port-text;
+        osc-receive-port-text <=> root.osc-receive-port-text;
+        network-port-text <=> root.network-port-text;
+        master-ip-text <=> root.master-ip-text;
+        status-line <=> root.status-line;
+        build-version-text <=> root.build-version-text;
+        event-log-text <=> root.event-log-text;
+        dark_mode_enabled <=> root.dark-mode-enabled;
+
+        toggle-theme-mode => {
+            root.toggle-theme-mode();
+        }
+
+        master-gain-changed(v) => {
+            root.master-gain-changed(v);
+        }
+        cycle-role(d) => {
+            root.cycle-role(d);
+        }
+        cycle-solo-mode(d) => {
+            root.cycle-solo-mode(d);
+        }
+        cycle-layout(d) => {
+            root.cycle-layout(d);
+        }
+        cycle-sub-layout(d) => {
+            root.cycle-sub-layout(d);
+        }
+        select-role(i) => {
+            root.select-role(i);
+        }
+        select-layout(i) => {
+            root.select-layout(i);
+        }
+        select-sub-layout(i) => {
+            root.select-sub-layout(i);
+        }
+        toggle-automation-mode(next-state) => {
+            root.toggle-automation-mode(next-state);
+        }
+
+        toggle-dim => {
+            root.toggle-dim();
+        }
+        toggle-cut => {
+            root.toggle-cut();
+        }
+        toggle-mono => {
+            root.toggle-mono();
+        }
+        toggle-low-boost => {
+            root.toggle-low-boost();
+        }
+        toggle-high-boost => {
+            root.toggle-high-boost();
+        }
+        toggle-lfe-add-10db => {
+            root.toggle-lfe-add-10db();
+        }
+
+        toggle-solo-mode => {
+            root.toggle-solo-mode();
+        }
+        toggle-mute-mode => {
+            root.toggle-mute-mode();
+        }
+        channel-click(index) => {
+            root.channel-click(index);
+        }
+        sub-channel-click(sub-index, channel-index) => {
+            root.sub-channel-click(sub-index, channel-index);
+        }
+        sub-channel-secondary-click(channel-index) => {
+            root.sub-channel-secondary-click(channel-index);
+        }
+
+        toggle-web => {
+            root.toggle-web();
+        }
+        save-settings => {
+            root.save-settings();
+        }
+        open-config-folder => {
+            root.open-config-folder();
+        }
+        handle-resize-request(w, h) => {
+            root.handle-resize-request(w, h);
+        }
+    }
+}

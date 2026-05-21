@@ -1,0 +1,33 @@
+import { ThemeTokens } from "../globals/theme.slint";
+
+export component DropdownListItem inherits Rectangle {
+    in property <float> uiscale: 1.0;
+    in property <string> text;
+    in property <bool> selected: false;
+    callback clicked();
+    height: 28px * root.uiscale;
+    background: touch-item.has-hover ? ThemeTokens.surface-hover : (selected ? ThemeTokens.surface-active : transparent);
+    border-width: 1px * root.uiscale;
+    border-color: selected ? ThemeTokens.border-dark : transparent;
+    border-radius: 2px * root.uiscale;
+    animate background { duration: 150ms; }
+    HorizontalLayout {
+        padding-left: 8px * root.uiscale;
+        padding-right: 8px * root.uiscale;
+        Text {
+            text: root.text;
+            color: selected ? ThemeTokens.text-dark : ThemeTokens.text-medium;
+            font-size: 12px * root.uiscale;
+            font-weight: selected ? ThemeTokens.font-weight-bold : ThemeTokens.font-weight-medium;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+
+    touch-item := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}

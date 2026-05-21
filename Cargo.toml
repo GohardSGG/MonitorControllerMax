@@ -21,7 +21,6 @@ mcm_infra = { path = "./Source/Infra" }
 
 # NIH-Plug 生态 (Usage of local modified library)
 nih_plug = { path = "./Library/nih-plug" }
-nih_plug_egui = { path = "./Library/nih-plug/nih_plug_egui" }
 
 # 常用工具
 serde = { version = "1.0", features = ["derive"] }

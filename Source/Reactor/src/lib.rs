@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 pub mod actors;
 pub mod web_assets;
 
+use crate::actors::network::NetworkManager;
 use crate::actors::osc::OscManager;
 use crate::actors::web::WebManager;
 use mcm_core::interaction::InteractionManager;
@@ -40,6 +41,12 @@ pub enum ReactorCommand {
     },
     /// Shutdown the Reactor (Plugin unloading)
     Shutdown,
+    /// Initialize Network (ZMQ Master/Slave)
+    InitNetwork {
+        config: AppConfig,
+    },
+    /// Stop Network
+    StopNetwork,
 }
 
 /// The Reactor - Unified Async Runtime Manager
@@ -118,12 +125,14 @@ impl Reactor {
             // Actors state
             let mut web_manager = WebManager::new(Arc::clone(&web_state));
             let mut osc_manager = OscManager::with_state(Arc::clone(&osc_state));
+            let mut network_manager = NetworkManager::new();
 
             // Command Loop
             while let Ok(cmd) = rx.recv() {
                 match cmd {
                     ReactorCommand::Shutdown => {
                         logger.important("reactor", "Shutdown signal received");
+                        network_manager.shutdown();
                         web_manager.shutdown();
                         osc_manager.shutdown();
                         break;
@@ -174,6 +183,38 @@ impl Reactor {
                         cut,
                     } => {
                         osc_manager.broadcast_state(channel_count, master_volume, dim, cut);
+                    }
+                    ReactorCommand::InitNetwork { config } => {
+                        logger.info("reactor", "CMD: InitNetwork");
+                        let role = params.role.value();
+                        match role {
+                            mcm_core::params::PluginRole::Master => {
+                                network_manager.init_master(
+                                    config.network_port,
+                                    Arc::clone(&interaction),
+                                    Arc::clone(&params),
+                                    Arc::clone(&logger),
+                                );
+                            }
+                            mcm_core::params::PluginRole::Slave => {
+                                let master_ip = config.master_ip.clone();
+                                network_manager.init_slave(
+                                    &master_ip,
+                                    config.network_port,
+                                    Arc::clone(&interaction),
+                                    Arc::clone(&params),
+                                    Arc::clone(&logger),
+                                    config,
+                                );
+                            }
+                            mcm_core::params::PluginRole::Standalone => {
+                                logger.info("reactor", "Standalone mode, skipping network init");
+                            }
+                        }
+                    }
+                    ReactorCommand::StopNetwork => {
+                        logger.info("reactor", "CMD: StopNetwork");
+                        network_manager.shutdown();
                     }
                 }
             }
