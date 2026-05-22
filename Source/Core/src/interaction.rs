@@ -8,7 +8,7 @@
 use crossbeam::atomic::AtomicCell;
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -31,8 +31,9 @@ pub struct RenderSnapshot {
     pub compare: u8,
     /// 是否自动化模式
     pub automation_mode: bool,
-    /// 填充到 4 字节边界
-    _padding1: u8,
+    /// SUB/Main 域豁免权（true=有豁免，Solo SUB 不影响 Main，反之亦然）
+    /// 只有 Master 模式为 true；Standalone 和 Slave 为 false
+    pub sub_main_exempt: bool,
     /// Solo 通道掩码（位图）
     pub solo_mask: u32,
     /// Mute 通道掩码（位图）
@@ -131,14 +132,15 @@ impl RenderSnapshot {
                 if sub_set_has_any {
                     is_in_set
                 } else {
-                    true // 豁免权
+                    // Solo Main 时，SUB 永远不受影响（SUB 承载低频，所有 role 一致）
+                    true
                 }
             } else {
                 // Mute context
                 if sub_set_has_any {
                     !is_in_set
                 } else {
-                    true // 豁免权
+                    true // Mute 上下文中，只 Mute 了 Main，SUB 不受影响
                 }
             }
         } else {
@@ -154,16 +156,30 @@ impl RenderSnapshot {
             };
 
             let is_in_set = (active_mask >> mask_bit) & 1 == 1;
+            let sub_set_has_any = (active_mask >> 12) & 0xF != 0;
             let main_set_has_any = active_mask & 0x000F_0FFF != 0; // bit 0-11 + bit 16-19（Main 通道），跳过 bit 12-15（SUB）
 
-            if !main_set_has_any {
+            // 判断整体集合是否为空
+            if !main_set_has_any && !sub_set_has_any {
                 return true; // 空集合 = 全通
             }
 
             if context_is_solo {
-                is_in_set
+                if main_set_has_any {
+                    is_in_set
+                } else if self.sub_main_exempt {
+                    true // Master 模式：Main 域豁免权（只 Solo 了 SUB，Main 不受影响）
+                } else {
+                    // Standalone/Slave：只 Solo 了 SUB，Main 不在集合中 → 静音
+                    false
+                }
             } else {
-                !is_in_set
+                // Mute context：只 Mute 了 SUB，Main 不受影响
+                if main_set_has_any {
+                    !is_in_set
+                } else {
+                    true
+                }
             }
         }
     }
@@ -366,6 +382,11 @@ pub struct InteractionManager {
     // ========== Lock-Free 音频线程快照 ==========
     /// 音频线程使用的原子快照（无锁读取）
     render_snapshot: AtomicCell<RenderSnapshot>,
+
+    // ========== 角色状态 ==========
+    /// 当前插件角色（0=Standalone, 1=Master, 2=Slave）
+    /// 用于计算 RenderSnapshot.sub_main_exempt
+    current_role: AtomicU8,
 }
 
 impl InteractionManager {
@@ -399,7 +420,15 @@ impl InteractionManager {
             web_restart_pending: AtomicBool::new(false),
             // Lock-Free 快照初始化
             render_snapshot: AtomicCell::new(RenderSnapshot::default()),
+            // 角色默认 Standalone (0)
+            current_role: AtomicU8::new(0),
         }
+    }
+
+    /// 设置当前角色（由 Editor poll 循环调用）
+    /// role: 0=Standalone, 1=Master, 2=Slave
+    pub fn set_role(&self, role: u8) {
+        self.current_role.store(role, Ordering::Relaxed);
     }
 
     // ========== 状态查询 ==========
@@ -496,7 +525,8 @@ impl InteractionManager {
                 CompareMode::Mute => 2,
             },
             automation_mode: automation,
-            _padding1: 0,
+            // 只有 Master 模式有 SUB/Main 域豁免权
+            sub_main_exempt: self.current_role.load(Ordering::Relaxed) == 1,
             solo_mask,
             mute_mask,
             user_mute_sub_mask,

@@ -95,6 +95,22 @@ impl OscSharedState {
         }
     }
 
+    /// 安全初始化：从 DAW 参数同步到 osc_state（不触发 pending 标志）
+    /// 防止 get_override_snapshot 在 OSC 硬件连接后使用过时的默认值
+    /// （例如 dim=false/cut=false 覆盖 DAW 保存的 dim=true/cut=true）
+    pub fn sync_from_params(&self, master_gain: f32, dim: bool, cut: bool,
+                            mono: bool, low_boost: bool, high_boost: bool, lfe_add_10db: bool) {
+        self.master_volume.store(master_gain.to_bits(), Ordering::Release);
+        self.dim.store(dim, Ordering::Release);
+        self.cut.store(cut, Ordering::Release);
+        self.current_cut.store(cut, Ordering::Release);
+        self.mono.store(mono, Ordering::Release);
+        self.low_boost.store(low_boost, Ordering::Release);
+        self.high_boost.store(high_boost, Ordering::Release);
+        self.lfe_add_10db.store(lfe_add_10db, Ordering::Release);
+        // 注意：不设置 *_pending 标志！这只是同步初始值，不触发 override 路径
+    }
+
     /// 设置日志器（由 OscManager::init 调用）
     pub fn set_logger(&self, logger: Arc<InstanceLogger>) {
         *self.logger.write() = Some(logger);
@@ -195,6 +211,21 @@ impl OscSharedState {
         self.cut.store(on, Ordering::Release);
         self.cut_pending.store(true, Ordering::Release);
         self.repaint_requested.store(true, Ordering::Release);
+    }
+
+    /// 获取 Master Volume (0.0-1.0)
+    pub fn get_master_volume(&self) -> f32 {
+        f32::from_bits(self.master_volume.load(Ordering::Acquire))
+    }
+
+    /// 获取 Dim 状态
+    pub fn get_dim(&self) -> bool {
+        self.dim.load(Ordering::Relaxed)
+    }
+
+    /// 获取 Cut 状态
+    pub fn get_cut(&self) -> bool {
+        self.cut.load(Ordering::Relaxed)
     }
 
     /// 设置 Mono (从 OSC 接收)

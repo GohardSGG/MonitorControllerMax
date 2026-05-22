@@ -138,14 +138,18 @@ impl Reactor {
                         break;
                     }
                     ReactorCommand::StartWeb { port: _ } => {
-                        logger.info("reactor", "CMD: StartWeb");
-                        // WebManager handles port dynamic internally or via config passed later?
-                        // For now we assume WebManager allocates random port.
-                        web_manager.init(
-                            Arc::clone(&logger),
-                            Arc::clone(&interaction),
-                            Arc::clone(&params),
-                        );
+                        // Slave 模式禁止启动 Web 服务器（Slave 由 Master 完全控制）
+                        if params.role.value() == mcm_core::params::PluginRole::Slave {
+                            logger.info("reactor", "CMD: StartWeb ignored (Slave mode)");
+                        } else {
+                            logger.info("reactor", "CMD: StartWeb");
+                            web_manager.init(
+                                Arc::clone(&logger),
+                                Arc::clone(&interaction),
+                                Arc::clone(&params),
+                                Arc::clone(&osc_state),
+                            );
+                        }
                     }
                     ReactorCommand::StopWeb => {
                         logger.info("reactor", "CMD: StopWeb");

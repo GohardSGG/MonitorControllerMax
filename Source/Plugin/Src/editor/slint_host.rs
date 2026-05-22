@@ -1251,6 +1251,15 @@ fn refresh_runtime_ui(
 
     let is_slave = params.role.value() == PluginRole::Slave;
     let is_automation = interaction.is_automation_mode();
+
+    // 同步 role 到 InteractionManager（用于 RenderSnapshot.sub_main_exempt 计算）
+    let role_u8 = match params.role.value() {
+        PluginRole::Standalone => 0u8,
+        PluginRole::Master => 1u8,
+        PluginRole::Slave => 2u8,
+    };
+    interaction.set_role(role_u8);
+
     app.set_can_change_role(true);
     app.set_can_change_layout(!is_automation && !is_slave);
     app.set_controls_enabled(!is_slave);

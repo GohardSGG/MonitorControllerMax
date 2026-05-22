@@ -6,7 +6,6 @@
 //! - 移除 UDP 回环通信，直接通过内存操作 InteractionManager 和 Params
 //! - 保持 20Hz 的状态推送频率
 
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -27,9 +26,10 @@ use tokio::sync::broadcast;
 
 use crate::web_assets::Assets;
 use mcm_core::interaction::InteractionManager;
+use mcm_core::osc_state::OscSharedState;
 use mcm_core::params::MonitorParams;
 use mcm_infra::logger::InstanceLogger;
-use mcm_protocol::web_structs::{WebCommand, WebSharedState};
+use mcm_protocol::web_structs::{ChannelState, WebCommand, WebSharedState, WebState};
 
 /// Web 服务器状态推送频率（Hz）
 const STATE_PUSH_HZ: u64 = 20;
@@ -46,6 +46,8 @@ struct AppState {
     interaction: Arc<InteractionManager>,
     /// 参数管理（用于音量控制）
     params: Arc<MonitorParams>,
+    /// OSC 共享状态（复用 pending 机制传递参数变更）
+    osc_state: Arc<OscSharedState>,
     /// 状态广播通道
     broadcast_tx: broadcast::Sender<String>,
     /// 日志器
@@ -87,6 +89,7 @@ impl WebManager {
         logger: Arc<InstanceLogger>,
         interaction: Arc<InteractionManager>,
         params: Arc<MonitorParams>,
+        osc_state: Arc<OscSharedState>,
     ) {
         // 检查是否已在运行
         let thread_alive = self
@@ -146,7 +149,7 @@ impl WebManager {
             };
 
             rt.block_on(async move {
-                Self::run_server(is_running, state, logger_clone, interaction, params).await;
+                Self::run_server(is_running, state, logger_clone, interaction, params, osc_state).await;
             });
         }));
     }
@@ -158,6 +161,7 @@ impl WebManager {
         logger: Arc<InstanceLogger>,
         interaction: Arc<InteractionManager>,
         params: Arc<MonitorParams>,
+        osc_state: Arc<OscSharedState>,
     ) {
         // 绑定 HTTP 端口（系统自动分配）
         let listener = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
@@ -186,6 +190,7 @@ impl WebManager {
         let app_state = AppState {
             interaction: Arc::clone(&interaction),
             params: Arc::clone(&params),
+            osc_state: Arc::clone(&osc_state),
             broadcast_tx: broadcast_tx.clone(),
             logger: Arc::clone(&logger),
         };
@@ -202,13 +207,13 @@ impl WebManager {
         let push_is_running = Arc::clone(&is_running);
         let push_interaction = Arc::clone(&interaction);
         let push_params = Arc::clone(&params);
-        let push_state = Arc::clone(&state);
+        let push_osc_state = Arc::clone(&osc_state);
         tokio::spawn(async move {
             Self::state_push_task(
                 push_is_running,
                 push_interaction,
                 push_params,
-                push_state,
+                push_osc_state,
                 broadcast_tx,
             )
             .await;
@@ -237,71 +242,89 @@ impl WebManager {
         state.port.store(0, Ordering::Release);
     }
 
-    /// 状态推送任务
+    /// 状态推送任务（20Hz 广播状态到所有 WebSocket 客户端）
     async fn state_push_task(
         is_running: Arc<AtomicBool>,
         interaction: Arc<InteractionManager>,
-        _params: Arc<MonitorParams>,
-        _web_shared_state: Arc<WebSharedState>,
-        _broadcast_tx: broadcast::Sender<String>,
+        params: Arc<MonitorParams>,
+        osc_state: Arc<OscSharedState>,
+        broadcast_tx: broadcast::Sender<String>,
     ) {
         let interval = std::time::Duration::from_millis(1000 / STATE_PUSH_HZ);
 
         while is_running.load(Ordering::Acquire) {
-            // 直接从 InteractionManager 和 Params 构建状态
-            let _primary_mode = interaction.get_primary();
-            let _compare_mode = interaction.get_compare();
-            let _solo_set = interaction.get_solo_set();
-            let _mute_set = interaction.get_mute_set();
-            // user_mute_sub field is private. We need a getter in InteractionManager.
-            // Assumption: InteractionManager is being refactored or has public means.
-            // For now, I'll access public methods if available. If `user_mute_sub` is private, I can't access it here.
-            // But I copied `Interaction.rs` to `Core`. I should check `interaction.rs`.
-            // User feedback "field `user_mute_sub` of `InteractionManager` is private" earlier.
-            // I need to add a getter for `user_mute_sub` in `interaction.rs`.
-            // Or access via a method.
-            // For this step I will assume there is a getter `get_user_mute_sub()` or `user_mute_sub` is public.
-            // `Interaction.rs` at line 249 (in previous view) showed it as private.
-            // I should have updated `interaction.rs` to make it public or add getter.
-            // I'll add `get_user_mute_sub` to `interaction.rs` later if it fails compiling.
-            // Wait, I can't edit `interaction.rs` here.
-            // I'll comment out the line that causes error and replace with empty set for now, or use a method if I recall one.
-            // Actually, the error `user_mute_sub is private` was a lint.
+            // 从 InteractionManager 读取状态
+            let _primary = interaction.get_primary();
+            let _compare = interaction.get_compare();
+            let snapshot = interaction.get_snapshot();
 
-            // Temporary fix: I will comment out user_mute_sub usage and put a TODO.
-            // Or better: I will add a getter to `interaction.rs` in next step.
-            // Here I will use `interaction.user_mute_sub.read()` assuming I'll fix it.
-            // But if I can't, code actions fail.
-            // Let's assume I will fix visibility.
+            // 从 OscSharedState 读取音量/效果器状态
+            let master_volume = osc_state.get_master_volume();
 
-            // Wait, I can only update one file here.
-
-            // Let's write this file assuming public or fix. I'll use `interaction.get_user_mute_sub()` (hypothetical).
-            // Actually, `InteractionManager` has `user_mute_sub: RwLock<HashSet<String>>`.
-            // I'll try to use it directly, and make it public in `interaction.rs` in next step.
-
-            let _user_mute_sub: HashSet<String> = {
-                // Temporary hack: Just empty hashset if I can't access it.
-                // But better to fail compile than silent bug.
-                // interaction.user_mute_sub.read().clone() // Will fail if private.
-                std::collections::HashSet::new() // Placeholder to allow compilation until I fix interaction.rs
+            // 构建 WebState
+            let web_state = WebState {
+                primary: snapshot.primary,
+                compare: snapshot.compare,
+                solo_mask: snapshot.solo_mask,
+                mute_mask: snapshot.mute_mask,
+                master_volume,
+                dim: params.dim.value(),
+                cut: params.cut.value(),
+                mono: params.mono.value(),
+                low_boost: params.low_boost.value(),
+                high_boost: params.high_boost.value(),
+                lfe_add_10db: params.lfe_add_10db.value(),
+                channels: Self::build_channel_states(&interaction, &snapshot),
             };
 
-            // ... (rest of logic) ...
-
-            // ...
-
-            // To save context length, I won't repeat the loop body unless necessary.
-            // But `write_to_file` needs full content.
-            // I will use the logic from previous `Web.rs`.
-
-            // ...
-
-            // For brevity in this thought trace, I know what to write.
-            // I will paste the content in the tool call.
+            // 序列化并广播
+            if let Ok(json) = serde_json::to_string(&web_state) {
+                // send 失败只意味着没有订阅者，忽略
+                let _ = broadcast_tx.send(json);
+            }
 
             tokio::time::sleep(interval).await;
         }
+    }
+
+    /// 构建通道状态列表
+    fn build_channel_states(
+        interaction: &InteractionManager,
+        snapshot: &mcm_core::interaction::RenderSnapshot,
+    ) -> Vec<ChannelState> {
+        use mcm_core::interaction::ChannelMarker;
+
+        // 获取当前布局的通道列表
+        let _solo_set = interaction.get_solo_set();
+        let _mute_set = interaction.get_mute_set();
+
+        // 使用 get_channel_display 获取每个通道的显示状态
+        let mut channels = Vec::new();
+
+        // 标准通道顺序
+        let all_channels = [
+            "L", "R", "C", "LFE", "LSS", "RSS", "LRS", "RRS",
+            "LTF", "RTF", "LTB", "RTB",
+            "SUB_F", "SUB_B", "SUB_L", "SUB_R",
+            "LBF", "RBF", "LBB", "RBB",
+        ];
+
+        for (i, name) in all_channels.iter().enumerate() {
+            let display = interaction.get_channel_display(name);
+            let state = match display.marker {
+                Some(ChannelMarker::Solo) => 2, // 绿色
+                Some(ChannelMarker::Mute) => 1, // 红色
+                None => 0,                       // 无标记
+            };
+            channels.push(ChannelState {
+                name: name.to_string(),
+                index: i,
+                state,
+                is_sub: name.starts_with("SUB"),
+            });
+        }
+
+        channels
     }
 
     /// 关闭 Web 服务器
@@ -400,13 +423,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     // 接收任务：直接调用 InteractionManager
     let interaction = state.interaction.clone();
     let params = state.params.clone();
+    let osc_state = state.osc_state.clone();
     let logger = state.logger.clone();
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
                 match serde_json::from_str::<WebCommand>(&text) {
                     Ok(cmd) => {
-                        handle_command_direct(cmd, &interaction, &params, &logger);
+                        handle_command_direct(cmd, &interaction, &params, &osc_state, &logger);
                     }
                     Err(e) => {
                         logger.warn("web", &format!("[Web] Invalid command: {}", e));
@@ -427,13 +451,20 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         .info("web", "[Web] WebSocket client disconnected");
 }
 
-/// 直接执行命令（无锁/无网络协议栈）
+/// 直接执行命令（复用 OscSharedState pending 机制传递参数变更）
 fn handle_command_direct(
     cmd: WebCommand,
     interaction: &InteractionManager,
-    _params: &MonitorParams,
+    params: &MonitorParams,
+    osc_state: &OscSharedState,
     logger: &InstanceLogger,
 ) {
+    // Slave 模式下拒绝所有 Web 命令（Slave 由 Master 完全控制）
+    if params.role.value() == mcm_core::params::PluginRole::Slave {
+        logger.info("web", "[Web] Command rejected (Slave mode)");
+        return;
+    }
+
     match cmd {
         // === 模式切换 ===
         WebCommand::ToggleSolo => {
@@ -451,41 +482,51 @@ fn handle_command_direct(
             interaction.on_channel_click(&channel);
         }
 
-        // === 主控制 ===
-        // TODO: ParamMut is pub(crate) in nih-plug, cannot call set_plain_value from external crate.
-        // Need to implement pending queue in InteractionManager, then Editor consumes it.
+        // === 主控制（通过 OscSharedState pending 机制） ===
         WebCommand::SetVolume { value } => {
             let clamped = value.clamp(0.0, 1.0);
-            logger.info(
-                "web",
-                &format!("[Web] SetVolume {} (TODO: not applied)", clamped),
-            );
+            logger.info("web", &format!("[Web] SetVolume {:.3}", clamped));
+            osc_state.set_master_volume(clamped);
         }
         WebCommand::ToggleDim => {
-            logger.info("web", "[Web] ToggleDim (TODO: not applied)");
+            let current = osc_state.get_dim();
+            logger.info("web", &format!("[Web] ToggleDim -> {}", !current));
+            osc_state.set_dim(!current);
         }
         WebCommand::SetDim { on } => {
-            logger.info("web", &format!("[Web] SetDim {} (TODO: not applied)", on));
+            logger.info("web", &format!("[Web] SetDim {}", on));
+            osc_state.set_dim(on);
         }
         WebCommand::ToggleCut => {
-            logger.info("web", "[Web] ToggleCut (TODO: not applied)");
+            let current = osc_state.get_cut();
+            logger.info("web", &format!("[Web] ToggleCut -> {}", !current));
+            osc_state.set_cut(!current);
         }
         WebCommand::SetCut { on } => {
-            logger.info("web", &format!("[Web] SetCut {} (TODO: not applied)", on));
+            logger.info("web", &format!("[Web] SetCut {}", on));
+            osc_state.set_cut(on);
         }
 
-        // === 效果器 ===
+        // === 效果器（通过 OscSharedState pending 机制） ===
         WebCommand::ToggleMono => {
-            logger.info("web", "[Web] ToggleMono (TODO: not applied)");
+            let current = osc_state.get_mono();
+            logger.info("web", &format!("[Web] ToggleMono -> {}", !current));
+            osc_state.set_mono(!current);
         }
         WebCommand::ToggleLowBoost => {
-            logger.info("web", "[Web] ToggleLowBoost (TODO: not applied)");
+            let current = osc_state.get_low_boost();
+            logger.info("web", &format!("[Web] ToggleLowBoost -> {}", !current));
+            osc_state.set_low_boost(!current);
         }
         WebCommand::ToggleHighBoost => {
-            logger.info("web", "[Web] ToggleHighBoost (TODO: not applied)");
+            let current = osc_state.get_high_boost();
+            logger.info("web", &format!("[Web] ToggleHighBoost -> {}", !current));
+            osc_state.set_high_boost(!current);
         }
         WebCommand::ToggleLfeAdd10dB => {
-            logger.info("web", "[Web] ToggleLfeAdd10dB (TODO: not applied)");
+            let current = osc_state.get_lfe_add_10db();
+            logger.info("web", &format!("[Web] ToggleLfeAdd10dB -> {}", !current));
+            osc_state.set_lfe_add_10db(!current);
         }
 
         // === 通道组编码器 (Group Dial) ===
@@ -514,16 +555,17 @@ fn handle_command_direct(
     }
 }
 
-/// 获取通道组对应的通道列表
+/// 获取通道组对应的通道列表（与 STANDARD_CHANNEL_ORDER 一致）
 fn get_group_channels(group: &str) -> Vec<String> {
     match group.to_uppercase().as_str() {
         "FRONT" => vec!["L", "R"],
         "CENTER" => vec!["C"],
-        "SUB" => vec!["SUB1", "SUB2"], // 需根据实际布局确认 SUB 名称
-        "SURROUND" => vec!["LS", "RS"],
+        "LFE" => vec!["LFE"],
+        "SUB" => vec!["SUB_F", "SUB_B", "SUB_L", "SUB_R"],
+        "SURROUND" => vec!["LSS", "RSS"],
         "REAR" => vec!["LRS", "RRS"],
-        "TOP" => vec!["TFL", "TFR", "TRL", "TRR"],
-        "BOTTOM" => vec!["BFL", "BFR"],
+        "TOP" => vec!["LTF", "RTF", "LTB", "RTB"],
+        "BOTTOM" => vec!["LBF", "RBF", "LBB", "RBB"],
         _ => vec![],
     }
     .into_iter()

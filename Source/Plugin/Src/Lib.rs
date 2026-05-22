@@ -174,6 +174,19 @@ impl Plugin for MonitorControllerMax {
             }
         }
 
+        // 安全初始化：同步 DAW 参数到 osc_state（不触发 pending 标志）
+        // 防止 OSC 硬件连接后 get_override_snapshot 用默认 dim=false/cut=false
+        // 覆盖 DAW 保存的状态，导致音量爆炸
+        self.osc_state.sync_from_params(
+            self.params.master_gain.value(),
+            self.params.dim.value(),
+            self.params.cut.value(),
+            self.params.mono.value(),
+            self.params.low_boost.value(),
+            self.params.high_boost.value(),
+            self.params.lfe_add_10db.value(),
+        );
+
         // Initialize OSC
         self.reactor.send(ReactorCommand::InitOsc {
             channel_count: self.output_channels,
